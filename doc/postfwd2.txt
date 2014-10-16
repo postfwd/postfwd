@@ -79,6 +79,8 @@ SYNOPSIS
                 --keep_rates                do not clear rate limit counters on reload
                 --save_rates <file>         save and load rate limits on disk
                 --fast_limit_evaluation     evaluate rate limits before ruleset is parsed
+                                            (please note the limitations)
+
 
             Plugins:
                 --plugins <file>            loads postfwd plugins from file
@@ -573,6 +575,11 @@ DESCRIPTION
                id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
                   action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 
+            rate5321,size5321,rcpt5321 (<item>/<max>/<time>/<action>)
+            same as the corresponding non-5321 functions, with the difference that the localpart of
+            sender oder recipient addresses are evaluated case-sensitive according to rfc5321. That
+            means that requests from bob@example.local and BoB@example.local will be treated differently
+
             ask (<addr>:<port>[:<ignore>])
             allows to delegate the policy decision to another policy service (e.g. postgrey). the first
             and the second argument (address and port) are mandatory. a third optional argument may be
@@ -1047,6 +1054,9 @@ DESCRIPTION
             before consulting the ruleset. This mode was the default behaviour until v1.30.
             With this mode rate limits will be faster, but also eventually set up
             whitelisting-rules within the ruleset might not work as expected.
+            LIMITATIONS: This option does not allow nested postfwd commands like
+                    action=rate(sender/3/60/wait(3))
+            This option doe not work with the strict-rfc5321 rate() functions.
 
     *Informational arguments*
 

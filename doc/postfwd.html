@@ -1,14 +1,18 @@
+<?xml version="1.0" ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <title>postfwd - postfix firewall daemon</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
 <link rev="made" href="mailto:root@localhost" />
 </head>
 
 <body style="background-color: white">
 
-<p><a name="__index__"></a></p>
+
 <!-- INDEX BEGIN -->
+<div name="index">
+<p><a name="__index__"></a></p>
 
 <ul>
 
@@ -37,9 +41,11 @@
 	<li><a href="#license">LICENSE</a></li>
 	<li><a href="#author">AUTHOR</a></li>
 </ul>
+
+<hr name="index" />
+</div>
 <!-- INDEX END -->
 
-<hr />
 <p>
 </p>
 <h1><a name="name">NAME</a></h1>
@@ -111,7 +117,8 @@
             --config_timeout &lt;i&gt;     parser timeout in seconds
             --keep_rates             do not clear rate limit counters on reload
             --save_rates &lt;file&gt;      save and load rate limits on disk
-            --fast_limit_evaluation  evaluate rate limits before ruleset is parsed</pre>
+            --fast_limit_evaluation  evaluate rate limits before ruleset is parsed
+                                     (please note the limitations)</pre>
 <pre>
         Plugins:
             --plugins &lt;file&gt;        loads postfwd plugins from file</pre>
@@ -458,7 +465,7 @@ request attributes by preceeding $$ characters, like:</p>
         id=R-003; client_name = !!$$helo_name; action=WARN helo '$$(helo_name)' does not match DNS '$$(client_name)'</pre>
 <p><em>postfix actions</em></p>
 <p>Actions will be replied to postfix as result to policy delegation requests. Any action that postfix understands is allowed - see
-``man 5 access'' or <a href="http://www.postfix.org/access.5.html">http://www.postfix.org/access.5.html</a> for a description. If no action is specified, the postfix WARN action
+&quot;man 5 access&quot; or <a href="http://www.postfix.org/access.5.html">http://www.postfix.org/access.5.html</a> for a description. If no action is specified, the postfix WARN action
 which simply logs the event will be used for the corresponding rule.</p>
 <p>postfwd will return dunno if it has reached the end of the ruleset and no rule has matched. This can be changed by placing a last
 rule containing only an action statement:</p>
@@ -527,6 +534,11 @@ rule containing only an action statement:</p>
            # recipient count limit 3 per hour per client
            id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address!=10.1.1.1
               action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)</pre>
+<pre>
+        rate5321,size5321,rcpt5321 (&lt;item&gt;/&lt;max&gt;/&lt;time&gt;/&lt;action&gt;)
+        same as the corresponding non-5321 functions, with the difference that the localpart of
+        sender oder recipient addresses are evaluated case-sensitive according to rfc5321. That
+        means that requests from bob@example.local and BoB@example.local will be treated differently</pre>
 <pre>
         ask (&lt;addr&gt;:&lt;port&gt;[:&lt;ignore&gt;])
         allows to delegate the policy decision to another policy service (e.g. postgrey). the first
@@ -991,7 +1003,10 @@ The following arguments will control it's behaviour in this case.</p>
         Once a ratelimit was set by the ruleset, future requests will be evaluated against it
         before consulting the ruleset. This mode was the default behaviour until v1.30.
         With this mode rate limits will be faster, but also eventually set up
-        whitelisting-rules within the ruleset might not work as expected.</pre>
+        whitelisting-rules within the ruleset might not work as expected.
+        LIMITATIONS: This option does not allow nested postfwd commands like
+                action=rate(sender/3/60/wait(3))
+        This option doe not work with the strict-rfc5321 rate() functions.</pre>
 <p><em>Informational arguments</em></p>
 <p>These arguments are for command line usage only. Never ever use them with postfix spawn!</p>
 <pre>
@@ -1205,7 +1220,7 @@ check the parser with the -C | --showconfig switch at the command line before ap
         Rule   0: id-&gt;&quot;RBL001&quot;; action-&gt;&quot;REJECT listed on spamcop and bad rdns&quot;; rbl-&gt;&quot;bl.spamcop.net&quot;; client_name-&gt;&quot;^unknown$&quot;</pre>
 <p><em>Request processing</em></p>
 <p>When a policy delegation request arrives it will be compared against postfwd`s ruleset. To inspect the processing in detail you should increase
-verbority using use the ``-v'' or ``-vv'' switch. ``-L'' redirects log messages to stdout.</p>
+verbority using use the &quot;-v&quot; or &quot;-vv&quot; switch. &quot;-L&quot; redirects log messages to stdout.</p>
 <p>Keeping the order of the ruleset in general, items will be compared in random order, which basically means that</p>
 <pre>
         id=R001; action=dunno; client_address=192.168.1.1; sender=bob@alice.local</pre>
@@ -1244,7 +1259,7 @@ to compare against the request attribute the parser will jump to the next rule i
 <p>If a rule matches, there are two options:</p>
 <p>* Rule returns postfix action (dunno, reject, ...)
 The parser stops rule processing and returns the action to postfix. Other rules will not be evaluated.</p>
-<p>* Rule returns postfwd action (jump(), note(), ...)
+<p>* Rule returns postfwd action (jump(), <code>note()</code>, ...)
 The parser evaluates the given action and continues with the next rule (except for the <code>jump()</code> or <code>quit()</code> actions - please see the <a href="#actions">ACTIONS</a> section
 for more information). Nothing will be sent to postfix.</p>
 <p>If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
@@ -1264,7 +1279,7 @@ it`s internal caching in that case. Start postfwd with the following parameters:
         postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S</pre>
 <p>For efficient caching you should check if you can use the options --cache-rdomain-only, --cache-no-sender
 and --cache-no-size.</p>
-<p>Now check your syslogs (default facility ``mail'') for a line like:</p>
+<p>Now check your syslogs (default facility &quot;mail&quot;) for a line like:</p>
 <pre>
         Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input</pre>
 <p>and use `netstat -an|grep 10040` to check for something like</p>
@@ -1319,7 +1334,7 @@ I won`t discuss that here. If you plan to do so, just add the following line to 
                 disable         = no
         }</pre>
 <p>and restart the xinetd daemon (usually a SIGHUP should be fine). If you experience problems
-you might want to check your system's log for xinetd errors like ``socket already in use''.</p>
+you might want to check your system's log for xinetd errors like &quot;socket already in use&quot;.</p>
 <p>The integration with postfix is similar to the <em>Integration via daemon mode</em> section above.
 Reload postfix and watch your logs to see if everything works.</p>
 <p>

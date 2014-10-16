@@ -1,3 +1,11 @@
+postfwd2 1.35
+=============
+- code:    rate(), size() and rcpt() function index is now case insensitive by default
+           (same limit counters for from@example.org and fRom@eXample.org)
+           if you need to treat the localpart case-sensitive according to rfc5321
+           you may use rate5321(), size5321() and rcpt5321().
+- bugfix:  fixed segfault when using new perl versions (prevented to work with upstart)
+
 postfwd2 1.34
 =============
 - bugfix:  fixed taint mode logging error for verbose --showconfig and --stdoutlog

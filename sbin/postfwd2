@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.34";
+our $VERSION	= "1.35";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -1141,7 +1141,7 @@ sub check_for_old_syntax {
   if ($mykey =~ /^action$/) {
     if ($myvalue =~ /^(\w[\-\w]+)\s*\(\s*(.*?)\s*\)$/) {
 	my($mycmd,$myarg) = ($1, $2);
-	if ($mycmd =~ /^(rate|size|rcpt)$/i) {
+	if ($mycmd =~ /^(rate|size|rcpt)(5321)?$/i) {
 	  if ($myarg =~ /^\$\$(.*)$/) {
 	    $myarg = $1;
 	    $myvalue = "$mycmd($myarg)";
@@ -2015,11 +2015,17 @@ sub postfwd_items {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0; my $prate = '';
 		my($ratetype,$ratecount,$ratetime,$ratecmd) = split "/", $myarg, 4;
-		my($rcount) = ( ($mycmd eq 'size') ? $request{size} : (($mycmd eq 'rcpt') ? $request{recipient_count} : 1 ) );
+		my($rcount) = ( ($mycmd =~ /^size/) ? $request{size} : (($mycmd =~ /^rcpt/) ? $request{recipient_count} : 1 ) );
 		if ($ratetype and $ratecount and $ratetime and $ratecmd and $rcount) {
 		  my $crate = $Rules[$index]{$COMP_ID}.'+'.$ratecount.'_'.$ratetime;
 		  if ( defined $request{$ratetype} ) {
-			$ratetype .= "=".$request{$ratetype};
+                        my $r = $request{$ratetype};
+                        unless ($mycmd =~ /5321$/) {
+                                $r = lc($r);
+                        } else {
+                                $r = ($r =~ /^([^@]+)@(\S+)$/) ? $1.'@'.lc($2) : lc($r);
+                        };
+                        $ratetype .= "=".$r;
 
 			if ( $postfwd_settings{rate}{fast_eval} ) {
 				# Check if rate already exists in cache
@@ -2103,6 +2109,12 @@ sub postfwd_items {
 	"size"	=> sub { return &{$postfwd_actions{rate}}(@_); },
 	# rcpt() command
 	"rcpt"	=> sub { return &{$postfwd_actions{rate}}(@_); },
+	# rate() command, according to rfc5321 case-sensivity
+	"rate5321"      => sub { return &{$postfwd_actions{rate}}(@_); },
+	# rcpt() command, according to rfc5321 case-sensivity
+	"rcpt5321"      => sub { return &{$postfwd_actions{rate}}(@_); },
+	# size() command, according to rfc5321 case-sensivity
+	"size5321"      => sub { return &{$postfwd_actions{rate}}(@_); },
 	# wait() command
 	"wait"	=> sub {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
@@ -2575,7 +2587,7 @@ sub smtpd_access_policy {
 
     # increase rate limits
     if (@Rate_Items and $postfwd_settings{rate}{fast_eval}) {
-	map { $checkval .= $_."=".$request{$_}.$postfwd_settings{seplst} if $request{$_} } (@Rate_Items);
+	map { $checkval .= $_."=".lc($request{$_}).$postfwd_settings{seplst} if $request{$_} } (@Rate_Items);
 	if ($checkval) {
 		$checkval = "CMD=".$postfwd_commands{checkrate}.";TYPE=rate;ITEM=$checkval;SIZE=".($request{'size'} || 0).";RCPT=".($request{'recipient_count'} || 0);
 			log_info ("[RATES] parent rate limit query: ".$checkval) if wantsdebug (qw[ all thisrequest verbose rates ]);
@@ -3308,7 +3320,8 @@ die "master-daemon: should never see me!\n";
 
 # cleanup children and files and terminate
 sub end_program {
-	local $SIG{TERM} = 'IGNORE';
+	# ignore further TERM signals
+	$SIG{TERM} = 'IGNORE';
 	if ($postfwd_settings{summary}) {
 		undef $postfwd_settings{syslog}{noidlestats};
 		log_stats();
@@ -3473,6 +3486,8 @@ B<postfwd2> [OPTIONS] [SOURCE1, SOURCE2, ...]
             --keep_rates		do not clear rate limit counters on reload
             --save_rates <file>		save and load rate limits on disk
 	    --fast_limit_evaluation	evaluate rate limits before ruleset is parsed
+                                        (please note the limitations)
+
 
 	Plugins:
 	    --plugins <file>            loads postfwd plugins from file
@@ -3949,6 +3964,11 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 	   id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
 	      action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 
+        rate5321,size5321,rcpt5321 (<item>/<max>/<time>/<action>)
+        same as the corresponding non-5321 functions, with the difference that the localpart of
+        sender oder recipient addresses are evaluated case-sensitive according to rfc5321. That
+	means that requests from bob@example.local and BoB@example.local will be treated differently
+
 	ask (<addr>:<port>[:<ignore>])
 	allows to delegate the policy decision to another policy service (e.g. postgrey). the first
 	and the second argument (address and port) are mandatory. a third optional argument may be
@@ -4422,6 +4442,9 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 	before consulting the ruleset. This mode was the default behaviour until v1.30.
 	With this mode rate limits will be faster, but also eventually set up
 	whitelisting-rules within the ruleset might not work as expected.
+        LIMITATIONS: This option does not allow nested postfwd commands like
+                action=rate(sender/3/60/wait(3))
+        This option doe not work with the strict-rfc5321 rate() functions.
 
 I<Informational arguments>
 
