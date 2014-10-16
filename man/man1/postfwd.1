@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2007-08-20" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD 1 "2007-10-21" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -147,7 +147,7 @@ postfwd [\s-1OPTIONS\s0] \s-1SOURCE1\s0, \s-1SOURCE2\s0, ...
 \&        -s, --scores <v>=<r>      returns <r> when score exceeds <v>
 .Ve
 .PP
-.Vb 8
+.Vb 9
 \&        Networking:
 \&        -d, --daemon              run postfwd as daemon
 \&        -i, --interface <dev>     listen on interface <dev>
@@ -155,6 +155,7 @@ postfwd [\s-1OPTIONS\s0] \s-1SOURCE1\s0, \s-1SOURCE2\s0, ...
 \&        -u, --user <name>         set uid to user <name>
 \&        -g, --group <name>        set gid to group <name>
 \&        -R, --chroot <path>       chroot the daemon to <path>
+\&        -l, --logname <label>     label for syslog messages
 \&            --pidfile <path>      create pidfile under <path>
 .Ve
 .PP
@@ -194,7 +195,7 @@ which should allow straightforward and easy-to-read configurations.
 .PP
 * Complex combinations of smtp parameters
 .PP
-* Macros/ACLs
+* Macros/ACLs, Groups
 .PP
 * Combined \s-1RBL/RHSBL\s0 lookups with arbitrary actions depending on results
 .PP
@@ -204,7 +205,7 @@ which should allow straightforward and easy-to-read configurations.
 .PP
 * Internal caching for requests and dns lookups
 .PP
-* Built in statistics with rule efficiency analysis
+* Built in statistics for rule efficiency analysis
 .Sh "\s-1CONFIGURATION\s0"
 .IX Subsection "CONFIGURATION"
 A configuration line consists of optional item=value pairs, separated by semicolons
@@ -239,6 +240,13 @@ appreciate.
 .PP
 A ruleset consists of one or multiple rules, which can be loaded from files or passed as command line
 arguments. Please see the \s-1COMMAND\s0 \s-1LINE\s0 section below for more information on this topic.
+.PP
+Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" character:
+.PP
+.Vb 2
+\&        id=R_001 ;  client_address=192.168.1.0/24; sender=no@bad.local; \e
+\&                    action=REJECT please use your relay from there
+.Ve
 .Sh "\s-1ITEMS\s0"
 .IX Subsection "ITEMS"
 .Vb 2
@@ -277,7 +285,7 @@ for details:
 \&        # ==========================================================
 \&        id=something                            mask = string
 \&        date=01.04.2007-22.04.2007              mask = date (DD.MM.YYYY-DD.MM.YYYY)
-\&        time=08:30-17:00                        mask = time (HH:MM:SS-HH:MM:SS)
+\&        time=08:30:00-17:00:00                  mask = time (HH:MM:SS-HH:MM:SS)
 \&        score=5.0                               mask = maximum floating point value
 \&        rbl=zen.spamhaus.org                    mask = <name>/<reply>/<maxcache>[,...]
 \&        rblcount=2                              mask = maximum integer value
@@ -311,6 +319,16 @@ for details:
 .Ve
 .PP
 the current list can be found at <http://www.postfix.org/SMTPD_POLICY_README.html>. Pattern matching is performed case insensitive.
+.PP
+Multiple use of the same item is allowed and will compared as logical \s-1OR\s0, which means that this will work as expected:
+.PP
+.Vb 5
+\&        id=TRUST001; action=OK; encryption_keysize=64;          \e
+\&                ccert_fingerprint=11:22:33:44:55:66:77:88:99;   \e
+\&                ccert_fingerprint=22:33:44:55:66:77:88:99:00;   \e
+\&                ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \e
+\&                sender=@domain\e.local$
+.Ve
 .Sh "\s-1ACTIONS\s0"
 .IX Subsection "ACTIONS"
 \&\fIpostfix actions\fR
@@ -355,25 +373,15 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        delaying or throtteling connections.
 .Ve
 .PP
+.Vb 2
+\&        note (<string>)
+\&        just logs the given string and continues parsing the ruleset.
+.Ve
+.PP
 .Vb 3
 \&        quit (<code>)
 \&        terminates the program with the given exit-code. postfix doesn`t
 \&        like that too much, so use it with care.
-.Ve
-.PP
-.Vb 3
-\&        file (<file>) [STATUS unfinished]
-\&        loads rules from <file> and continues with the rules found there.
-\&        don't create loops here (file1 loads file1 loads file1...)!
-.Ve
-.PP
-.Vb 6
-\&        exec (<cmd>) [STATUS unfinished]
-\&        executes command (output will be sent to syslog if "-v" is set)
-\&        if the return code equals to zero postfwd returns dunno. any
-\&        other result will create a reject. spawning external programs
-\&        can be very time expensive and open potential security holes -
-\&        use it with care.
 .Ve
 .Sh "\s-1MACROS/ACLS\s0"
 .IX Subsection "MACROS/ACLS"
@@ -401,6 +409,27 @@ Macros can contain actions, too:
 \&        &&GONOW ;  &&RBLS ;  client_name=^unknown$
 \&        &&GONOW ;  &&RBLS ;  client_name=(\ed+[\e.-_]){4}
 \&        &&GONOW ;  &&RBLS ;  client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_]
+.Ve
+.PP
+Macros can contain macros, too:
+.PP
+.Vb 16
+\&        # definition (note the trailing "\e" characters)
+\&        &&RBLS { rbl=                                           \e
+\&                zen.spamhaus.org,                               \e
+\&                list.dsbl.org,                                  \e
+\&                bl.spamcop.net,                                 \e
+\&                dnsbl.sorbs.net,                                \e
+\&                ix.dnsbl.manitu.net;                            \e
+\&        };
+\&        &&DYNAMIC { \e
+\&                client_name=^unknown$ ;                         \e
+\&                client_name=(\ed+[\e.-_]){4} ;                    \e
+\&                client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;   \e
+\&        };
+\&        &&GOAWAY { &&RBLS; &&DYNAMIC; };
+\&        # rules
+\&        &&GOAWAY ; action=REJECT dynamic client and listed on RBL
 .Ve
 .Sh "\s-1COMMAND\s0 \s-1LINE\s0"
 .IX Subsection "COMMAND LINE"
@@ -474,6 +503,12 @@ The following arguments will control it's behaviour in this case.
 \&        -R, --chroot <path>
 \&        Chroot the process to the specified path.
 \&        Test this before using - you might need some libs there.
+.Ve
+.PP
+.Vb 3
+\&        -l, --logname <label>
+\&        Labels the syslog messages. Useful when running multiple
+\&        instances of postfwd.
 .Ve
 .PP
 .Vb 2
@@ -639,10 +674,10 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 .PP
 .Vb 5
 \&        ## Date Time
-\&        date=24.12.2007-26.12.2007   ; action=450 4.7.1 office closed during christmas
-\&        time=04:00-05:00             ; action=450 4.7.1 maintenance ongoing, try again later
-\&        time=07:00- ; sasl_user=jim  ; action=450 4.7.1 to early for you, jim
-\&        time=-22:00 ; sasl_user=jim  ; action=450 4.7.1 to late now, jim
+\&        date=24.12.2007-26.12.2007         ;  action=450 4.7.1 office closed during christmas
+\&        time=04:00:00-05:00:00             ;  action=450 4.7.1 maintenance ongoing, try again later
+\&        time=07:00:00- ; sasl_username=jim ;  action=450 4.7.1 to early for you, jim
+\&        time=-22:00:00 ; sasl_username=jim ;  action=450 4.7.1 to late now, jim
 .Ve
 .PP
 .Vb 10
@@ -684,6 +719,33 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        &&GONOW ;  &&RBLS ;  client_name=(\ed+[\e.-_]){4}
 \&        &&GONOW ;  &&RBLS ;  client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_]
 .Ve
+.PP
+.Vb 24
+\&        ## Groups
+\&        # definition
+\&        &&RBLS { rbl=                   \e
+\&                zen.spamhaus.org,       \e
+\&                list.dsbl.org,          \e
+\&                bl.spamcop.net,         \e
+\&                dnsbl.sorbs.net,        \e
+\&                ix.dnsbl.manitu.net;    \e
+\&        };
+\&        &&DYNAMIC {                                             \e
+\&                client_name=^unknown$ ;                         \e
+\&                client_name=(\ed+[\e.-_]){4} ;                    \e
+\&                client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;   \e
+\&        };
+\&        &&MAINTENANCE {                  \e
+\&                date=15.01.2007  ;       \e
+\&                date=15.04.2007  ;       \e
+\&                date=15.07.2007  ;       \e
+\&                date=15.10.2007  ;       \e
+\&                time=03:00:00-04:00:00 ; \e
+\&        };
+\&        # rules
+\&        id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
+\&        id=MAINTENANCE ;  &&MAINTENANCE       ;  action=DEFER maintenance time - please try again later
+.Ve
 .Sh "\s-1INTEGRATION\s0"
 .IX Subsection "INTEGRATION"
 \&\fIIntegration via daemon mode\fR
@@ -699,7 +761,7 @@ it`s internal caching in that case. Start postfwd with the following parameters:
 Check your syslogs (default facility \*(L"mail\*(R") for a line like:
 .PP
 .Vb 1
-\&        Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn successfully bound to 127.0.0.1:10040/tcp
+\&        Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input
 .Ve
 .PP
 and use `netstat \-an|grep 10040` to check for something like
@@ -710,13 +772,11 @@ and use `netstat \-an|grep 10040` to check for something like
 .PP
 If everything works, open your postfix main.cf and insert the following
 .PP
-.Vb 6
-\&        smtpd_recipient_restrictions    = permit_mynetworks,                            <--- recommended
-\&                                          reject_unauth_destination,                    <--- recommended
-\&                                          ...
-\&                                          check_policy_service inet:127.0.0.1:10040,    <--- integration
-\&                                          ...
+.Vb 4
 \&        127.0.0.1:10040_time_limit      = 3600                                          <--- integration
+\&        smtpd_recipient_restrictions    = permit_mynetworks                             <--- recommended
+\&                                          reject_unauth_destination                     <--- recommended
+\&                                          check_policy_service inet:127.0.0.1:10040     <--- integration
 .Ve
 .PP
 Reload your configuration with `postfix reload` and watch your logs. In it works you should see
@@ -726,8 +786,9 @@ lines like the following in your mail log:
 \&        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.org, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
 .Ve
 .PP
-Of course you can also specify a restriction class and use it in your access tables. First create
-a file /etc/postfix/policy containing:
+If you want to check for size or rcpt_count items you must integrate postfwd in smtp_data_restrictions or
+smtpd_end_of_data_restrictions. Of course you can also specify a restriction class and use it in your access
+tables. First create a file /etc/postfix/policy containing:
 .PP
 .Vb 3
 \&        domain1.local           postfwdcheck

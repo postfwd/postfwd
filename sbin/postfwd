@@ -26,7 +26,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '0.99p';
+our($VERSION)			= '1.00';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -236,7 +236,7 @@ sub modify_score {
 #
 sub acl_parser {
     my($myline) = @_;
-    if ( $myline =~ /^\s*(\&\&[\-\w]+)\s*{\s*([^}]+)\s*;\s*}[\s;]*$/ ) {
+    if ( $myline =~ /^\s*(\&\&[\-\w]+)\s*{\s*(.*)\s*;\s*}[\s;]*$/ ) {
 	$ACLs{$1} = $2; $myline = "";
     } else {
 	while ( $myline =~ /(\&\&[\-\w]+)/) {
@@ -262,7 +262,11 @@ sub parse_config_line {
 			if ($mykey =~ /^($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)$/) {
 				@{$myrule{$mykey}} = split /[,\s]+/, $myvalue;
 			} else {
-				$myrule{$mykey} = $myvalue;
+				if ($mykey =~ /^($COMP_SCORES|id|action|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX)$/) {
+					$myrule{$mykey} = $myvalue;
+				} else {
+					push (@{$myrule{$mykey}}, $myvalue );
+				};
 			};
 		};
 		unless (exists($myrule{"action"})) {
@@ -281,6 +285,7 @@ sub parse_config_line {
 sub read_config_file {
     my($myindex, $myfile) = @_;
     my(%myrule, @myruleset) = ();
+    my($mybuffer) = "";
 
     unless (-e $myfile) {
 	warn "error: file ".$myfile." not found - file will be ignored";
@@ -293,8 +298,10 @@ sub read_config_file {
 			chomp;
 			s/(\"|#.*)//g;
 			next if /^\s*$/;
-			%myrule = parse_config_line ($., ($#myruleset+$myindex+1), $_);
+			if (/(.*)\\\s*$/) { $mybuffer = $mybuffer.$1; next; };
+			%myrule = parse_config_line ($., ($#myruleset+$myindex+1), $mybuffer.$_);
 			push ( @myruleset, { %myrule } ) if (%myrule);
+			$mybuffer = "";
 		};
 		close (IN);
 		mylogs $syslog_priority, "loaded: Rules $myindex - ".($myindex + $#myruleset)." from file \"$myfile\"" if $opt_verbose;
@@ -343,9 +350,9 @@ sub show_config {
 	for $mykey ( reverse sort keys %{$Rules[$index]} ) {
 		unless (($mykey eq "action") or ($mykey eq "id")) {
 			$line .= "; " if !($opt_verbose);
-			$line .= ($mykey =~ /^($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)$/)
-				? $mykey."->\"".(join ', ', @{$Rules[$index]{$mykey}})."\""
-				: $mykey."->\"".$Rules[$index]{$mykey}."\"";
+			$line .= ($mykey =~ /^($COMP_SCORES|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX)$/)
+				? $mykey."->\"".$Rules[$index]{$mykey}."\""
+				: $mykey."->\"".(join ', ', @{$Rules[$index]{$mykey}})."\"";
 			$line .= " ; " if $opt_verbose;
 		};
 	};
@@ -434,7 +441,7 @@ sub get_rule_by_id {
 sub compare_item {
     my($mykey,$mymask,$mymin,$myitem) 	= @_;
     my($rcount)				= 0;
-    my($rbl, $myresult)			= "";
+    my($cmp, $myresult)			= "";
 
     #
     # ignore (always true)
@@ -458,30 +465,36 @@ sub compare_item {
     #
     # RBL checks
     } elsif ( not($opt_nodns) and (($mykey eq $COMP_RBL_KEY) or ($mykey eq $COMP_RHSBL_KEY)) ) {
-	RBLS: foreach $rbl (@{$mymask}) {
-		$rcount++ if ( rbl_check ($mykey, $rbl, $myitem) );
+	RBLS: foreach $cmp (@{$mymask}) {
+		$rcount++ if ( rbl_check ($mykey, $cmp, $myitem) );
 		$myresult = ( $rcount >= $mymin );
 		last RBLS if $myresult;
 	};
     #
     # date/time check
     } elsif ( ($mykey eq $COMP_DATE) or ($mykey eq $COMP_TIME) ) {
-	my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
-	my($rmin,$rmax) = split ('-', $mymask); my($idat);
-	if ( $mykey eq $COMP_DATE ) {
-		$idat = ($iyear + 1900) . ((($imon+1) < 10) ? '0'.($imon+1) : ($imon+1)) . (($iday < 10) ? '0'.$iday : $iday);
-		$rmin = ($rmin) ? join ('', reverse split ('\.', $rmin)) : $idat;
-		$rmax = ($rmax) ? join ('', reverse split ('\.', $rmax)) : $idat;
-	} else {
-		$idat = (($ihour < 10) ? '0'.$ihour : $ihour) . (($imin < 10) ? '0'.$imin : $imin) . (($isec < 10) ? '0'.$isec : $isec);
-		$rmin = ($rmin) ? join ('', split ('\:', $rmin)) : $idat;
-		$rmax = ($rmax) ? join ('', split ('\:', $rmax)) : $idat;
+	DATS: foreach $cmp (@{$mymask}) {
+		my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
+		my($rmin,$rmax) = split ('-', $cmp); my($idat);
+		if ( $mykey eq $COMP_DATE ) {
+			$idat = ($iyear + 1900) . ((($imon+1) < 10) ? '0'.($imon+1) : ($imon+1)) . (($iday < 10) ? '0'.$iday : $iday);
+			$rmin = ($rmin) ? join ('', reverse split ('\.', $rmin)) : $idat;
+			$rmax = ($rmax) ? join ('', reverse split ('\.', $rmax)) : $idat;
+		} else {
+			$idat = (($ihour < 10) ? '0'.$ihour : $ihour) . (($imin < 10) ? '0'.$imin : $imin) . (($isec < 10) ? '0'.$isec : $isec);
+			$rmin = ($rmin) ? join ('', split ('\:', $rmin)) : $idat;
+			$rmax = ($rmax) ? join ('', split ('\:', $rmax)) : $idat;
+		};
+		$myresult = (($rmin <= $idat) and ($rmax >= $idat));
+		last DATS if $myresult;
 	};
-	$myresult = (($rmin <= $idat) and ($rmax >= $idat));
     #
     # default: regexp compare
     } else {
-	$myresult = ( $myitem =~ /$mymask/i ) if $myitem;
+	VALS: foreach $cmp (@{$mymask}) {
+		$myresult = ( $myitem =~ /$cmp/i ) if $myitem;
+		last VALS if $myresult;
+	};
     };
 
     return $myresult;
@@ -641,6 +654,10 @@ sub smtpd_access_policy {
 						} else {
 							mylogs $syslog_priority, "[RULES] ".$myline.", invalid value for score \"$myarg\" - ignoring";
 						};
+					# note() command
+					} elsif ($mycmd eq "note") {
+						warn "[RULES] ".$myline." - note: ".$myarg;
+						$myaction = $default_action;
 					# quit() command
 					} elsif ($mycmd eq "quit") {
 						warn "[RULES] ".$myline." - critical: quit (".$myarg.")";
@@ -712,6 +729,7 @@ sub process_request_line {
 # parse command-line
 GetOptions (	't|test'		=> \$opt_test,
 		'v|verbose'		=> \$opt_verbose,
+		'l|logname=s'		=> \$syslog_name,
 		'n|nodns'		=> \$opt_nodns,
 		'd|daemon'		=> \$opt_daemon,
 		'I|instantcfg'		=> \$opt_instantconfig,
@@ -775,6 +793,7 @@ $net_user 	= ( $net_user		=~ /^([\w]+)$/ ) 				? $1 : $def_net_user;
 $net_group 	= ( $net_group		=~ /^([\w]+)$/ ) 				? $1 : $def_net_group;
 $net_chroot 	= ( $net_chroot		=~ /^([-\@\/\w. ]+)$/ ) 			? $1 : $def_net_chroot;
 $net_pid	= ( $net_pid		=~ /^([-\@\/\w. ]+)$/ )				? $1 : $def_net_pid;
+$syslog_name	= ( $syslog_name	=~ /^([-\w.]+)$/ )				? $1 : $NAME;
 
 # Unbuffer standard output.
 select((select(STDOUT), $| = 1)[0]);
@@ -804,7 +823,7 @@ if ($opt_daemon) {
 			log_file         => $opt_perfmon  ? undef : 'Sys::Syslog',
 			syslog_logsock   => $syslog_socktype,
 			syslog_facility  => $syslog_facility,
-			syslog_ident     => $NAME,
+			syslog_ident     => $syslog_name,
 		},
 	}, 'postfwd';
 
@@ -907,6 +926,7 @@ postfwd [OPTIONS] SOURCE1, SOURCE2, ...
 	-u, --user <name>         set uid to user <name>
 	-g, --group <name>        set gid to group <name>
 	-R, --chroot <path>       chroot the daemon to <path>
+	-l, --logname <label>     label for syslog messages
 	    --pidfile <path>      create pidfile under <path>
 
 	optional:
@@ -944,7 +964,7 @@ I<Features:>
 
 * Complex combinations of smtp parameters
 
-* Macros/ACLs
+* Macros/ACLs, Groups
 
 * Combined RBL/RHSBL lookups with arbitrary actions depending on results
 
@@ -954,7 +974,7 @@ I<Features:>
 
 * Internal caching for requests and dns lookups
 
-* Built in statistics with rule efficiency analysis
+* Built in statistics for rule efficiency analysis
 
 
 =head2 CONFIGURATION
@@ -984,6 +1004,11 @@ appreciate.
 A ruleset consists of one or multiple rules, which can be loaded from files or passed as command line
 arguments. Please see the COMMAND LINE section below for more information on this topic.
 
+Rules can span multiple lines by adding a trailing backslash "\" character:
+
+	id=R_001 ;  client_address=192.168.1.0/24; sender=no@bad.local; \
+		    action=REJECT please use your relay from there
+
 
 =head2 ITEMS
 
@@ -1012,7 +1037,7 @@ for details:
 	# ==========================================================
 	id=something				mask = string
 	date=01.04.2007-22.04.2007		mask = date (DD.MM.YYYY-DD.MM.YYYY)
-	time=08:30-17:00			mask = time (HH:MM:SS-HH:MM:SS)
+	time=08:30:00-17:00:00			mask = time (HH:MM:SS-HH:MM:SS)
 	score=5.0				mask = maximum floating point value
 	rbl=zen.spamhaus.org			mask = <name>/<reply>/<maxcache>[,...]
 	rblcount=2				mask = maximum integer value
@@ -1045,6 +1070,14 @@ for details:
 	...
 
 the current list can be found at L<http://www.postfix.org/SMTPD_POLICY_README.html>. Pattern matching is performed case insensitive.
+
+Multiple use of the same item is allowed and will compared as logical OR, which means that this will work as expected:
+
+	id=TRUST001; action=OK; encryption_keysize=64;		\
+		ccert_fingerprint=11:22:33:44:55:66:77:88:99;	\
+		ccert_fingerprint=22:33:44:55:66:77:88:99:00;	\
+		ccert_fingerprint=33:44:55:66:77:88:99:00:11;	\
+		sender=@domain\.local$
 
 
 =head2 ACTIONS
@@ -1083,20 +1116,12 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	pauses the program execution for <delay> seconds. use this for
 	delaying or throtteling connections.
 
+	note (<string>)
+	just logs the given string and continues parsing the ruleset.
+
 	quit (<code>)
 	terminates the program with the given exit-code. postfix doesn`t
 	like that too much, so use it with care.
-
-	file (<file>) [STATUS unfinished]
-	loads rules from <file> and continues with the rules found there.
-	don't create loops here (file1 loads file1 loads file1...)!
-
-	exec (<cmd>) [STATUS unfinished]
-	executes command (output will be sent to syslog if "-v" is set)
-	if the return code equals to zero postfwd returns dunno. any
-	other result will create a reject. spawning external programs
-	can be very time expensive and open potential security holes -
-	use it with care.
 
 
 =head2 MACROS/ACLS
@@ -1121,6 +1146,24 @@ Macros can contain actions, too:
 	&&GONOW ;  &&RBLS ;  client_name=(\d+[\.-_]){4}
 	&&GONOW ;  &&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
 
+Macros can contain macros, too:
+
+	# definition (note the trailing "\" characters)
+	&&RBLS { rbl= 						\
+		zen.spamhaus.org, 				\
+		list.dsbl.org, 					\
+		bl.spamcop.net, 				\
+		dnsbl.sorbs.net, 				\
+		ix.dnsbl.manitu.net; 				\
+	};
+	&&DYNAMIC { \
+		client_name=^unknown$ ; 			\
+		client_name=(\d+[\.-_]){4} ; 			\
+		client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;	\
+	};
+	&&GOAWAY { &&RBLS; &&DYNAMIC; };
+	# rules
+	&&GOAWAY ; action=REJECT dynamic client and listed on RBL
 
 =head2 COMMAND LINE
 
@@ -1176,6 +1219,10 @@ The following arguments will control it's behaviour in this case.
 	Chroot the process to the specified path.
 	Test this before using - you might need some libs there.
 
+	-l, --logname <label>
+	Labels the syslog messages. Useful when running multiple
+	instances of postfwd.
+
 	--pidfile <path>
 	The process id will be saved in the specified file.
 
@@ -1200,7 +1247,7 @@ These parameters influence the way postfwd is working. Any of them can be combin
 	--cache-rdomain-only 
 	This will strip the localpart of the recipient's address before filling the
 	cache. This may considerably increase cache-hit rates.
-	
+
 	-S, --summary <int>
 	Shows some usage statistics (program uptime, request counter, matching rules)
 	every <int> seconds (default: 600). This option is included by the -v switch.
@@ -1302,10 +1349,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$
 
 	## Date Time
-	date=24.12.2007-26.12.2007   ; action=450 4.7.1 office closed during christmas
-	time=04:00-05:00             ; action=450 4.7.1 maintenance ongoing, try again later
-	time=07:00- ; sasl_user=jim  ; action=450 4.7.1 to early for you, jim
-	time=-22:00 ; sasl_user=jim  ; action=450 4.7.1 to late now, jim
+	date=24.12.2007-26.12.2007         ;  action=450 4.7.1 office closed during christmas
+	time=04:00:00-05:00:00             ;  action=450 4.7.1 maintenance ongoing, try again later
+	time=07:00:00- ; sasl_username=jim ;  action=450 4.7.1 to early for you, jim
+	time=-22:00:00 ; sasl_username=jim ;  action=450 4.7.1 to late now, jim
 
 	## Usage of jump
 	# The following allows a message size of 30MB for different
@@ -1341,6 +1388,31 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         &&GONOW ;  &&RBLS ;  client_name=(\d+[\.-_]){4}
         &&GONOW ;  &&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
 
+	## Groups
+	# definition
+        &&RBLS { rbl= 			\
+		zen.spamhaus.org,	\
+		list.dsbl.org,		\
+		bl.spamcop.net,		\
+		dnsbl.sorbs.net,	\
+		ix.dnsbl.manitu.net;	\
+	};
+	&&DYNAMIC { 						\
+        	client_name=^unknown$ ;				\
+        	client_name=(\d+[\.-_]){4} ;			\
+        	client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;	\
+	};
+	&&MAINTENANCE { 		 \
+		date=15.01.2007  ; 	 \
+		date=15.04.2007  ; 	 \
+		date=15.07.2007  ; 	 \
+		date=15.10.2007  ; 	 \
+		time=03:00:00-04:00:00 ; \
+	};
+	# rules
+	id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
+	id=MAINTENANCE ;  &&MAINTENANCE       ;  action=DEFER maintenance time - please try again later
+
 
 =head2 INTEGRATION
 
@@ -1354,7 +1426,7 @@ it`s internal caching in that case. Start postfwd with the following parameters:
 
 Check your syslogs (default facility "mail") for a line like:
 
-	Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn successfully bound to 127.0.0.1:10040/tcp
+	Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input
 
 and use `netstat -an|grep 10040` to check for something like
 
@@ -1362,20 +1434,19 @@ and use `netstat -an|grep 10040` to check for something like
 
 If everything works, open your postfix main.cf and insert the following
 
-	smtpd_recipient_restrictions    = permit_mynetworks,				<--- recommended
-                                  	  reject_unauth_destination,			<--- recommended
-				  	  ...
-				  	  check_policy_service inet:127.0.0.1:10040,	<--- integration
-				  	  ...
 	127.0.0.1:10040_time_limit      = 3600						<--- integration
+	smtpd_recipient_restrictions    = permit_mynetworks				<--- recommended
+                                  	  reject_unauth_destination			<--- recommended
+				  	  check_policy_service inet:127.0.0.1:10040	<--- integration
 
 Reload your configuration with `postfix reload` and watch your logs. In it works you should see
 lines like the following in your mail log:
 
 	Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.org, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
 
-Of course you can also specify a restriction class and use it in your access tables. First create
-a file /etc/postfix/policy containing:
+If you want to check for size or rcpt_count items you must integrate postfwd in smtp_data_restrictions or
+smtpd_end_of_data_restrictions. Of course you can also specify a restriction class and use it in your access
+tables. First create a file /etc/postfix/policy containing:
 
 	domain1.local		postfwdcheck
 	domain2.local		postfwdcheck

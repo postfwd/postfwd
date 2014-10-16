@@ -1,0 +1,21 @@
+1.00
+====
+- feature: multiple definitions of the same item in a single rule to build groups
+- feature: rules can span multiple lines by specifying a trailing "\" character
+- feature: syslog_name can now be set with -l|--logname <label>
+- bugfix:  fixed bug in acl parser (no "}" character could be used in ACLs)
+
+0.99p
+=====
+- bugfix: size and rcpt_count were checked as minimum values
+          now they are correctly interpreted as maximum.
+
+0.99o
+=====
+- feature: date and time based rules
+- feature: macros (please see doc)
+- feature: slightly changed statistics output
+
+0.99n
+=====
+- first public beta version
