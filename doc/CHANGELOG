@@ -7,6 +7,11 @@ NOTE:       please see the docs ('postfwd -m' or 'perldoc postfwd') for more inf
 **************************************************************************************************
 
 
+1.10pre8a
+==========
+- bugfix:  item plugins have been made available as cache-id items. this fixes a minor issue with
+	   --cache-rdomain-only and version 1.10pre8
+
 1.10pre8
 =========
 - code:    Net::DNS::Async is no longer used. The parameters --dns_queuesize and
