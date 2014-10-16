@@ -7,6 +7,15 @@ NOTE:       please see the docs ('postfwd -m' or 'perldoc postfwd') for more inf
 **************************************************************************************************
 
 
+1.10pre7c
+==========
+- note:    1.10pre7c does not contain any code-changes to the postfwd daemon.
+           this release only fixes some issues when buidling packages.
+- bugfix:  set permissions of manpage dirs to 755
+- bugfix:  manpage has gone to section 8
+- bugfix:  postfwd-rblcheck.pl has gone to the tools folder
+- bugfix:  documentation now refers to request.sample
+
 1.10pre7b
 ==========
 - bugfix:  inter-section links in documentation did not work correctly

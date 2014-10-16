@@ -27,7 +27,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.10pre7b';
+our($VERSION)			= '1.10pre7c';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -2514,7 +2514,7 @@ equals to
 
 Lists will be evaluated in the specified order. This allows to place faster expressions at first:
 
-	postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.small
+	postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.sample
 
 produces the following
 
@@ -2532,7 +2532,7 @@ produces the following
 
 The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
 
-	postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.small
+	postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.sample
 
 will give
 
@@ -2656,10 +2656,10 @@ First you have to create a ruleset (see Configuration section). Check it with
 
 	postfwd -f /etc/postfwd.cf -C
 
-There is an example policy request distributed with postfwd, called 'request.small'.
+There is an example policy request distributed with postfwd, called 'request.sample'.
 Simply change it to meet your requirements and use
 
-	postfwd -f /etc/postfwd.cf <request.small
+	postfwd -f /etc/postfwd.cf <request.sample
 
 You should get an answer like
 
@@ -2667,7 +2667,7 @@ You should get an answer like
 
 For network tests I use netcat:
 
-	nc 127.0.0.1 10040 <request.small
+	nc 127.0.0.1 10040 <request.sample
 
 to send a request to postfwd. If you receive nothing, make sure that postfwd is running and
 listening on the specified network settings.

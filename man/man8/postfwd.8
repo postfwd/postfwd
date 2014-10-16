@@ -128,8 +128,8 @@
 .rm #[ #] #H #V #F C
 .\" ========================================================================
 .\"
-.IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2008-05-05" "perl v5.8.5" "User Contributed Perl Documentation"
+.IX Title "POSTFWD 8"
+.TH POSTFWD 8 "2008-05-12" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -1147,7 +1147,7 @@ equals to
 Lists will be evaluated in the specified order. This allows to place faster expressions at first:
 .PP
 .Vb 1
-\&        postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.small
+\&        postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.sample
 .Ve
 .PP
 produces the following
@@ -1169,7 +1169,7 @@ produces the following
 The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
 .PP
 .Vb 1
-\&        postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.small
+\&        postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.sample
 .Ve
 .PP
 will give
@@ -1315,11 +1315,11 @@ First you have to create a ruleset (see Configuration section). Check it with
 \&        postfwd -f /etc/postfwd.cf -C
 .Ve
 .PP
-There is an example policy request distributed with postfwd, called 'request.small'.
+There is an example policy request distributed with postfwd, called 'request.sample'.
 Simply change it to meet your requirements and use
 .PP
 .Vb 1
-\&        postfwd -f /etc/postfwd.cf <request.small
+\&        postfwd -f /etc/postfwd.cf <request.sample
 .Ve
 .PP
 You should get an answer like
@@ -1331,7 +1331,7 @@ You should get an answer like
 For network tests I use netcat:
 .PP
 .Vb 1
-\&        nc 127.0.0.1 10040 <request.small
+\&        nc 127.0.0.1 10040 <request.sample
 .Ve
 .PP
 to send a request to postfwd. If you receive nothing, make sure that postfwd is running and

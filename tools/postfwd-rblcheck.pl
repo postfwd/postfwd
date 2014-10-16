@@ -1,4 +1,11 @@
 #!/usr/bin/perl -T -w
+#
+# Tool to query a bunch of dnsbls. Usage:
+#
+#	postfwd-rblcheck.pl <hostname or ip> [<hostname or ip> ...]
+#
+# by JPK
+
 
 use Net::DNS::Async;
 use strict;
