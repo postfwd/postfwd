@@ -1,10 +1,32 @@
 
+
 **************************************************************************************************
-ATTENTION:  requirements changed - as dns queries are now performed asynchronously, postfwd from
-            v1.10pre2 and above needs the perl module Net::DNS::Async! it is available via CPAN
-            and installed for my tests without any problems on different linux and solaris systems
+ATTENTION:  requirements changed - postfwd since v1.10pre8 now uses Net::DNS.
+	    Net::DNS::Async and Net::CIDR::Lite are not required anymore.
 NOTE:       please see the docs ('postfwd -m' or 'perldoc postfwd') for more information
 **************************************************************************************************
+
+
+1.10pre8
+=========
+- code:    Net::DNS::Async is no longer used. The parameters --dns_queuesize and
+           --dns_retries are still valid but have no function. The option --dns_timeout
+           now defaults to 14s and applies to all rules containing dns items.
+- code:    Net::CIDR::Lite is not required any longer.
+- feature: the new variable $$request_hits contains a list of all matching ruleids
+- feature: the new variable $$dnsbltext allows access to txt records of rbls
+- feature: new options --no-rulestats and --nodnslog
+- feature: ttls of the dns responses override --cache-rbl-timeout when bigger, which means
+           that you can set the option to 0 if you want to use the ttl of the dns answer.
+- feature: new item "rhsbl_helo" allows to check helo against rhsbls
+- bugfix:  disabled fallback to synchronous dns on timed out rbls, default is now
+	   to disable non responding dnsbls after 11 timeouts for 1200 seconds.
+	   use --dns_timeout_max and --dns_timeout_interval to adjust these settings.
+- bugfix:  days=Wed now means exactly Wednesday. to use a range you may
+           still specify days=Wed- days=-Wed and days=Tue-Thu
+           this applies to all date and time items
+- code:    --shortlog is now default behaviour (use -v to see more)
+- code:    changed Net::Server behaviour to ignore syslog errors
 
 
 1.10pre7c
@@ -176,4 +198,5 @@ NOTE:       please see the docs ('postfwd -m' or 'perldoc postfwd') for more inf
 0.99n
 =====
 - first public beta version
+
 

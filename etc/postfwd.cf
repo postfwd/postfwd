@@ -1,9 +1,11 @@
-#################################################################################################
+
+
+###################################################################################################
 ##
-##   ATTENTION: This example configuration uses features which require postfwd 1.10pre6!
+##   ATTENTION: This example configuration uses features which require at least postfwd 1.10pre6!
 ##              Please see the manual ('postfwd -m') for example syntax for prior versions.
 ##
-#################################################################################################
+###################################################################################################
 
 
 ##
@@ -12,11 +14,11 @@
 
 # Maintenance times
 &&MAINTENANCE { \
-        date=15.01.2007  ; \
-        date=15.04.2007  ; \
-        date=15.07.2007  ; \
-        date=15.10.2007  ; \
-        time=03:00:00-04:00:00 ; \
+        date=15.01.2007 - 15.01.2007 ; \
+        date=15.04.2007 - 15.04.2007 ; \
+        date=15.07.2007 - 15.07.2007 ; \
+        date=15.10.2007 - 15.10.2007 ; \
+        time=03:00:00 - 04:00:00 ; \
 };
 
 # Whitelists
@@ -48,6 +50,13 @@
         client_name~=[\.\-]static[[\.\-] ;               \
         client_name~=^(mail|smtp|mout|mx)[\-]*[0-9]*\. ; \
 };
+&&DNSWLS { \
+        rbl=list.dnswl.org ;                                             \
+        rbl=exemptions.ahbl.org ;                                        \
+        rbl=query.bondedsender.org ;                                     \
+        rbl=hostkarma.junkemailfilter.com/^127\.0\.0\.1$/3600 ;          \
+        rhsbl_client=hostkarma.junkemailfilter.com/^127\.0\.0\.1$/3600 ; \
+};
 
 # Spamchecks
 &&BADHELO { \
@@ -59,17 +68,15 @@
         client_name~=\d{5} ;     \
         client_name~=[_\.\-]([axt]{0,1}dsl|br(e|oa)dband|ppp|pppoe|dynamic|dynip|ADSL|dial(up|in)|pool|dhcp|leased)[_\.\-] ; \
 };
-&&RBLS { \
+&&DNSBLS { \
         rbl=zen.spamhaus.org ;     \
         rbl=list.dsbl.org ;        \
         rbl=bl.spamcop.net ;       \
         rbl=dnsbl.sorbs.net ;      \
         rbl=ix.dnsbl.manitu.net ;  \
-};
-&&RHSBLS { \
-        rhsbl=rddn.dnsbl.net.au ; \
-        rhsbl=rhsbl.ahbl.org ; \
-        rhsbl=rhsbl.sorbs.net ; \
+        rhsbl=rddn.dnsbl.net.au ;  \
+        rhsbl=rhsbl.ahbl.org ;     \
+        rhsbl=rhsbl.sorbs.net ;    \
 };
 
 
@@ -89,32 +96,38 @@ id=WL_002   ;  &&TRUSTED_HOSTS    ;  action=dunno
 id=WL_003   ;  &&TRUSTED_USERS    ;  action=dunno
 id=WL_004   ;  &&TRUSTED_TLS      ;  action=dunno
 
-# DNSBL checks
-id=RBL_001  ;  &&RHSBLS ; &&RBLS ; \
-               rhsblcount=all ; rblcount=all ; \
-               action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
-id=RBL_002  ;  HIT_rhls>=1 ; HIT_rbls>=1 ;  action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
-id=RBL_003  ;  HIT_rhls>=2               ;  action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
-id=RBL_004  ;  HIT_rbls>=2               ;  action=554 5.7.1 blocked using $$HIT_rbls RBLs
-id=RBL_005  ;  HIT_rbls>=1 ; &&DYNAMIC   ;  action=REJECT listed on RBL and $$client_name looks like dynip
-id=RBL_006  ;  HIT_rhls>=1 ; &&DYNAMIC   ;  action=REJECT listed on RHSBL and $$client_name looks like dynip
-id=RBL_007  ;  HIT_rbls>=1 ; &&BADHELO   ;  action=REJECT listed on RBL and $$helo_name does not match $$client_name
-id=RBL_008  ;  HIT_rhls>=1 ; &&BADHELO   ;  action=REJECT listed on RHSBL and $$helo_name does not match $$client_name
+# DNSWL checks - lookup
+id=RWL_001  ;  &&DNSWLS ;  rhsblcount=all ; rblcount=all ; \
+	action=set(HIT_dnswls=$$rhsblcount,HIT_dnswls+=$$rblcount,DSWL_text=$$dnsbltext)
+
+# DNSWL - whitelisting
+id=RWL_002  ;  HIT_dnswls>=2 ;  action=PREPEND X-PFW-STATE: INFO: [$$DSWL_text]
+id=RWL_003  ;  HIT_dnswls>=1 ;  action=PREPEND X-PFW-STATE: INFO: [$$DSWL_text] ;  &&STATIC
+id=RWL_004  ;  HIT_dnswls>=1 ;  action=PREPEND X-PFW-STATE: INFO: [$$DSWL_text] ;  $$client_name~=$$(sender_domain)$
+
+# DNSBL checks - lookup
+id=RBL_001  ;  &&DNSBLS ;  rhsblcount=all ; rblcount=all ; \
+        action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,DSBL_text=$$dnsbltext)
+
+# DNSBL checks - evaluation
+id=RBL_002  ;  HIT_dnsbls>=2             ;  action=554 5.7.1 blocked using $$DSBL_count dnsbls, INFO: [$$DSBL_text]
+id=RBL_003  ;  HIT_dnsbls>=1 ; &&DYNAMIC ;  action=REJECT listed on dnsbl and $$client_name looks like dynip, INFO: [$$DSBL_text]
+id=RBL_004  ;  HIT_dnsbls>=1 ; &&BADHELO ;  action=REJECT listed on dnsbl and $$helo_name does not match $$client_name, INFO: [$$DSBL_text]
 
 # Rate limits
-id=RATE_001 ;  &&DYNAMIC                 ;  action=rate($$client_address/1/300/450 4.7.1 please do not send more than once per 5 minutes)
-id=RATE_002 ;  HIT_rhls>=1               ;  action=rate($$client_address/1/300/450 4.7.1 please do not send more than once per 5 minutes)
-id=RATE_003 ;  HIT_rbls>=1               ;  action=rate($$client_address/1/300/450 4.7.1 please do not send more than once per 5 minutes)
-id=RATE_004 ; sasl_username==boss        ;  action=size($$sasl_username/30000000/300/450 4.7.1 please do not send more than 30mb within 5 minutes)
-id=RATE_005 ; sasl_username~=\w          ;  action=size($$sasl_username/10000000/300/450 4.7.1 please do not send more than 10mb within 5 minutes)
+id=RATE_001 ;  HIT_dnsbls>=1; \
+	action=rate($$client_address/1/300/450 4.7.1 please do not try more than once per 5 minutes)
+id=RATE_002 ;  &&DYNAMIC ; \
+	action=rate($$client_address/1/300/450 4.7.1 please do not try more than once per 5 minutes)
 
 # Selective greylisting
-id=GREY_001 ;  action=dunno              ;  &&STATIC
-id=GREY_002 ;  action=dunno              ;  $$client_name~=$$(sender_domain)$
-id=GREY_003 ;  action=greylisting        ;  &&DYNAMIC
-id=GREY_004 ;  action=greylisting        ;  HIT_rhls>=1
-id=GREY_005 ;  action=greylisting        ;  HIT_rbls>=1
-# greylisting should be safe during out-of-office times
-id=GREY_006 ;  action=greylisting        ;  days=Sat-Sun
-id=GREY_007 ;  action=greylisting        ;  days=Mon-Fri ; time=!!06:00:00-20:00:00
+id=GREY_001 ;  action=dunno        ;  &&STATIC
+id=GREY_002 ;  action=dunno        ;  $$client_name~=$$(sender_domain)$
+id=GREY_003 ;  action=dunno        ;  HIT_dnswls>=1
+id=GREY_004 ;  action=greylisting  ;  &&DYNAMIC
+id=GREY_005 ;  action=greylisting  ;  HIT_dnsbls>=1
+
+# Greylisting should be safe during out-of-office times
+id=GREY_006 ;  action=greylisting  ;  days=Sat-Sun
+id=GREY_007 ;  action=greylisting  ;  days=Mon-Fri ; time=!!06:00:00-20:00:00
 

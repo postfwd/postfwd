@@ -10,6 +10,8 @@ PATH=/bin:/usr/bin:/usr/local/bin
 PFWCMD=/usr/local/postfwd/sbin/postfwd
 # rulesetconfig file
 PFWCFG=/etc/postfix/postfwd.cf
+# pidfile
+PFWPID=/var/tmp/postfwd.pid
 
 # daemon settings
 PFWUSER=nobody
@@ -23,45 +25,32 @@ PFWARG="--shortlog --summary=600 --cache=600 --cache-rbl-timeout=3600 --cleanup-
 
 ## should be no need to change below
 
-P1="`basename ${PFWCMD}`"; P2="`basename $0`";
-PIDS="`ps -aef | grep "${P1}" | grep -v "${P2}" | grep -v grep | awk '{print $2}' | sort -nr`"
-
+P1="`basename ${PFWCMD}`"
 case "$1" in
 
-	start*)		if [ -n "${PIDS}" ]; then
-                                echo "Process called \"${P1}\" already found at PID ${PIDS}. Please use \"${P2} restart\" instead." ;
-				false;
-                        else
-				echo "Starting ${P1}...";
-				${PFWCMD} ${PFWARG} --daemon --file=${PFWCFG} --interface=${PFWINET} --port=${PFWPORT} --user=${PFWUSER} --group=${PFWGROUP};
-			fi ;
+	start*)		echo "Starting ${P1}...";
+			${PFWCMD} ${PFWARG} --daemon --file=${PFWCFG} --interface=${PFWINET} --port=${PFWPORT} --user=${PFWUSER} --group=${PFWGROUP} --pidfile=${PFWPID};
 			;;
 
-	debug*)		if [ -n "${PIDS}" ]; then
-                                echo "Process called \"${P1}\" already found at PID ${PIDS}. Please use \"${P2} restart\" instead." ;
-                                false;
-                        else
-                                echo "Starting ${P1} in DEBUG mode...";
-                                ${PFWCMD} ${PFWARG} -vv --daemon --file=${PFWCFG} --interface=${PFWINET} --port=${PFWPORT} --user=${PFWUSER} --group=${PFWGROUP};
-                        fi ;
-                        ;;
+	debug*)		echo "Starting ${P1} in debug mode...";
+			${PFWCMD} ${PFWARG} -vv --daemon --file=${PFWCFG} --interface=${PFWINET} --port=${PFWPORT} --user=${PFWUSER} --group=${PFWGROUP} --pidfile=${PFWPID};
+			;;
 
-
-	stop*)		if [ -z "${PIDS}" ]; then
-				echo "No process called \"${P1}\" found" ;
-				false;
-			else
+	stop*)		if [ -f "${PFWPID}" ]; then
 				echo "Stopping ${P1}...";
-				for pid in ${PIDS}; do kill ${pid}; done ;
+				kill `cat ${PFWPID}`;
+			else
+				echo "Pidfile \"${PFWPID}\" not found" ;
+				false;
 			fi ;
 			;;
 
-	reload*)	if [ -z "${PIDS}" ]; then
-				echo "No process called \"${P1}\" found" ;
-				false;
+	reload*)	if [ -f "${PFWPID}" ]; then
+				echo "Stopping ${P1}...";
+				kill -HUP `cat ${PFWPID}`;
 			else
-				echo "Refreshing ${P1}...";
-				for pid in ${PIDS}; do kill -HUP ${pid}; done ;
+				echo "Pidfile \"${PFWPID}\" not found" ;
+				false;
 			fi ;
 			;;
 
@@ -71,7 +60,7 @@ case "$1" in
 			;;
 
 	*)		echo "Unknown argument \"$1\"" >&2;
-			echo "Usage: ${P2} {start|stop|reload|restart}" >&2;
+			echo "Usage: `basename $0` {start|stop|reload|restart}" >&2;
 			exit 1;;
 esac
 exit $?

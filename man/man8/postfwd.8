@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD 8"
-.TH POSTFWD 8 "2008-05-12" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD 8 "2008-09-14" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -147,7 +147,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&        -s, --scores <v>=<r>        returns <r> when score exceeds <v>
 .Ve
 .PP
-.Vb 9
+.Vb 10
 \&        Networking:
 \&        -d, --daemon                run postfwd as daemon
 \&        -i, --interface <dev>       listen on interface <dev>
@@ -155,8 +155,9 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&        -u, --user <name>           set uid to user <name>
 \&        -g, --group <name>          set gid to group <name>
 \&        -R, --chroot <path>         chroot the daemon to <path>
-\&        -l, --logname <label>       label for syslog messages
 \&            --pidfile <path>        create pidfile under <path>
+\&        -l, --logname <label>       label for syslog messages
+\&            --loglen <int>          truncates syslogs after <int> chars
 .Ve
 .PP
 .Vb 11
@@ -173,15 +174,14 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --cleanup-rates         cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 12
+.Vb 11
 \&        Optional:
 \&        -t, --test                  testing, always returns "dunno"
 \&        -v, --verbose               verbose logging, use twice (-vv) to increase level
-\&            --shortlog              disables logging of some postfwd commands
 \&        -S, --summary <int>         show some usage statistics every <int> seconds
+\&            --no-rulestats          disables per rule statistics
 \&        -n, --nodns                 disable dns
-\&            --dns_queuesize         sets the queue size for asynchonous dns queries
-\&            --dns_retries           how many retries for a single asynchonous dns query
+\&            --nodnslog              disable dns logging
 \&            --dns_timeout           timeout in seconds for asynchonous dns queries
 \&            --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
 \&            --dns_timeout_interval  interval in seconds for dns timeout maximum counter
@@ -189,13 +189,18 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 .Ve
 .PP
 .Vb 7
-\&        Informational (use only at command-line, not with postfix!):
+\&        Informational (use only at command-line!):
 \&        -C, --showconfig            shows ruleset summary, -v for verbose
 \&        -L, --stdoutlog             redirect syslog messages to stdout
 \&        -P, --perfmon               no syslogging, no stdout
 \&        -V, --version               shows program version
 \&        -h, --help                  shows usage
 \&        -m, --manual                shows program manual
+.Ve
+.PP
+.Vb 2
+\&        Plugins:
+\&            --plugins <file>        loads plugins from <file>
 .Ve
 .SH "DESCRIPTION"
 .IX Header "DESCRIPTION"
@@ -286,8 +291,17 @@ Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" charac
 \&                                  ids also serve as targets for the "jump" command.
 .Ve
 .PP
-.Vb 1
+.Vb 10
 \&        date, time              - a time or date range within the specified rule shall hit
+\&                                  # FORMAT:
+\&                                  # Feb, 29th
+\&                                  date=29.02.2008
+\&                                  # Dec, 24th - 26th
+\&                                  date=24.12.2008-26.12.2008
+\&                                  # from today until Nov, 23rd
+\&                                  date=-23.09.2008
+\&                                  # from April, 1st until today
+\&                                  date=01.04.2008-
 .Ve
 .PP
 .Vb 2
@@ -548,13 +562,21 @@ You can reference to request attributes, like
 .PP
 These special attributes will be reset for any new rule:
 .PP
-.Vb 3
+.Vb 5
 \&        rblcount        - contains the number of RBL answers
 \&        rhsblcount      - contains the number of RHSBL answers
 \&        matches         - contains the number of matched items
+\&        dnsbltext       - contains the dns TXT part of all RBL and RHSBL replies in the form
+\&                          rbltype:rblname:<txt>; rbltype:rblname:<txt>; ...
 .Ve
 .PP
-This means that you must save them, if you plan to use these values in later rules:
+These special attributes will be changed for any matching rule:
+.PP
+.Vb 1
+\&        request_hits    - contains ids of all matching rules
+.Ve
+.PP
+This means that it might be necessary to save them, if you plan to use these values in later rules:
 .PP
 .Vb 6
 \&        # set vals
@@ -562,14 +584,14 @@ This means that you must save them, if you plan to use these values in later rul
 \&                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org ; \e
 \&                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \e
 \&                rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \e
-\&                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
+\&                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)
 .Ve
 .PP
 .Vb 4
 \&        # compare
-\&        id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
-\&        id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
-\&        id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs
+\&        id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
+\&        id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
+\&        id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]
 .Ve
 .Sh "\s-1MACROS/ACLS\s0"
 .IX Subsection "MACROS/ACLS"
@@ -621,6 +643,9 @@ Macros can contain macros, too:
 .Ve
 .PP
 Basically macros are simple text substitutions \- see the \*(L"\s-1PARSER\s0\*(R" section for more information.
+.Sh "\s-1PLUGINS\s0"
+.IX Subsection "PLUGINS"
+Please visit <http://www.postfwd.org/postfwd.plugins>
 .Sh "\s-1COMMAND\s0 \s-1LINE\s0"
 .IX Subsection "COMMAND LINE"
 \&\fIRuleset\fR
@@ -640,6 +665,14 @@ that at least one of the following is required for postfwd to work.
 \&        strings that contain whitespaces or shell characters.
 .Ve
 .PP
+\&\fIPlugins\fR
+.PP
+.Vb 3
+\&        --plugins
+\&        A file containing plugin routines for postfwd. Please see the
+\&        PLUGINS section for more information.
+.Ve
+.PP
 \&\fIScoring\fR
 .PP
 .Vb 2
@@ -650,7 +683,7 @@ that at least one of the following is required for postfwd to work.
 Multiple usage is allowed. Just chain your arguments, like:
 .PP
 .Vb 3
-\&        postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> ...
+\&        postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> --plugins <file> ...
 \&          or
 \&        postfwd --scores 4.5="WARN high score" --scores 5.0="REJECT postfwd score too high" ...
 .Ve
@@ -695,6 +728,11 @@ The following arguments will control it's behaviour in this case.
 \&        Test this before using - you might need some libs there.
 .Ve
 .PP
+.Vb 2
+\&        --pidfile <path>
+\&        The process id will be saved in the specified file.
+.Ve
+.PP
 .Vb 3
 \&        -l, --logname <label>
 \&        Labels the syslog messages. Useful when running multiple
@@ -702,8 +740,8 @@ The following arguments will control it's behaviour in this case.
 .Ve
 .PP
 .Vb 2
-\&        --pidfile <path>
-\&        The process id will be saved in the specified file.
+\&        --loglen <int>
+\&        Truncates any syslog message after <int> characters.
 .Ve
 .PP
 \&\fIOptional arguments\fR
@@ -807,15 +845,15 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        ...
 .Ve
 .PP
+.Vb 3
+\&        --no-rulestats
+\&        Disables per rule statistics. Keeps your log clean, if you do not use them.
+\&        This option has no effect without --summary or --verbose set.
+.Ve
+.PP
 .Vb 2
 \&        -L, --stdoutlog
 \&        Redirects all syslog messages to stdout for debugging. Never use this with postfix!
-.Ve
-.PP
-.Vb 3
-\&        --shortlog
-\&        As postfwd now logs all hits for a request, you might find it unecessary to log the
-\&        postfwd actions jump(), set() and score(). You may disable it with this option.
 .Ve
 .PP
 .Vb 3
@@ -830,20 +868,13 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        such elements will be ignored.
 .Ve
 .PP
-.Vb 3
-\&        --dns_queuesize   (default: 100)
-\&        Sets the queue size for asynchonous dns queries. If the query exceeds this value,
-\&        postfwd waits for answers of timeouts for previous queries.
+.Vb 2
+\&        -n, --nodnslog
+\&        Disables logging of dns events.
 .Ve
 .PP
 .Vb 3
-\&        --dns_retries     (default: 3)
-\&        Sets the retry counter for asynchonous dns queries. This value will apply to
-\&        every single query.
-.Ve
-.PP
-.Vb 3
-\&        --dns_timeout     (default: 7)
+\&        --dns_timeout     (default: 14)
 \&        Sets the timeout for asynchonous dns queries in seconds. This value will apply to
 \&        all dns items in a rule.
 .Ve
@@ -1044,11 +1075,11 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&                ...
 \&        };
 \&        &&MAINTENANCE { \e
-\&                date=15.01.2007  ; \e
-\&                date=15.04.2007  ; \e
-\&                date=15.07.2007  ; \e
-\&                date=15.10.2007  ; \e
-\&                time=03:00:00-04:00:00 ; \e
+\&                date=15.01.2007 ; \e
+\&                date=15.04.2007 ; \e
+\&                date=15.07.2007 ; \e
+\&                date=15.10.2007 ; \e
+\&                time=03:00:00 - 04:00:00 ; \e
 \&        };
 \&        # rules
 \&        id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
@@ -1066,15 +1097,12 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        id=REJECT03 ;  HIT_helo==1 ;  HIT_dyna==1  ; action=REJECT please see http://some.org/info?reject=03 for more info
 .Ve
 .PP
-.Vb 8
-\&        # combined with enhanced rbl features
-\&        # set vals
+.Vb 5
+\&        ## combined with enhanced rbl features
+\&        #
 \&        id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS ; \e
-\&          action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
-\&        # compare
-\&        id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
-\&        id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
-\&        id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs
+\&             action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,HIT_dnstxt=$$dnsbltext)
+\&        id=RBL02 ; HIT_dnsbls>=2  ; action=554 5.7.1 blocked using $$HIT_dnsbls DNSBLs [INFO: $$HIT_dnstxt]
 .Ve
 .Sh "\s-1PARSER\s0"
 .IX Subsection "PARSER"
@@ -1147,7 +1175,7 @@ equals to
 Lists will be evaluated in the specified order. This allows to place faster expressions at first:
 .PP
 .Vb 1
-\&        postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.sample
+\&        postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
 .Ve
 .PP
 produces the following
@@ -1169,7 +1197,7 @@ produces the following
 The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
 .PP
 .Vb 1
-\&        postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.sample
+\&        postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
 .Ve
 .PP
 will give
@@ -1340,13 +1368,15 @@ listening on the specified network settings.
 .IX Subsection "PERFORMANCE"
 Some of these proposals might not match your environment. Please check your requirements and test new options carefully!
 .PP
-\&\- use caching options
-\&\- use the correct match operator ==, <=, >=
-\&\- use ^ and $ in regular expressions
-\&\- use item lists (faster than single rules)
-\&\- use \fIset()\fR action on repeated item lists
-\&\- use jump action
-\&\- use pre-lookup rule for rbl/rhsbls with empty \fInote()\fR action
+.Vb 7
+\&        - use caching options
+\&        - use the correct match operator ==, <=, >=
+\&        - use ^ and/or $ in regular expressions
+\&        - use item lists (faster than single rules)
+\&        - use set() action on repeated item lists
+\&        - use jumps and rate limits
+\&        - use a pre-lookup rule for rbl/rhsbls with empty note() action
+.Ve
 .Sh "\s-1SEE\s0 \s-1ALSO\s0"
 .IX Subsection "SEE ALSO"
 See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description

@@ -18,8 +18,9 @@ SYNOPSIS
             -u, --user <name>           set uid to user <name>
             -g, --group <name>          set gid to group <name>
             -R, --chroot <path>         chroot the daemon to <path>
-            -l, --logname <label>       label for syslog messages
                 --pidfile <path>        create pidfile under <path>
+            -l, --logname <label>       label for syslog messages
+                --loglen <int>          truncates syslogs after <int> chars
 
             Caching:
             -c, --cache <int>           sets the request-cache timeout to <int> seconds
@@ -36,23 +37,25 @@ SYNOPSIS
             Optional:
             -t, --test                  testing, always returns "dunno"
             -v, --verbose               verbose logging, use twice (-vv) to increase level
-                --shortlog              disables logging of some postfwd commands
             -S, --summary <int>         show some usage statistics every <int> seconds
+                --no-rulestats          disables per rule statistics
             -n, --nodns                 disable dns
-                --dns_queuesize         sets the queue size for asynchonous dns queries
-                --dns_retries           how many retries for a single asynchonous dns query
+                --nodnslog              disable dns logging
                 --dns_timeout           timeout in seconds for asynchonous dns queries
                 --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
                 --dns_timeout_interval  interval in seconds for dns timeout maximum counter
             -I, --instantcfg            re-reads rulefiles for every new request
 
-            Informational (use only at command-line, not with postfix!):
+            Informational (use only at command-line!):
             -C, --showconfig            shows ruleset summary, -v for verbose
             -L, --stdoutlog             redirect syslog messages to stdout
             -P, --perfmon               no syslogging, no stdout
             -V, --version               shows program version
             -h, --help                  shows usage
             -m, --manual                shows program manual
+
+            Plugins:
+                --plugins <file>        loads plugins from <file>
 
 DESCRIPTION
   INTRODUCTION
@@ -138,6 +141,15 @@ DESCRIPTION
                                       ids also serve as targets for the "jump" command.
 
             date, time              - a time or date range within the specified rule shall hit
+                                      # FORMAT:
+                                      # Feb, 29th
+                                      date=29.02.2008
+                                      # Dec, 24th - 26th
+                                      date=24.12.2008-26.12.2008
+                                      # from today until Nov, 23rd
+                                      date=-23.09.2008
+                                      # from April, 1st until today
+                                      date=01.04.2008-
 
             days, months            - a range of weekdays (Sun-Sat) or months (Jan-Dec)
                                       within the specified rule shall hit
@@ -360,21 +372,27 @@ DESCRIPTION
             rblcount        - contains the number of RBL answers
             rhsblcount      - contains the number of RHSBL answers
             matches         - contains the number of matched items
+            dnsbltext       - contains the dns TXT part of all RBL and RHSBL replies in the form
+                              rbltype:rblname:<txt>; rbltype:rblname:<txt>; ...
 
-    This means that you must save them, if you plan to use these values in
-    later rules:
+    These special attributes will be changed for any matching rule:
+
+            request_hits    - contains ids of all matching rules
+
+    This means that it might be necessary to save them, if you plan to use
+    these values in later rules:
 
             # set vals
             id=RBL01 ; rhsblcount=all ; rblcount=all ; \
                     rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org ; \
                     rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
                     rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
-                    action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
+                    action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)
 
             # compare
-            id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
-            id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
-            id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs
+            id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
+            id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
+            id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]
 
   MACROS/ACLS
     Multiple use of long items or combinations of them may be abbreviated by
@@ -420,6 +438,9 @@ DESCRIPTION
     Basically macros are simple text substitutions - see the "PARSER"
     section for more information.
 
+  PLUGINS
+    Please visit <http://www.postfwd.org/postfwd.plugins>
+
   COMMAND LINE
     *Ruleset*
 
@@ -435,6 +456,12 @@ DESCRIPTION
             Adds <rule> to ruleset. Remember that you might have to quote
             strings that contain whitespaces or shell characters.
 
+    *Plugins*
+
+            --plugins
+            A file containing plugin routines for postfwd. Please see the
+            PLUGINS section for more information.
+
     *Scoring*
 
             -s, --scores <val>=<action>
@@ -442,7 +469,7 @@ DESCRIPTION
 
     Multiple usage is allowed. Just chain your arguments, like:
 
-            postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> ...
+            postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> --plugins <file> ...
               or
             postfwd --scores 4.5="WARN high score" --scores 5.0="REJECT postfwd score too high" ...
 
@@ -475,12 +502,15 @@ DESCRIPTION
             Chroot the process to the specified path.
             Test this before using - you might need some libs there.
 
+            --pidfile <path>
+            The process id will be saved in the specified file.
+
             -l, --logname <label>
             Labels the syslog messages. Useful when running multiple
             instances of postfwd.
 
-            --pidfile <path>
-            The process id will be saved in the specified file.
+            --loglen <int>
+            Truncates any syslog message after <int> characters.
 
     *Optional arguments*
 
@@ -558,12 +588,12 @@ DESCRIPTION
             Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
             ...
 
+            --no-rulestats
+            Disables per rule statistics. Keeps your log clean, if you do not use them.
+            This option has no effect without --summary or --verbose set.
+
             -L, --stdoutlog
             Redirects all syslog messages to stdout for debugging. Never use this with postfix!
-
-            --shortlog
-            As postfwd now logs all hits for a request, you might find it unecessary to log the
-            postfwd actions jump(), set() and score(). You may disable it with this option.
 
             -t, --test
             In test mode postfwd always returns "dunno", but logs according
@@ -573,15 +603,10 @@ DESCRIPTION
             Disables all DNS based checks like RBL checks. Rules containing
             such elements will be ignored.
 
-            --dns_queuesize   (default: 100)
-            Sets the queue size for asynchonous dns queries. If the query exceeds this value,
-            postfwd waits for answers of timeouts for previous queries.
+            -n, --nodnslog
+            Disables logging of dns events.
 
-            --dns_retries     (default: 3)
-            Sets the retry counter for asynchonous dns queries. This value will apply to
-            every single query.
-
-            --dns_timeout     (default: 7)
+            --dns_timeout     (default: 14)
             Sets the timeout for asynchonous dns queries in seconds. This value will apply to
             all dns items in a rule.
 
@@ -746,11 +771,11 @@ DESCRIPTION
                     ...
             };
             &&MAINTENANCE { \
-                    date=15.01.2007  ; \
-                    date=15.04.2007  ; \
-                    date=15.07.2007  ; \
-                    date=15.10.2007  ; \
-                    time=03:00:00-04:00:00 ; \
+                    date=15.01.2007 ; \
+                    date=15.04.2007 ; \
+                    date=15.07.2007 ; \
+                    date=15.10.2007 ; \
+                    time=03:00:00 - 04:00:00 ; \
             };
             # rules
             id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
@@ -765,14 +790,11 @@ DESCRIPTION
             id=REJECT02 ;  HIT_rbls==1 ;  HIT_dyna==1  ; action=REJECT please see http://some.org/info?reject=02 for more info
             id=REJECT03 ;  HIT_helo==1 ;  HIT_dyna==1  ; action=REJECT please see http://some.org/info?reject=03 for more info
 
-            # combined with enhanced rbl features
-            # set vals
+            ## combined with enhanced rbl features
+            #
             id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS ; \
-              action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
-            # compare
-            id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
-            id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
-            id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs
+                 action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,HIT_dnstxt=$$dnsbltext)
+            id=RBL02 ; HIT_dnsbls>=2  ; action=554 5.7.1 blocked using $$HIT_dnsbls DNSBLs [INFO: $$HIT_dnstxt]
 
   PARSER
     *Configuration*
@@ -834,7 +856,7 @@ DESCRIPTION
     Lists will be evaluated in the specified order. This allows to place
     faster expressions at first:
 
-            postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.sample
+            postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
 
     produces the following
 
@@ -853,7 +875,7 @@ DESCRIPTION
     The negation operator !!(<value>) has the highest priority and therefore
     will be evaluated first. Then variable substitutions are performed:
 
-            postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.sample
+            postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
 
     will give
 
@@ -1006,10 +1028,13 @@ DESCRIPTION
     Some of these proposals might not match your environment. Please check
     your requirements and test new options carefully!
 
-    - use caching options - use the correct match operator ==, <=, >= - use
-    ^ and $ in regular expressions - use item lists (faster than single
-    rules) - use set() action on repeated item lists - use jump action - use
-    pre-lookup rule for rbl/rhsbls with empty note() action
+            - use caching options
+            - use the correct match operator ==, <=, >=
+            - use ^ and/or $ in regular expressions
+            - use item lists (faster than single rules)
+            - use set() action on repeated item lists
+            - use jumps and rate limits
+            - use a pre-lookup rule for rbl/rhsbls with empty note() action
 
   SEE ALSO
     See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description

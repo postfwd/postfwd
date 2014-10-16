@@ -1,11 +1,15 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
 <head>
 <title>postfwd - postfix firewall daemon</title>
-<link rev="made" href="mailto:root@localhost" />
+<link rel="stylesheet" type="text/css" href="http://www.jpkessler.de/css/postfwd.css">
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<meta name="description" content="postfwd a postfix firewall policy daemon">
+<meta name="author" content="jpk">
+<meta name="keywords" content="postfwd, postfwd usage, postfwd manual, postfix, policy, policy delegation, firewall, postfix acl, postfix acls, pfwpolicy, postfw, restrictions, IT-Security, IT-Consulting, Jan, Peter, Kessler">
 </head>
 
-<body style="background-color: white">
+<body>
 
 <p><a name="__index__"></a></p>
 <!-- INDEX BEGIN -->
@@ -22,6 +26,7 @@
 		<li><a href="#items">ITEMS</a></li>
 		<li><a href="#actions">ACTIONS</a></li>
 		<li><a href="#macros_acls">MACROS/ACLS</a></li>
+		<li><a href="#plugins">PLUGINS</a></li>
 		<li><a href="#command_line">COMMAND LINE</a></li>
 		<li><a href="#refresh">REFRESH</a></li>
 		<li><a href="#examples">EXAMPLES</a></li>
@@ -62,8 +67,9 @@
         -u, --user &lt;name&gt;           set uid to user &lt;name&gt;
         -g, --group &lt;name&gt;          set gid to group &lt;name&gt;
         -R, --chroot &lt;path&gt;         chroot the daemon to &lt;path&gt;
+            --pidfile &lt;path&gt;        create pidfile under &lt;path&gt;
         -l, --logname &lt;label&gt;       label for syslog messages
-            --pidfile &lt;path&gt;        create pidfile under &lt;path&gt;</pre>
+            --loglen &lt;int&gt;          truncates syslogs after &lt;int&gt; chars</pre>
 <pre>
         Caching:
         -c, --cache &lt;int&gt;           sets the request-cache timeout to &lt;int&gt; seconds
@@ -80,23 +86,25 @@
         Optional:
         -t, --test                  testing, always returns &quot;dunno&quot;
         -v, --verbose               verbose logging, use twice (-vv) to increase level
-            --shortlog              disables logging of some postfwd commands
         -S, --summary &lt;int&gt;         show some usage statistics every &lt;int&gt; seconds
+            --no-rulestats          disables per rule statistics
         -n, --nodns                 disable dns
-            --dns_queuesize         sets the queue size for asynchonous dns queries
-            --dns_retries           how many retries for a single asynchonous dns query
+            --nodnslog              disable dns logging
             --dns_timeout           timeout in seconds for asynchonous dns queries
             --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
             --dns_timeout_interval  interval in seconds for dns timeout maximum counter
         -I, --instantcfg            re-reads rulefiles for every new request</pre>
 <pre>
-        Informational (use only at command-line, not with postfix!):
+        Informational (use only at command-line!):
         -C, --showconfig            shows ruleset summary, -v for verbose
         -L, --stdoutlog             redirect syslog messages to stdout
         -P, --perfmon               no syslogging, no stdout
         -V, --version               shows program version
         -h, --help                  shows usage
         -m, --manual                shows program manual</pre>
+<pre>
+        Plugins:
+            --plugins &lt;file&gt;        loads plugins from &lt;file&gt;</pre>
 <p>
 </p>
 <hr />
@@ -161,7 +169,16 @@ arguments. Please see the COMMAND LINE section below for more information on thi
         id                      - a unique rule id, which can be used for log analysis
                                   ids also serve as targets for the &quot;jump&quot; command.</pre>
 <pre>
-        date, time              - a time or date range within the specified rule shall hit</pre>
+        date, time              - a time or date range within the specified rule shall hit
+                                  # FORMAT:
+                                  # Feb, 29th
+                                  date=29.02.2008
+                                  # Dec, 24th - 26th
+                                  date=24.12.2008-26.12.2008
+                                  # from today until Nov, 23rd
+                                  date=-23.09.2008
+                                  # from April, 1st until today
+                                  date=01.04.2008-</pre>
 <pre>
         days, months            - a range of weekdays (Sun-Sat) or months (Jan-Dec)
                                   within the specified rule shall hit</pre>
@@ -354,20 +371,25 @@ rule containing only an action statement:</p>
 <pre>
         rblcount        - contains the number of RBL answers
         rhsblcount      - contains the number of RHSBL answers
-        matches         - contains the number of matched items</pre>
-<p>This means that you must save them, if you plan to use these values in later rules:</p>
+        matches         - contains the number of matched items
+        dnsbltext       - contains the dns TXT part of all RBL and RHSBL replies in the form
+                          rbltype:rblname:&lt;txt&gt;; rbltype:rblname:&lt;txt&gt;; ...</pre>
+<p>These special attributes will be changed for any matching rule:</p>
+<pre>
+        request_hits    - contains ids of all matching rules</pre>
+<p>This means that it might be necessary to save them, if you plan to use these values in later rules:</p>
 <pre>
         # set vals
         id=RBL01 ; rhsblcount=all ; rblcount=all ; \
                 rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org ; \
                 rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
                 rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
-                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)</pre>
+                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)</pre>
 <pre>
         # compare
-        id=RBL02 ; HIT_rhls&gt;=1 ; HIT_rbls&gt;=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
-        id=RBL03 ; HIT_rhls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
-        id=RBL04 ; HIT_rbls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs</pre>
+        id=RBL02 ; HIT_rhls&gt;=1 ; HIT_rbls&gt;=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
+        id=RBL03 ; HIT_rhls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
+        id=RBL04 ; HIT_rbls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]</pre>
 <p>
 </p>
 <h2><a name="macros_acls">MACROS/ACLS</a></h2>
@@ -409,6 +431,10 @@ First the macros have to be defined as follows:</p>
 <p>Basically macros are simple text substitutions - see the <a href="#parser">PARSER</a> section for more information.</p>
 <p>
 </p>
+<h2><a name="plugins">PLUGINS</a></h2>
+<p>Please visit <a href="http://www.postfwd.org/postfwd.plugins">http://www.postfwd.org/postfwd.plugins</a></p>
+<p>
+</p>
 <h2><a name="command_line">COMMAND LINE</a></h2>
 <p><em>Ruleset</em></p>
 <p>The following arguments are used to specify the source of the postfwd ruleset. This means
@@ -421,13 +447,18 @@ that at least one of the following is required for postfwd to work.</p>
         -r, --rule &lt;rule&gt;
         Adds &lt;rule&gt; to ruleset. Remember that you might have to quote
         strings that contain whitespaces or shell characters.</pre>
+<p><em>Plugins</em></p>
+<pre>
+        --plugins
+        A file containing plugin routines for postfwd. Please see the
+        PLUGINS section for more information.</pre>
 <p><em>Scoring</em></p>
 <pre>
         -s, --scores &lt;val&gt;=&lt;action&gt;
         Returns &lt;action&gt; to postfix, when the request's score exceeds &lt;val&gt;</pre>
 <p>Multiple usage is allowed. Just chain your arguments, like:</p>
 <pre>
-        postfwd -r &quot;&lt;item&gt;=&lt;value&gt;;action=&lt;result&gt;&quot; -f &lt;file&gt; -f &lt;file&gt; ...
+        postfwd -r &quot;&lt;item&gt;=&lt;value&gt;;action=&lt;result&gt;&quot; -f &lt;file&gt; -f &lt;file&gt; --plugins &lt;file&gt; ...
           or
         postfwd --scores 4.5=&quot;WARN high score&quot; --scores 5.0=&quot;REJECT postfwd score too high&quot; ...</pre>
 <p>In case of multiple scores, the highest match will count. The order of the arguments will be
@@ -456,12 +487,15 @@ The following arguments will control it's behaviour in this case.</p>
         Chroot the process to the specified path.
         Test this before using - you might need some libs there.</pre>
 <pre>
+        --pidfile &lt;path&gt;
+        The process id will be saved in the specified file.</pre>
+<pre>
         -l, --logname &lt;label&gt;
         Labels the syslog messages. Useful when running multiple
         instances of postfwd.</pre>
 <pre>
-        --pidfile &lt;path&gt;
-        The process id will be saved in the specified file.</pre>
+        --loglen &lt;int&gt;
+        Truncates any syslog message after &lt;int&gt; characters.</pre>
 <p><em>Optional arguments</em></p>
 <p>These parameters influence the way postfwd is working. Any of them can be combined.</p>
 <pre>
@@ -536,12 +570,12 @@ The following arguments will control it's behaviour in this case.</p>
         Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
         ...</pre>
 <pre>
+        --no-rulestats
+        Disables per rule statistics. Keeps your log clean, if you do not use them.
+        This option has no effect without --summary or --verbose set.</pre>
+<pre>
         -L, --stdoutlog
         Redirects all syslog messages to stdout for debugging. Never use this with postfix!</pre>
-<pre>
-        --shortlog
-        As postfwd now logs all hits for a request, you might find it unecessary to log the
-        postfwd actions jump(), set() and score(). You may disable it with this option.</pre>
 <pre>
         -t, --test
         In test mode postfwd always returns &quot;dunno&quot;, but logs according
@@ -551,15 +585,10 @@ The following arguments will control it's behaviour in this case.</p>
         Disables all DNS based checks like RBL checks. Rules containing
         such elements will be ignored.</pre>
 <pre>
-        --dns_queuesize   (default: 100)
-        Sets the queue size for asynchonous dns queries. If the query exceeds this value,
-        postfwd waits for answers of timeouts for previous queries.</pre>
+        -n, --nodnslog
+        Disables logging of dns events.</pre>
 <pre>
-        --dns_retries     (default: 3)
-        Sets the retry counter for asynchonous dns queries. This value will apply to
-        every single query.</pre>
-<pre>
-        --dns_timeout     (default: 7)
+        --dns_timeout     (default: 14)
         Sets the timeout for asynchonous dns queries in seconds. This value will apply to
         all dns items in a rule.</pre>
 <pre>
@@ -723,11 +752,11 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
                 ...
         };
         &amp;&amp;MAINTENANCE { \
-                date=15.01.2007  ; \
-                date=15.04.2007  ; \
-                date=15.07.2007  ; \
-                date=15.10.2007  ; \
-                time=03:00:00-04:00:00 ; \
+                date=15.01.2007 ; \
+                date=15.04.2007 ; \
+                date=15.07.2007 ; \
+                date=15.10.2007 ; \
+                time=03:00:00 - 04:00:00 ; \
         };
         # rules
         id=COMBINED    ;  &amp;&amp;RBLS ;  &amp;&amp;DYNAMIC ;  action=REJECT dynamic client and listed on RBL
@@ -742,14 +771,11 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=REJECT02 ;  HIT_rbls==1 ;  HIT_dyna==1  ; action=REJECT please see <a href="http://some.org/info?reject=02">http://some.org/info?reject=02</a> for more info
         id=REJECT03 ;  HIT_helo==1 ;  HIT_dyna==1  ; action=REJECT please see <a href="http://some.org/info?reject=03">http://some.org/info?reject=03</a> for more info</pre>
 <pre>
-        # combined with enhanced rbl features
-        # set vals
+        ## combined with enhanced rbl features
+        #
         id=RBL01 ; rhsblcount=all ; rblcount=all ; &amp;&amp;RBLS ; &amp;&amp;RHSBLS ; \
-          action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
-        # compare
-        id=RBL02 ; HIT_rhls&gt;=1 ; HIT_rbls&gt;=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
-        id=RBL03 ; HIT_rhls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
-        id=RBL04 ; HIT_rbls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs</pre>
+             action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,HIT_dnstxt=$$dnsbltext)
+        id=RBL02 ; HIT_dnsbls&gt;=2  ; action=554 5.7.1 blocked using $$HIT_dnsbls DNSBLs [INFO: $$HIT_dnstxt]</pre>
 <p>
 </p>
 <h2><a name="parser">PARSER</a></h2>
@@ -794,7 +820,7 @@ verbority using use the ``-v'' or ``-vv'' switch. ``-L'' redirects log messages 
         id=R001; sender=bob@alice.local; client_address=192.168.1.1; action=dunno</pre>
 <p>Lists will be evaluated in the specified order. This allows to place faster expressions at first:</p>
 <pre>
-        postfwd -vv -L -r &quot;id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT&quot; /root/request.sample</pre>
+        postfwd -vv -L -r &quot;id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT&quot; /some/where/request.sample</pre>
 <p>produces the following</p>
 <pre>
         [LOGS info]: compare rbl: &quot;remotehost.remote.net[68.10.1.7]&quot;  -&gt;  &quot;localrbl.local&quot;
@@ -810,7 +836,7 @@ verbority using use the ``-v'' or ``-vv'' switch. ``-L'' redirects log messages 
         [LOGS info]: Action: dunno</pre>
 <p>The negation operator !!(&lt;value&gt;) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:</p>
 <pre>
-        postfwd -vv -L -r &quot;id=TEST; action=REJECT; client_name=!!($$heloname)&quot; /root/request.sample</pre>
+        postfwd -vv -L -r &quot;id=TEST; action=REJECT; client_name=!!($$heloname)&quot; /some/where/request.sample</pre>
 <p>will give</p>
 <pre>
         [LOGS info]: compare client_name:     &quot;unknown&quot;  -&gt;  &quot;!!($$helo_name)&quot;
@@ -924,13 +950,14 @@ listening on the specified network settings.</p>
 </p>
 <h2><a name="performance">PERFORMANCE</a></h2>
 <p>Some of these proposals might not match your environment. Please check your requirements and test new options carefully!</p>
-<p>- use caching options
-- use the correct match operator ==, &lt;=, &gt;=
-- use ^ and $ in regular expressions
-- use item lists (faster than single rules)
-- use <code>set()</code> action on repeated item lists
-- use jump action
-- use pre-lookup rule for rbl/rhsbls with empty <code>note()</code> action</p>
+<pre>
+        - use caching options
+        - use the correct match operator ==, &lt;=, &gt;=
+        - use ^ and/or $ in regular expressions
+        - use item lists (faster than single rules)
+        - use set() action on repeated item lists
+        - use jumps and rate limits
+        - use a pre-lookup rule for rbl/rhsbls with empty note() action</pre>
 <p>
 </p>
 <h2><a name="see_also">SEE ALSO</a></h2>
@@ -969,8 +996,17 @@ POSSIBILITY OF SUCH DAMAGE.</p>
 </p>
 <hr />
 <h1><a name="author">AUTHOR</a></h1>
-<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;info&nbsp;(AT)&nbsp;postfwd&nbsp;(DOT)&nbsp;org&gt;. Let me know, if you have any suggestions.</p>
+<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;info (AT) postfwd (DOT) org&gt;. Let me know, if you have any suggestions.</p>
+
+<p><center>
+<table border="1" color="black" frame="hsides" rules="none" width="100%">
+  <td width="33%" align="left"><small>http://www.postfwd.org/doc.html</small>
+  <td width="34%" align="center"><small>2007 by <a href="http://www.jpkessler.de/">Jan Peter Kessler</a></small>
+  <td width="33%" align="right"><small>info (AT) postfwd (DOT) org</small>
+</table>
+</center></p>
 
 </body>
 
 </html>
+
