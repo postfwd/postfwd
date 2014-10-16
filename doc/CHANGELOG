@@ -1,3 +1,12 @@
+1.20
+=====
+- code:    changed the default umask for the server socket to 0111
+           to support out-of-the-box postfix setup. Use the
+           --umask setting to change this
+- bugfix:  rbl check could fail on multiple dnsbl answers
+- bugfix:  rbl checks disabled for ipv6 addresses, cidr compare
+	   will switch to default (regex/string)
+
 1.19
 =====
 - code:    Rate limit code rewritten

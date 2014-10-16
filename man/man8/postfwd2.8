@@ -128,97 +128,134 @@
 .rm #[ #] #H #V #F C
 .\" ========================================================================
 .\"
-.IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2010-11-14" "perl v5.8.5" "User Contributed Perl Documentation"
+.IX Title "POSTFWD2 1"
+.TH POSTFWD2 1 "2010-11-14" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
-postfwd \- postfix firewall daemon
+postfwd2 \- postfix firewall daemon
 .SH "SYNOPSIS"
 .IX Header "SYNOPSIS"
-postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
+\&\fBpostfwd2\fR [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 .PP
-.Vb 3
+.Vb 4
 \&        Ruleset: (at least one, multiple use is allowed):
-\&        -f, --file <file>           reads rules from <file>
-\&        -r, --rule <rule>           adds <rule> to config
+\&        -f, --file <file>               reads rules from <file>
+\&        -r, --rule <rule>               adds <rule> to config
+\&        -s, --scores <v>=<r>            returns <r> when score exceeds <v>
+.Ve
+.PP
+.Vb 14
+\&        Server:
+\&        -i, --interface <dev>           listen on interface <dev>
+\&        -p, --port <port>               listen on port <port>
+\&            --proto <proto>             socket type (tcp or unix)
+\&            --server_socket <sock>      e.g. tcp:127.0.0.1:10045
+\&        -u, --user <name>               set uid to user <name>
+\&        -g, --group <name>              set gid to group <name>
+\&            --umask <mask>              umask for master filepermissions
+\&            --server_umask <mask>       umask for server filepermissions
+\&            --pidfile <path>            create pidfile under <path>
+\&            --min_servers <i>           spawn at least <i> children
+\&            --max_servers <i>           do not spawn more than <i> children
+\&            --min_spare_servers <i>     minimum idle children
+\&            --max_spare_servers <i>     maximum idle children
+.Ve
+.PP
+.Vb 16
+\&        Cache:
+\&        -c, --cache <int>               sets the request-cache timeout to <int> seconds
+\&            --cleanup-requests <int>    cleanup interval in seconds for request cache
+\&            --cache_interface <dev>     listen on interface <dev>
+\&            --cache_port <port>         listen on port <port>
+\&            --cache_proto <proto>       socket type (tcp or unix)
+\&            --cache_socket <sock>       e.g. tcp:127.0.0.1:10043
+\&            --cache_umask <mask>        umask for cache filepermissions
+\&            --cacheid <list>            list of request items for cache-id
+\&            --cache-rdomain-only        skip recipient localpart for cache-id
+\&            --cache-no-sender           skip sender address for cache-id
+\&            --cache-no-size             skip size for cache-id
+\&            --no_parent_request_cache   disable parent request cache
+\&            --no_parent_rate_cache      disable parent rate cache
+\&            --no_parent_dns_cache       disable parent dns cache
+\&            --no_parent_cache           disable all parent caches
 .Ve
 .PP
 .Vb 2
-\&        Scoring:
-\&        -s, --scores <v>=<r>        returns <r> when score exceeds <v>
+\&        Rates:
+\&            --cleanup-rates <int>       cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 12
-\&        Networking:
-\&        -d, --daemon                run postfwd as daemon
-\&        -i, --interface <dev>       listen on interface <dev>
-\&        -p, --port <port>           listen on port <port>
-\&            --proto <proto>         socket type (tcp or unix)
-\&        -u, --user <name>           set uid to user <name>
-\&        -g, --group <name>          set gid to group <name>
-\&            --umask <mask>          set umask for file permissions
-\&        -R, --chroot <path>         chroot the daemon to <path>
-\&            --pidfile <path>        create pidfile under <path>
-\&        -l, --logname <label>       label for syslog messages
-\&            --loglen <int>          truncates syslogs after <int> chars
+.Vb 9
+\&        Control:
+\&        -k, --kill, --stop              terminate postfwd2
+\&            --reload, --hup             reload postfwd2
+\&            --watchdog <w>              watchdog timer in seconds
+\&            --respawn <r>               respawn delay in seconds
+\&            --failures <f>              max respawn failure counter
+\&            --daemons <list>            list of daemons to start
+\&            --dumpcache                 show cache contents
+\&            --dumpstats                 show statistics
 .Ve
 .PP
 .Vb 11
-\&        Caching:
-\&        -c, --cache <int>           sets the request-cache timeout to <int> seconds
-\&            --cache-no-size         ignores size attribute for caching
-\&            --cache-no-sender       ignores sender address in cache
-\&            --cache-rdomain-only    ignores localpart of recipient address in cache
-\&            --cache-rbl-timeout     default rbl timeout, if not specified in ruleset
-\&            --cache-rbl-default     default rbl response pattern to match (regexp)
-\&            --cacheid <item>, ..    list of attributes for request cache identifier
-\&            --cleanup-requests      cleanup interval in seconds for request cache
-\&            --cleanup-rbls          cleanup interval in seconds for rbl cache
-\&            --cleanup-rates         cleanup interval in seconds for rate cache
-.Ve
-.PP
-.Vb 17
-\&        Optional:
-\&        -t, --test                  testing, always returns "dunno"
-\&        -v, --verbose               verbose logging, use twice (-vv) to increase level
-\&        -S, --summary <int>         show some usage statistics every <int> seconds
-\&            --norulelog             disbles rule logging
-\&            --norulestats           disables per rule statistics
-\&            --noidlestats           disables statistics when idle
-\&        -n, --nodns                 disable dns
-\&            --nodnslog              disable dns logging
-\&            --dns_async_txt         perform dnsbl A and TXT lookups simultaneously
-\&            --dns_timeout           timeout in seconds for asynchonous dns queries
-\&            --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
-\&            --dns_timeout_interval  interval in seconds for dns timeout maximum counter
-\&            --dns_max_ns_lookups    max names to look up with sender_ns_addrs
-\&            --dns_max_mx_lookups    max names to look up with sender_mx_addrs
-\&        -I, --instantcfg            re-reads rulefiles for every new request
-\&            --config_timeout <i>        parser timeout in seconds
+\&        DNS:
+\&        -n, --nodns                     skip any dns based test
+\&            --dns_timeout <i>           dns query timeout in seconds
+\&            --dns_timeout_max <i>       disable dnsbl after <i> timeouts
+\&            --dns_timeout_interval <i>  reenable dnsbl after <i> seconds
+\&            --cache-rbl-timeout <i>     default dns ttl if not specified in ruleset
+\&            --cache-rbl-default <s>     default dns pattern if not specified in ruleset
+\&            --cleanup-rbls <i>          cleanup old dns cache items every <i> seconds
+\&            --dns_async_txt             perform dnsbl A and TXT lookups simultaneously
+\&            --dns_max_ns_lookups        max names to look up with sender_ns_addrs
+\&            --dns_max_mx_lookups        max names to look up with sender_mx_addrs
 .Ve
 .PP
 .Vb 7
-\&        Informational (use only at command-line!):
-\&        -C, --showconfig            shows ruleset summary, -v for verbose
-\&        -L, --stdoutlog             redirect syslog messages to stdout
-\&        -P, --perfmon               no syslogging, no stdout
-\&        -V, --version               shows program version
-\&        -h, --help                  shows usage
-\&        -m, --manual                shows program manual
+\&        Optional:
+\&        -t, --test                      testing, always returns "dunno"
+\&        -S, --summary <i>               show stats every <i> seconds
+\&            --noidlestats               disables statistics when idle
+\&            --norulestats               disables per rule statistics
+\&        -I, --instantcfg                reloads ruleset on every new request
+\&            --config_timeout <i>        parser timeout in seconds
+.Ve
+.PP
+.Vb 9
+\&        Logging:
+\&        -l, --logname <label>           label for syslog messages
+\&            --facility <s>              use syslog facility <s>
+\&            --nodnslog                  do not log dns results
+\&            --anydnslog                 log any dns (even cached) results
+\&            --norulelog                 do not log rule actions
+\&            --nolog|--perfmon           no logging at all
+\&        -v, --verbose                   verbose logging, use twice to increase
+\&            --debug <s>                 list of debugging classes
+.Ve
+.PP
+.Vb 8
+\&        Information (use only at command-line!):
+\&        -h, --help                      display this help and exit
+\&        -m, --manual                    shows program manual
+\&        -V, --version                   output version information and exit
+\&        -D, --defaults                  show postfwd2 settings and exit
+\&        -C, --showconfig                show postfwd2 ruleset and exit (-v allowed)
+\&        -L, --stdout                    redirect syslog messages to stdout
+\&        -q, --quiet                     no syslogging, no stdout (-P works for compatibility)
 .Ve
 .PP
 .Vb 2
-\&        Plugins:
-\&            --plugins <file>        loads plugins from <file>
+\&        Obsolete (only for compatibility with postfwd v1):
+\&        -d|--daemon, --shortlog, --dns_queuesize, --dns_retries
 .Ve
 .SH "DESCRIPTION"
 .IX Header "DESCRIPTION"
 .Sh "\s-1INTRODUCTION\s0"
 .IX Subsection "INTRODUCTION"
-postfwd is written to combine complex postfix restrictions in a ruleset similar to those of the most firewalls.
+postfwd2 is written to combine complex postfix restrictions in a ruleset similar to those of the most firewalls.
 The program uses the postfix policy delegation protocol to control access to the mail system before a message
 has been accepted (please visit <http://www.postfix.org/SMTPD_POLICY_README.html> for more information). 
 .PP
-postfwd allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters
+postfwd2 allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters
 (like sender and recipient address, size or the client's \s-1TLS\s0 fingerprint). Also it offers simple macros/acls
 which should allow straightforward and easy-to-read configurations.
 .PP
@@ -359,28 +396,28 @@ Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" charac
 .Ve
 .PP
 .Vb 4
-\&        helo_address            - postfwd tries to look up the helo_name. use
+\&        helo_address            - postfwd2 tries to look up the helo_name. use
 \&                                  helo_address=!!(0.0.0.0/0) to check for unknown.
 \&                                  Please do not use this for positive access control
 \&                                  (whitelisting), as it might be forged.
 .Ve
 .PP
 .Vb 4
-\&        sender_ns_names,        - postfwd tries to look up the names/ip addresses
+\&        sender_ns_names,        - postfwd2 tries to look up the names/ip addresses
 \&        sender_ns_addrs           of the nameservers for the sender domain part.
 \&                                  Please do not use this for positive access control
 \&                                  (whitelisting), as it might be forged.
 .Ve
 .PP
 .Vb 4
-\&        sender_mx_names,        - postfwd tries to look up the names/ip addresses
+\&        sender_mx_names,        - postfwd2 tries to look up the names/ip addresses
 \&        sender_mx_addrs           of the mx records for the sender domain part.
 \&                                  Please do not use this for positive access control
 \&                                  (whitelisting), as it might be forged.
 .Ve
 .PP
 .Vb 6
-\&        version                 - postfwd version, contains "postfwd n.nn"
+\&        version                 - postfwd2 version, contains "postfwd2 n.nn"
 \&                                  this enables version based checks in your rulesets
 \&                                  (e.g. for migration). works with old versions too,
 \&                                  because a non-existing item always returns false:
@@ -464,7 +501,7 @@ client_address, rbl and rhsbl items may also be specified as whitespace-or-comma
 \&                                10.216.222.0/27
 .Ve
 .PP
-The following items currently have to be unique:
+The following items must be unique:
 .PP
 .Vb 1
 \&        id, minimum and maximum values, rblcount and rhsblcount
@@ -485,7 +522,7 @@ or using the right compare operator:
 To avoid confusion with regexps or simply for better visibility you can use '!!(...)':
 .PP
 .Vb 1
-\&        id=USER01 ;  sasl_username=!!( (bob|alice) )  ;  action=REJECT who is that?
+\&        id=USER01 ;  sasl_username=!!( /^(bob|alice)$/ )  ;  action=REJECT who is that?
 .Ve
 .PP
 Request attributes can be compared by preceeding '$$' characters, e.g.:
@@ -506,7 +543,7 @@ Since postfwd1 v1.15 and postfwd2 v0.18 long item lists can be stored in separat
 \&        id=R001 ;  ccert_fingerprint==file:/etc/postfwd/wl_ccerts ;  action=DUNNO
 .Ve
 .PP
-postfwd will read a list of items (one item per line) from /etc/postfwd/wl_ccerts. comments are allowed:
+postfwd2 will read a list of items (one item per line) from /etc/postfwd/wl_ccerts. comments are allowed:
 .PP
 .Vb 6
 \&        # client1
@@ -546,7 +583,7 @@ and for non pcre (comma separated) items:
 You can check your configuration with the \-\-show_config option at the command line:
 .PP
 .Vb 1
-\&        # postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
+\&        # postfwd2 --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
 .Ve
 .PP
 should give something like:
@@ -558,12 +595,12 @@ should give something like:
 If a file can not be read, it will be ignored:
 .PP
 .Vb 3
-\&        # postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
+\&        # postfwd2 --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
 \&        [LOG warning]: error: file /etc/postfwd/wl_clients not found - file will be ignored ?
 \&        Rule   0: id->"R-0"; action->"DUNNO"; client_address->"=;10.1.0.0/16, =;192.168.2.1"
 .Ve
 .PP
-File items are evaluated at configuration stage. Therefore postfwd needs to be reloaded if a file has changed.
+File items are evaluated at configuration stage. Therefore postfwd2 needs to be reloaded if a file has changed
 .PP
 If you want to specify a file, that will be reloaded for each request, you can use lfile: and ltable:
 .PP
@@ -592,7 +629,7 @@ Files can refer to other files. The following is valid.
 .PP
 .Vb 2
 \&        -- FILE /etc/postfwd/rules.cf --
-\&        id=R001; client_address=file:/etc/postfwd/clients_master.cf; action=DUNNO
+\&        id=R01; client_address=file:/etc/postfwd/clients_master.cf; action=DUNNO
 .Ve
 .PP
 .Vb 4
@@ -633,7 +670,7 @@ Actions will be replied to postfix as result to policy delegation requests. Any 
 \&\*(L"man 5 access\*(R" or <http://www.postfix.org/access.5.html> for a description. If no action is specified, the postfix \s-1WARN\s0 action
 which simply logs the event will be used for the corresponding rule.
 .PP
-postfwd will return dunno if it has reached the end of the ruleset and no rule has matched. This can be changed by placing a last
+postfwd2 will return dunno if it has reached the end of the ruleset and no rule has matched. This can be changed by placing a last
 rule containing only an action statement:
 .PP
 .Vb 3
@@ -642,9 +679,9 @@ rule containing only an action statement:
 \&        action=reject                           # default deny
 .Ve
 .PP
-\&\fIpostfwd actions\fR
+\&\fIpostfwd2 actions\fR
 .PP
-postfwd actions control the behaviour of the program. Currently you can specify the following:
+postfwd2 actions control the behaviour of the program. Currently you can specify the following:
 .PP
 .Vb 4
 \&        jump (<id>)
@@ -664,7 +701,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&                =n.nn   sets the current score to n.nn
 \&        if the score exceeds the maximum set by `--scores` option (see
 \&        COMMAND LINE) or the score item (see ITEMS section), the action
-\&        defined for this case will be returned (default: 5.0=>"REJECT postfwd score exceeded").
+\&        defined for this case will be returned (default: 5.0=>"REJECT postfwd2 score exceeded").
 .Ve
 .PP
 .Vb 5
@@ -690,7 +727,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 .Vb 7
 \&        size (<item>/<max>/<time>/<action>)
 \&        this command works similar to the rate() command with the difference, that the rate counter is
-\&        increased by the request's size attribute. to do this reliably you should call postfwd from
+\&        increased by the request's size attribute. to do this reliably you should call postfwd2 from
 \&        smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
 \&           # size limit 1.5mb per hour per client
 \&           id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \e
@@ -712,7 +749,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        ask (<addr>:<port>[:<ignore>])
 \&        allows to delegate the policy decision to another policy service (e.g. postgrey). the first
 \&        and the second argument (address and port) are mandatory. a third optional argument may be
-\&        specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
+\&        specified to tell postfwd2 to ignore certain answers and go on parsing the ruleset:
 \&           # example1: query postgrey and return it's answer to postfix
 \&           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
 \&           # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
@@ -834,8 +871,8 @@ Please visit <http://www.postfwd.org/postfwd.plugins>
 .IX Subsection "COMMAND LINE"
 \&\fIRuleset\fR
 .PP
-The following arguments are used to specify the source of the postfwd ruleset. This means
-that at least one of the following is required for postfwd to work.
+The following arguments are used to specify the source of the postfwd2 ruleset. This means
+that at least one of the following is required for postfwd2 to work.
 .PP
 .Vb 3
 \&        -f, --file <file>
@@ -867,40 +904,40 @@ that at least one of the following is required for postfwd to work.
 Multiple usage is allowed. Just chain your arguments, like:
 .PP
 .Vb 3
-\&        postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> --plugins <file> ...
+\&        postfwd2 -r "<item>=<value>;action=<result>" -f <file> -f <file> --plugins <file> ...
 \&          or
-\&        postfwd --scores 4.5="WARN high score" --scores 5.0="REJECT postfwd score too high" ...
+\&        postfwd2 --scores 4.5="WARN high score" --scores 5.0="REJECT postfwd2 score too high" ...
 .Ve
 .PP
 In case of multiple scores, the highest match will count. The order of the arguments will be
-reflected in the postfwd ruleset.
+reflected in the postfwd2 ruleset.
 .PP
 \&\fINetworking\fR
 .PP
-postfwd can be run as daemon so that it listens on the network for incoming requests.
+postfwd2 can be run as daemon so that it listens on the network for incoming requests.
 The following arguments will control it's behaviour in this case.
 .PP
 .Vb 3
 \&        -d, --daemon
-\&        postfwd will run as daemon and listen on the network for incoming
+\&        postfwd2 will run as daemon and listen on the network for incoming
 \&        queries (default 127.0.0.1:10040).
 .Ve
 .PP
 .Vb 2
 \&        -i, --interface <dev>
-\&        Bind postfwd to the specified interface (default 127.0.0.1).
+\&        Bind postfwd2 to the specified interface (default 127.0.0.1).
 .Ve
 .PP
 .Vb 2
 \&        -p, --port <port>
-\&        postfwd listens on the specified port (default tcp/10040).
+\&        postfwd2 listens on the specified port (default tcp/10040).
 .Ve
 .PP
 .Vb 4
 \&        --proto <type>
 \&        The protocol type for postfwd's socket. Currently you may use 'tcp' or 'unix' here.
-\&        To use postfwd with a unix domain socket, run it as follows:
-\&            postfwd --proto=unix --port=/somewhere/postfwd.socket
+\&        To use postfwd2 with a unix domain socket, run it as follows:
+\&            postfwd2 --proto=unix --port=/somewhere/postfwd.socket
 .Ve
 .PP
 .Vb 2
@@ -915,9 +952,19 @@ The following arguments will control it's behaviour in this case.
 .PP
 .Vb 4
 \&        --umask <mask>
-\&        Changes the umask for filepermissions (unix domain sockets, pidfiles).
+\&        Changes the umask for filepermissions of the master process (pidfile).
 \&        Attention: This is umask, not chmod - you have to specify the bits that
 \&        should NOT apply. E.g.: umask 077 equals to chmod 700.
+.Ve
+.PP
+.Vb 2
+\&        --cache_umask <mask>
+\&        Changes the umask for filepermissions of the cache process (unix domain socket).
+.Ve
+.PP
+.Vb 2
+\&        --server_umask <mask>
+\&        Changes the umask for filepermissions of the server process (unix domain socket).
 .Ve
 .PP
 .Vb 3
@@ -944,7 +991,7 @@ The following arguments will control it's behaviour in this case.
 .PP
 \&\fIOptional arguments\fR
 .PP
-These parameters influence the way postfwd is working. Any of them can be combined.
+These parameters influence the way postfwd2 is working. Any of them can be combined.
 .PP
 .Vb 4
 \&        -v, --verbose
@@ -995,9 +1042,9 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        --cacheid <item>, <item>, ...
 \&        This csv-separated list of request attributes will be used to construct
 \&        the request cache identifier. Use this only, if you know exactly what you
-\&        are doing. If you, for example, use postfwd only for RBL/RHSBL control,
+\&        are doing. If you, for example, use postfwd2 only for RBL/RHSBL control,
 \&        you may set this to
-\&                postfwd --cache=3600 --cacheid=client_name,client_address
+\&                postfwd2 --cache=3600 --cacheid=client_name,client_address
 \&        This increases efficiency of caching and improves postfwd's performance.
 \&        Warning: You should list all items here, which are used in your ruleset!
 .Ve
@@ -1027,7 +1074,7 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        -S, --summary <int>    (default=600)
 \&        Shows some usage statistics (program uptime, request counter, matching rules)
 \&        every <int> seconds. This option is included by the -v switch.
-\&        This feature uses the alarm signal, so you can force postfwd to dump the stats
+\&        This feature uses the alarm signal, so you can force postfwd2 to dump the stats
 \&        using `kill -ALRM <pid>` (where <pid> is the process id of postfwd).
 .Ve
 .PP
@@ -1050,13 +1097,13 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .Ve
 .PP
 .Vb 2
-\&        -L, --stdoutlog
+\&        -L, --stdout
 \&        Redirects all syslog messages to stdout for debugging. Never use this with postfix!
 .Ve
 .PP
 .Vb 3
 \&        -t, --test
-\&        In test mode postfwd always returns "dunno", but logs according
+\&        In test mode postfwd2 always returns "dunno", but logs according
 \&        to it`s ruleset. -v will be set automatically with this option.
 .Ve
 .PP
@@ -1109,7 +1156,7 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .Vb 6
 \&        -I, --instantcfg
 \&        The config files, specified by -f will be re-read for every request
-\&        postfwd receives. This enables on-the-fly configuration changes
+\&        postfwd2 receives. This enables on-the-fly configuration changes
 \&        without restarting. Though files will be read only if necessary
 \&        (which means their access times changed since last read) this might
 \&        significantly increase system load.
@@ -1123,17 +1170,11 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .PP
 \&\fIInformational arguments\fR
 .PP
-These arguments are for command line usage only. Never ever use them with postfix spawn!
+These arguments are for command line usage only. Never ever use them with postfix!
 .PP
 .Vb 2
 \&        -C, --showconfig
 \&        Displays the current ruleset. Use -v for verbose output.
-.Ve
-.PP
-.Vb 3
-\&        -P, --perfmon
-\&        This option turns of any syslogging and output. It is included
-\&        for performance testing.
 .Ve
 .PP
 .Vb 2
@@ -1150,10 +1191,21 @@ These arguments are for command line usage only. Never ever use them with postfi
 \&        -m, --manual
 \&        Displays the program manual.
 .Ve
+.PP
+.Vb 2
+\&        -D, --defaults
+\&        displays complete postfwd2 settings.
+.Ve
+.PP
+.Vb 3
+\&        -P, --perfmon
+\&        This option turns of any syslogging and output. It is included
+\&        for performance testing.
+.Ve
 .Sh "\s-1REFRESH\s0"
 .IX Subsection "REFRESH"
-In daemon mode postfwd reloads it's ruleset after receiving a \s-1HUP\s0 signal. Please see the description of
-the '\-I' switch to have your configuration refreshed for every request postfwd receives.
+In daemon mode postfwd2 reloads it's ruleset after receiving a \s-1HUP\s0 signal. Please see the description of
+the '\-I' switch to have your configuration refreshed for every request postfwd2 receives.
 .Sh "\s-1EXAMPLES\s0"
 .IX Subsection "EXAMPLES"
 .Vb 7
@@ -1240,7 +1292,7 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        # - other clients without correct rDNS will be greylist-checked
 \&        # - some whitelists are used to lower the score
 \&        id=S01 ; score=2.6              ; action=greylisting
-\&        id=S02 ; score=5.0              ; action=REJECT postfwd score too high
+\&        id=S02 ; score=5.0              ; action=REJECT postfwd2 score too high
 \&        id=R00 ; action=score(-1.0)     ; rbl=exemptions.ahbl.org,list.dnswl.org,query.bondedsender.org,spf.trusted-forwarder.org
 \&        id=R01 ; action=score(2.5)      ; rbl=bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
 \&        id=R02 ; action=score(2.5)      ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
@@ -1330,11 +1382,11 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 .IX Subsection "PARSER"
 \&\fIConfiguration\fR
 .PP
-The postfwd ruleset can be specified at the commandline (\-r option) or be read from files (\-f). The order of your arguments will be kept. You should
+The postfwd2 ruleset can be specified at the commandline (\-r option) or be read from files (\-f). The order of your arguments will be kept. You should
 check the parser with the \-C | \-\-showconfig switch at the command line before applying a new config. The following call:
 .PP
 .Vb 4
-\&        postfwd --showconfig \e
+\&        postfwd2 --showconfig \e
 \&                -r "id=TEST; recipient_count=100; action=WARN mail with 100+ recipients" \e
 \&                -f /etc/postfwd.cf \e
 \&                -r "id=DEFAULT; action=dunno";
@@ -1353,7 +1405,7 @@ will produce the following output:
 Multiple items of the same type will be added to lists (see the \*(L"\s-1ITEMS\s0\*(R" section for more info):
 .PP
 .Vb 2
-\&        postfwd --showconfig \e
+\&        postfwd2 --showconfig \e
 \&                -r "client_address=192.168.1.0/24; client_address=172.16.26.32; action=dunno"
 .Ve
 .PP
@@ -1366,7 +1418,7 @@ will result in:
 Macros are evaluated at configuration stage, which means that
 .PP
 .Vb 3
-\&        postfwd --showconfig \e
+\&        postfwd2 --showconfig \e
 \&                -r "&&RBLS { rbl=bl.spamcop.net; client_name=^unknown$; };" \e
 \&                -r "id=RBL001; &&RBLS; action=REJECT listed on spamcop and bad rdns";
 .Ve
@@ -1397,7 +1449,7 @@ equals to
 Lists will be evaluated in the specified order. This allows to place faster expressions at first:
 .PP
 .Vb 1
-\&        postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
+\&        postfwd2 --nodaemon -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
 .Ve
 .PP
 produces the following
@@ -1419,7 +1471,7 @@ produces the following
 The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
 .PP
 .Vb 1
-\&        postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
+\&        postfwd2 --nodaemon -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
 .Ve
 .PP
 will give
@@ -1435,19 +1487,19 @@ will give
 \&\fIRuleset evaluation\fR
 .PP
 A rule hits when all items (or at least one element of a list for each item) have matched. As soon as one item (or all elements of a list) fails
-to compare against the request attribute the parser will jump to the next rule in the postfwd ruleset.
+to compare against the request attribute the parser will jump to the next rule in the postfwd2 ruleset.
 .PP
 If a rule matches, there are two options:
 .PP
 * Rule returns postfix action (dunno, reject, ...)
 The parser stops rule processing and returns the action to postfix. Other rules will not be evaluated.
 .PP
-* Rule returns postfwd action (\fIjump()\fR, \fInote()\fR, ...)
+* Rule returns postfwd2 action (\fIjump()\fR, \fInote()\fR, ...)
 The parser evaluates the given action and continues with the next rule (except for the \fIjump()\fR or \fIquit()\fR actions \- please see the \*(L"\s-1ACTIONS\s0\*(R" section
 for more information). Nothing will be sent to postfix.
 .PP
-If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
-simply place a last `catch\-all´ rule to change that behaviour:
+If no rule has matched and the end of the ruleset is reached postfwd2 will return dunno without logging anything unless in verbose mode. You may
+place a last catch-all rule to change that behaviour:
 .PP
 .Vb 2
 \&        ... <your rules> ...
@@ -1455,25 +1507,35 @@ simply place a last `catch\-all´ rule to change that behaviour:
 .Ve
 .PP
 will log any request that passes the ruleset without having hit a prior rule.
+.Sh "\s-1DEBUGGING\s0"
+.IX Subsection "DEBUGGING"
+To debug special steps of the parser the '\-\-debug' switch takes a list of debug classes. Currently the following classes are defined:
+.PP
+.Vb 4
+\&        all cache config debugdns devel dns getcache getdns
+\&        getdnspacket rates request setcache setdns
+\&        parent_cache parent_dns_cache parent_rate_cache parent_request_cache
+\&        child_cache  child_dns_cache  child_rate_cache  child_request_cache
+.Ve
 .Sh "\s-1INTEGRATION\s0"
 .IX Subsection "INTEGRATION"
 \&\fIIntegration via daemon mode\fR
 .PP
-The common way to use postfwd is to start it as daemon, listening at a specified tcp port.
-As postfwd will run in a single instance (multiplexing mode), it will take most benefit of
-it`s internal caching in that case. Start postfwd with the following parameters:
+The common way to use postfwd2 is to start it as daemon, listening at a specified tcp port.
+postfwd2 will spawn multiple child processes which communicate with a parent cache. This is
+the prefered way to use postfwd2 in high volume environments. Start postfwd2 with the following parameters:
 .PP
 .Vb 1
-\&        postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S
+\&        postfwd2 -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S
 .Ve
 .PP
-For efficient caching you should check if you can use the options \-\-cache\-rdomain\-only, \-\-cache\-no\-sender
-and \-\-cache\-no\-size.
+For efficient caching you should check if you can use the options \-\-cacheid, \-\-cache\-rdomain\-only,
+\&\-\-cache\-no\-sender and \-\-cache\-no\-size.
 .PP
 Now check your syslogs (default facility \*(L"mail\*(R") for a line like:
 .PP
 .Vb 1
-\&        Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input
+\&        Aug  9 23:00:24 mail postfwd[5158]: postfwd2 n.nn ready for input
 .Ve
 .PP
 and use `netstat \-an|grep 10040` to check for something like
@@ -1498,7 +1560,7 @@ lines like the following in your mail log:
 \&        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.tld, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
 .Ve
 .PP
-If you want to check for size or rcpt_count items you must integrate postfwd in smtp_data_restrictions or
+If you want to check for size or rcpt_count items you must integrate postfwd2 in smtp_data_restrictions or
 smtpd_end_of_data_restrictions. Of course you can also specify a restriction class and use it in your access
 tables. First create a file /etc/postfix/policy containing:
 .PP
@@ -1526,50 +1588,19 @@ Then postmap that file (`postmap hash:/etc/postfix/policy`), open your main.cf a
 .Ve
 .PP
 Reload postfix and watch your logs.
-.PP
-\&\fIIntegration via xinetd\fR
-.PP
-There might be several reasons for you to use postfwd via a tcp wrapper package like xinetd (see <http://www.xinetd.org/>).
-I won`t discuss that here. If you plan to do so, just add the following line to your /etc/services file:
-.PP
-.Vb 2
-\&        # postfwd port
-\&        postfwd     10040/tcp
-.Ve
-.PP
-Then create a file '/etc/xinetd.d/postfwd':
-.PP
-.Vb 10
-\&        {
-\&                interface       = 127.0.0.1
-\&                socket_type     = stream
-\&                protocol        = tcp
-\&                wait            = no
-\&                user            = nobody
-\&                server          = /usr/local/bin/postfwd
-\&                server_args     = -f /etc/postfwd.cf
-\&                disable         = no
-\&        }
-.Ve
-.PP
-and restart the xinetd daemon (usually a \s-1SIGHUP\s0 should be fine). If you experience problems
-you might want to check your system's log for xinetd errors like \*(L"socket already in use\*(R".
-.PP
-The integration with postfix is similar to the \fIIntegration via daemon mode\fR section above.
-Reload postfix and watch your logs to see if everything works.
 .Sh "\s-1TESTING\s0"
 .IX Subsection "TESTING"
 First you have to create a ruleset (see Configuration section). Check it with
 .PP
 .Vb 1
-\&        postfwd -f /etc/postfwd.cf -C
+\&        postfwd2 -f /etc/postfwd.cf -C
 .Ve
 .PP
 There is an example policy request distributed with postfwd, called 'request.sample'.
 Simply change it to meet your requirements and use
 .PP
 .Vb 1
-\&        postfwd -f /etc/postfwd.cf <request.sample
+\&        postfwd2 -f /etc/postfwd.cf <request.sample
 .Ve
 .PP
 You should get an answer like
@@ -1584,7 +1615,7 @@ For network tests I use netcat:
 \&        nc 127.0.0.1 10040 <request.sample
 .Ve
 .PP
-to send a request to postfwd. If you receive nothing, make sure that postfwd is running and
+to send a request to postfwd. If you receive nothing, make sure that postfwd2 is running and
 listening on the specified network settings.
 .Sh "\s-1PERFORMANCE\s0"
 .IX Subsection "PERFORMANCE"
@@ -1605,10 +1636,10 @@ See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description
 of how Postfix policy servers work.
 .SH "LICENSE"
 .IX Header "LICENSE"
-postfwd is free software and released under \s-1BSD\s0 license, which basically means
+postfwd2 is free software and released under \s-1BSD\s0 license, which basically means
 that you can do what you want as long as you keep the copyright notice:
 .PP
-Copyright (c) 2007, Jan Peter Kessler
+Copyright (c) 2009, Jan Peter Kessler
 All rights reserved.
 .PP
 Redistribution and use in source and binary forms, with or without modification,

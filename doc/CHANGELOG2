@@ -1,0 +1,173 @@
+postfwd2 1.00
+=============
+- code:    changed the default umask for the server socket to 0111
+	   to support out-of-the-box postfix setup. Use the
+	   --server_umask setting to change this
+- code:	   --dumpcache command does not require debug mode anymore
+- code:    rate hits included to cache stats
+- bugfix:  rbl checks disabled for ipv6 addresses, cidr compare
+	   will switch to default (regex/string)
+
+postfwd2 0.22
+=============
+- feature: Rate limits are completely supported by postfwd2 now.
+	   Please note that the cache daemon is required for reliable operation.
+- bugfix:  --syslog_facility could not be changed
+- code:    rate limit code rewritten
+- code:    new --umask, --cache_umask and --server_umask  settings allow to set
+	   filepermissions for pidfiles and unix domain sockets. New defaults are:
+	   * master (pidfile):	0177 (owner rw)
+	   * cache (socket):	0177 (owner rw)
+	   * server (socket):	0117 (owner and group rw)
+
+postfwd2 0.21
+=============
+- bugfix:  Fixed bug when comparing sender and recipient addresses, like
+           "sender=$$recipient". This affects only postfwd2 version 0.20.
+
+postfwd2 0.20
+=============
+- bugfix:  Invalid characters in variable substitutions were not correctly catched when
+           the '=' operator was used, like "client_name=$$helo_name". If you can not
+           upgrade for some reason change your rule to "client_name=~$$helo_name"
+- code:    Net::DNS errors will now be handled gracefully
+- code:    default for options --dns_max_ns_a_lookups and --dns_max_mx_a_lookups of 100
+
+postfwd2 0.19
+=============
+- bugfix:  this is a bugfix release for 0.18. anyone affected is encouraged to upgrade.
+	   detail: the default behavior for the '=' operator with numeric items
+	   (size, recipient_count, ...) changed with version 0.18 to '==' (equals to).
+	   now these items are compared '>=' (greater than) again.
+	   note: if you are using 0.18 and you are not able upgrade for some reason,
+	   please change '=' to '>=' in your ruleset where you mean 'greater than'.
+
+postfwd2 0.18
+=============
+- feature: items may now be retrieved from files using "item=file:/some/where"
+	   more information in the postfwd manual (FILES section)
+- feature: helo_address, and sender_(ns|mx)_addrs can now be csv items
+- feature: new rcpt() command counts recipients for rate limits (thanks to Sahil Tandon)
+- code:    redirect syslog to stdout for --kill, --reload, --showconfig and --dump(cache|stats)
+- code:    option --reload (HUP signal) now reloads config, if the file is unchanged
+- code:    new --debug classes 'config' and 'request'
+- code:	   configuration parser improvements:
+	   * rules without defined action will be skipped at configuration stage
+	   * undefined ACLs will now be detected and skipped at configuration stage
+	   * parser timeout skips loading a rule after 4s, to prevent problems with
+	     large files or loops. use --config_timeout to override
+- bugfix:  documentation fixed (missing "action=" in ask() examples)
+- bugfix:  fixed logging of an uninitialized value in cache cleanups
+
+postfwd2 0.17
+=============
+- feature: new compare operators *
+        ====================================================================
+         ITEM == VALUE                true if ITEM equals VALUE
+         ITEM => VALUE                true if ITEM >= VALUE
+         ITEM =< VALUE                true if ITEM <= VALUE
+         ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
+         *ITEM != VALUE               false if ITEM equals VALUE
+         *ITEM !> VALUE               false if ITEM >= VALUE
+         *ITEM !< VALUE               false if ITEM <= VALUE
+         *ITEM !~ VALUE               false if ITEM ~= /^VALUE$/i
+         ITEM =  VALUE                default behaviour (see ITEMS section)
+        ====================================================================
+- feature: added --nodaemon and --stdout options
+- code:    non dns items first: if a rule contains dns and non dns items, the
+	   lookups will only be done if all non dns items matched
+- bugfix:  empty pcre with empty sender_(ns|mx)_names was parsed incorrectly.
+	   this bug affects postfwd2 versions 0.15 - 0.16
+- bugfix:  negated pcre items with '~=' operator were parsed incorrectly.
+	   this bug affects postfwd2 version 0.16
+
+postfwd2 0.16
+=============
+- feature: enabled dns cache for sender(ns|mx) and helo address
+- feature: new options --dns_max_ns_lookups and --dns_max_mx_lookups
+- code:    parent_dns_cache is now disabled by default. use
+	   --parent_dns_cache if you have a slow nameserver
+- bugfix:  workaround: Net::Server died if a unix domain socket
+	   filename without a dot ('.') was used (B. Frauendienst)
+
+postfwd2 0.15
+=============
+- feature: new items sender_ns_names and sender_ns_addrs
+- feature: new items sender_mx_names and sender_mx_addrs
+- feature: new item helo_address, please see docs for more
+- feature: new parent cache statistics. the command line option --dumpstats
+	   uses the --daemons setting now (default: cache,server)
+- feature: dnsbl txt lookups only for dnsbls with at least one a record.
+	   use --dns_async_txt for the old behaviour (see docs for more).
+- code:    summary function went to postfwd::master (and will stay there ;)
+- code:    small performance improvement (5-10%) for pcre (~= or =~) items
+- bugfix:  network 0.0.0.0/0 did not work as expected on all platforms
+
+
+postfwd2 0.14
+=============
+- code:    summary function was moved from postfwd::cache to postfwd::policy.
+           the reduced policy <-> cache communication increases throughput
+	   considerably and improves cpu balancing on multiprocessor systems
+- bugfix:  fixed potential division by zero in summary function
+
+
+postfwd2 0.13
+=============
+- feature: new options --noidlestats and --norulestats
+- feature: more informative --version
+- feature: documentation updates
+- bugfix:  disabled parent_cache counters when --summary=0
+
+
+postfwd2 0.12
+=============
+- feature: the ask() action allows to delegate the policy decision to another
+           policy service (like postgrey). a new parameter allows to specify
+           answer patterns which should be ignored by postfwd. please look
+	   at the 'ACTIONS' section in the manual (postfwd2 -m) for details.
+- feature: parent-request cache will now only be updated, if a rule matches.
+           if postfwd should cache all requests, you must place a last rule:
+	      id=DEFAULT; action=dunno
+- bugfix:  reorganised some parent-cache loggings for -vv and *cache debug classes
+
+
+postfwd2 0.11
+=============
+- bugfix: all postfwd settings are now detainted
+- bugfix: cache-update used an uninitialized value when no rule had hit
+
+
+postfwd2 0.10
+=============
+- bugfix: command line arguments --pidfile
+
+
+postfwd2 0.09
+=============
+- bugfix: command line arguments --user and --group were not correctly de-tainted
+
+
+postfwd2 0.08
+=============
+- bugfix: command line argument --pid_file was ignored
+- bugfix: command line argument --manual (-m) did not work
+
+
+postfwd2 0.07
+=============
+- first semi-public release of postfwd2
+- full ruleset compatibility, no changes required when migrating from postfwd v1
+- new architecture:
+
+	* Net::Server::PreFork
+	  ruleset processor (server) forks new child for any request
+
+	* Net::Server::Multiplex for parent cache
+	  offers a shared request, dns and rate cache for postfwd2 children
+
+	* Net::Server::Daemonize for master process
+	  controls server and cache (watchdog function) and allows direct
+	  access to statistics, cache-contents, ... from the command-line
+
+- many new commandline options (see postfwd2 -h) for more information

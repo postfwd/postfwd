@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.19';
+our($VERSION)			= '1.20';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -33,7 +33,7 @@ our($def_net_chroot)		= "";
 our($def_net_interface)		= "127.0.0.1";
 our($def_net_port)		= "10040";
 our($def_net_proto)		= "tcp";
-our($def_net_umask)		= "0117";
+our($def_net_umask)		= "0111";
 our($def_net_user)		= "nobody";
 our($def_net_group)		= "nobody";
 our($def_dns_queuesize)		= "300";
@@ -589,7 +589,7 @@ sub check_for_old_syntax {
             $myarg = $1;
             $myvalue = "$mycmd($myarg)";
             mylogs "notice", "notice: Rule $myindex ($myfile line $mynum): "
-            ."removing obsolete '\$\$' for $mycmd limit index. See man page for new syntax.";
+            ."removing obsolete '\$\$' for $mycmd limit index. See man page for new syntax." if $opt_verbose;
           };
           push @Rate_Items, (split '/', $myarg)[0];
         };
@@ -899,6 +899,7 @@ sub rbl_check {
 				if $opt_verbose;
 			push @DNSBL_Text, $DNS_Cache{$myquery}{type}.':'.$DNS_Cache{$myquery}{name}.':<'.($DNS_Cache{$myquery}{TXT} || '').'>'
 				if (defined $DNS_Cache{$myquery}{type} and defined $DNS_Cache{$myquery}{name});
+			last ANSWER;
 		};
 	};
     };
@@ -910,7 +911,7 @@ sub rbl_check {
 sub dns_query {
     my (@queries) = @_; undef my @result;
     eval {
-	local $SIG{__DIE__} = sub { mylogs 'notice', "dns err: \"$!\", detail: \"@_\""; };
+	local $SIG{__DIE__} = sub { mylogs 'notice', "dns err: \"$!\", detail: \"@_\""; return if $^S; };
 	@result = dns_query_net_dns(@queries);
     };
     return @result;
@@ -1033,9 +1034,19 @@ sub postfwd_items {
 		my($myresult) = ($val and $myitem);
 		mylogs $syslog_priority, "type cidr :  \"$myitem\"  \"$cmp\"  \"$val\"" if ($opt_verbose > 1);
 		if ($myresult) {
-			return $myresult if ( ($val eq '0.0.0.0/0') and ($myitem =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) );
-			$val .= '/32' unless ($val =~ /\/\d{1,2}$/);
-			$myresult = cidr_match((cidr_parse($val)),$myitem);
+			# always true
+			$myresult = ($val eq '0.0.0.0/0');
+			unless ($myresult) {
+				# v4 addresses only 
+				$myresult = ($myitem =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
+				if ($myresult) {
+					$val .= '/32' unless ($val =~ /\/\d{1,2}$/);
+					$myresult = cidr_match((cidr_parse($val)),$myitem);
+				} else {
+					mylogs $syslog_priority, "Non IPv4 address. Using type default" if ($opt_verbose > 1);
+					return &{$postfwd_compare{default}}($cmp,$val,$myitem,%request);
+				};
+			};
 		};
 		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
@@ -1588,7 +1599,7 @@ sub compare_rule {
 	mylogs "notice", "[DNSQUERY] skipping rbls: $timed - too much timeouts" if $timed;
 
 	push @queries, rbl_prepare_lookups ( $COMP_RBL_KEY, $request{reverse_address}, @{$Rules[$index]{$COMP_RBL_KEY}} )
-		if ( exists($Rules[$index]{$COMP_RBL_KEY}) );
+		if ( exists($Rules[$index]{$COMP_RBL_KEY}) and not($request{client_address} =~ /:/) );
 	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY, $request{client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY}} )
 		if ( exists($Rules[$index]{$COMP_RHSBL_KEY}) and not($request{client_name} eq "unknown") );
 	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_CLIENT, $request{client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY_CLIENT}} )
@@ -2798,10 +2809,11 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	this command creates a counter for the given <item>, which will be increased any time a request
 	containing it arrives. if it exceeds <max> within <time> seconds it will return <action> to postfix.
 	rate counters are very fast as they are executed before the ruleset is parsed.
+	please note that <action> is currently limited to postfix actions (no postfwd actions)!
 	    # no more than 3 requests per 5 minutes
 	    # from the same "unknown" client
 	    id=RATE01 ;  client_name==unknown ; \
-	       action==rate($$client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
+	       action==rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
 
 	size (<item>/<max>/<time>/<action>)
 	this command works similar to the rate() command with the difference, that the rate counter is
@@ -2809,7 +2821,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
 	   # size limit 1.5mb per hour per client
 	   id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
-	      action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
+	      action==size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 
 	rcpt (<item>/<max>/<time>/<action>)
 	this command works similar to the rate() command with the difference, that the rate counter is
@@ -2818,7 +2830,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	check it within the ruleset:
 	   # recipient count limit 3 per hour per client
 	   id=RCPT01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
-	      action==rcpt($$client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
+	      action==rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 
 	ask (<addr>:<port>[:<ignore>])
 	allows to delegate the policy decision to another policy service (e.g. postgrey). the first
@@ -3241,9 +3253,9 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	# 1. exceeded 30 requests per hour or
 	# 2. tried to send more than 1.5mb within 10 minutes
 	id=RATE01 ;  client_name==unknown ;  state==RCPT ; \
-		action==rate($$client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
+		action==rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
 	id=SIZE01 ;  client_name==unknown ;  state==END_OF_DATA ; \
-		action==size($$client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
+		action==size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
 
 	## Macros
         # definition

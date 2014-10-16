@@ -7,6 +7,7 @@
 PATH=/bin:/usr/bin:/usr/local/bin
 
 # path to program
+#PFWCMD=/usr/local/postfwd/sbin/postfwd2
 PFWCMD=/usr/local/postfwd/sbin/postfwd
 # rulesetconfig file
 PFWCFG=/etc/postfix/postfwd.cf
