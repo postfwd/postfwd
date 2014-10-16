@@ -1,3 +1,12 @@
+postfwd2 1.30-devel1
+====================
+- feature: new plugin interface (BETA)
+- feature: multiple rate limits for the same items are supported now.
+- feature: new $$ratecount variable for rate() actions
+- feature: new option --keep_rates
+- code:    new --debug class 'cleanup'
+- docs:    documentation updates
+
 postfwd2 1.22
 =============
 - general: adapted postfwd1 versioning scheme

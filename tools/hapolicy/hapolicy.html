@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<title>hapoliy - HA and LB for policy servers</title>
+<link rel="stylesheet" type="text/css" href="http://www.jpkessler.de/css/postfwd.css">
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<meta name="description" content="hapolicy loadbalancing and high availability for postfix policy servers">
+<meta name="author" content="jpk">
+<meta name="keywords" content="hapolicy, policy server loadbalancing, policy server high availability, policy server failure, policy delegation, postfix, Jan, Peter, Kessler">
+</head>
+
+<body>
+
+<p><a name="__index__"></a></p>
+<!-- INDEX BEGIN -->
+
+<ul>
+
+	<li><a href="#name">NAME</a></li>
+	<li><a href="#synopsis">SYNOPSIS</a></li>
+	<li><a href="#description">DESCRIPTION</a></li>
+	<ul>
+
+		<li><a href="#introduction">INTRODUCTION</a></li>
+		<li><a href="#configuration">CONFIGURATION</a></li>
+		<li><a href="#integration">INTEGRATION</a></li>
+	</ul>
+
+	<li><a href="#links">LINKS</a></li>
+	<li><a href="#license">LICENSE</a></li>
+	<li><a href="#author">AUTHOR</a></li>
+</ul>
+<!-- INDEX END -->
+
+<hr />
+<p>
+</p>
+<h1><a name="name">NAME</a></h1>
+<p>hapolicy - policy delegation high availability script</p>
+<p>
+</p>
+<hr />
+<h1><a name="synopsis">SYNOPSIS</a></h1>
+<p><strong>hapolicy</strong> [OPTIONS] --service=SERVICE1 [--service=SERVICE2 ...]</p>
+<pre>
+        Services:
+        -s, --service &lt;name&gt;=&lt;address&gt;:&lt;port&gt;[:&lt;prio&gt;:&lt;weight&gt;:&lt;timeout&gt;]</pre>
+<pre>
+        Options:
+        -d, --default &lt;action&gt;  returns &lt;action&gt; if no service was available (default: 'dunno')
+        -l, --logging           log requests
+        -v, --verbose           increase logging verbosity
+        -L, --stdout            log to stdout, for debugging, do NOT use with postfix</pre>
+<p>
+</p>
+<hr />
+<h1><a name="description">DESCRIPTION</a></h1>
+<p>
+</p>
+<h2><a name="introduction">INTRODUCTION</a></h2>
+<p><strong>hapolicy</strong> enables high availability, weighted loadbalancing and a fallback action for postfix policy delegation services. Invoked via postfix spawn it acts as a wrapper that queries
+other policy servers via tcp connection. The order of the service queries can be influenced by assigning a specific priority and weight to each service. A service is considered 'failing',
+if the connection is refused or the specified service timeout is reached. If all of the configured policy services were failing, <strong>hapolicy</strong> returns a default action (e.g. dunno) to postfix.</p>
+<p>With version 1.00 <strong>hapolicy</strong> has less than 200 lines of perl code using only standard perl modules. It does not require any disk access nor configuration files and runs under an unpriviledged
+user account. This should allow fast and reliable operation.</p>
+<p>
+</p>
+<h2><a name="configuration">CONFIGURATION</a></h2>
+<p>A service has the following attributes</p>
+<pre>
+    &quot;servicename&quot;           =&gt; {
+               ip              =&gt; '127.0.0.1',         # ip address
+               port            =&gt; '10040',             # tcp port
+               prio            =&gt; '10',                # optional, lower wins
+               weight          =&gt; '1',                 # optional, for items with same prio (weighted round-robin), higher is better
+               timeout         =&gt; '30',                # optional, query timeout in seconds
+    },</pre>
+<p>You may define multiple services at the command line. Which means that</p>
+<pre>
+        hapolicy -s &quot;grey1=10.0.0.1:10031:10&quot; -s &quot;grey2=10.0.0.2:10031:20&quot;</pre>
+<p>will always try first service <em>grey1</em> at ip 10.0.0.1 port 10031 and if that service is not available or
+does not answer within the default of 30 seconds the next service <em>grey2</em> at ip 10.0.0.2 port 10031 will
+be queried.<br><br>
+<img src="hapolicy01.png"><br>
+</p>
+<p>If you want to load balance connections you may define</p>
+<pre>
+        hapolicy -s &quot;polw1=10.0.0.1:12525:10:2&quot; -s &quot;polw2=10.0.0.2:12525:10:1&quot;</pre>
+<p>which queries service <em>polw1</em> at ip 10.0.0.1 twice as much as service <em>polw2</em> at ip 10.0.0.2.<br><br>
+<img src="hapolicy02.png">
+<br><br>
+Note that this
+setup also ensures high availability for both services. If <em>polw1</em> is not available or does not answer
+within the default of 30 seconds <em>polw2</em> will be queried and vice versa. There is no reason to define a service twice.</p>
+<p>
+</p>
+<h2><a name="integration">INTEGRATION</a></h2>
+<p>Enter the following at the bottom of your postfix master.cf (usually located at /etc/postfix):</p>
+<pre>
+        # service description, note the leading blanks at the second line
+        127.0.0.1:10061 inet    n       n       n       -       0       spawn
+          user=nobody argv=/usr/local/bin/hapolicy -l -s GREY1=10.0.0.1:10031:10 -s GREY2=10.0.0.2:10031:10</pre>
+<p>save the file and open postfix main.cf. Modify it as follows:</p>
+<pre>
+        127.0.0.1:10061_time_limit   = 3600</pre>
+<pre>
+        smtpd_recipient_restrictions =
+            permit_mynetworks,
+            ... other authed permits ...
+            reject_unauth_destination,
+            ... other restrictions ...
+            check_policy_service inet:127.0.0.1:10061   # &lt;- hapolicy query</pre>
+<p>Now issue 'postfix reload' at the command line. Of course you can have more enhanced setups
+using postfix restriction classes. Please see <a href="#links">LINKS</a> for further options.</p>
+<p>
+</p>
+<hr />
+<h1><a name="links">LINKS</a></h1>
+<p>[1] Get hapolicy<br>
+<a href="http://www.postfwd.org/hapolicy/hapolicy">http://www.postfwd.org/hapolicy/hapolicy</a></p>
+<p>[2] Postfix SMTP Access Policy Delegation<br>
+<a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a></p>
+<p>[3] Postfix Per-Client/User/etc. Access Control<br>
+<a href="http://www.postfix.org/RESTRICTION_CLASS_README.html">http://www.postfix.org/RESTRICTION_CLASS_README.html</a></p>
+<p>
+</p>
+<hr />
+<h1><a name="license">LICENSE</a></h1>
+<p>hapolicy is free software and released under BSD license, which basically means
+that you can do what you want as long as you keep the copyright notice:</p>
+<p>Copyright (c) 2008, Jan Peter Kessler
+All rights reserved.</p>
+<p>Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:</p>
+<pre>
+ * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in
+   the documentation and/or other materials provided with the
+   distribution.
+ * Neither the name of the authors nor the names of his contributors
+   may be used to endorse or promote products derived from this
+   software without specific prior written permission.</pre>
+<p>THIS SOFTWARE IS PROVIDED BY ME ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.</p>
+<p>
+</p>
+<hr />
+<h1><a name="author">AUTHOR</a></h1>
+<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;info&nbsp;(AT)&nbsp;postfwd&nbsp;(DOT)&nbsp;org&gt;. Let me know, if you have any suggestions.</p>
+
+</body>
+
+</html>

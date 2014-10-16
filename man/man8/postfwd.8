@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD1-ALL-IN-ONE 1"
-.TH POSTFWD1-ALL-IN-ONE 1 "2011-08-14" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD1-ALL-IN-ONE 1 "2011-08-17" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -147,9 +147,17 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&        -s, --scores <v>=<r>        returns <r> when score exceeds <v>
 .Ve
 .PP
-.Vb 14
-\&        Networking:
+.Vb 6
+\&        Control:
 \&        -d, --daemon                run postfwd as daemon
+\&        -k, --kill                  stops daemon
+\&            --reload                reloads configuration
+\&            --dumpstats             displays usage statistics
+\&            --dumpcache             displays cache contents
+.Ve
+.PP
+.Vb 13
+\&        Networking:
 \&        -i, --interface <dev>       listen on interface <dev>
 \&        -p, --port <port>           listen on port <port>
 \&            --proto <proto>         socket type (tcp or unix)
@@ -178,7 +186,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --cleanup-rates         cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 17
+.Vb 18
 \&        Optional:
 \&        -t, --test                  testing, always returns "dunno"
 \&        -v, --verbose               verbose logging, use twice (-vv) to increase level
@@ -195,7 +203,13 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --dns_max_ns_lookups    max names to look up with sender_ns_addrs
 \&            --dns_max_mx_lookups    max names to look up with sender_mx_addrs
 \&        -I, --instantcfg            re-reads rulefiles for every new request
-\&            --config_timeout <i>        parser timeout in seconds
+\&            --keep_rates            do not clear rate limit counters on reload
+\&            --config_timeout <i>    parser timeout in seconds
+.Ve
+.PP
+.Vb 2
+\&        Plugins:
+\&            --plugins <file>        loads postfwd plugins from file
 .Ve
 .PP
 .Vb 7
@@ -386,6 +400,13 @@ Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" charac
 \&                                        ; action=REJECT sorry no access
 .Ve
 .PP
+.Vb 4
+\&        ratecount               - only available for rate(), size() and rcpt() actions.
+\&                                  contains the actual limit counter:
+\&                                        id=R01; action=rate(sender/200/600/REJECT limit of 200 exceeded [$$ratecount hits])
+\&                                        id=R02; action=rate(sender/100/600/WARN limit of 100 exceeded [$$ratecount hits])
+.Ve
+.PP
 Besides these you can specify any attribute of the postfix policy delegation protocol.  
 Feel free to combine them the way you need it (have a look at the \s-1EXAMPLES\s0 section below).
 .PP
@@ -496,6 +517,40 @@ Request attributes can be compared by preceeding '$$' characters, e.g.:
 .PP
 This is only valid for \s-1PCRE\s0 values (see list above). The comparison will be performed as case insensitive exact match.
 Use the '\-vv' option to debug.
+.PP
+These special items will be reset for any new rule:
+.PP
+.Vb 5
+\&        rblcount        - contains the number of RBL answers
+\&        rhsblcount      - contains the number of RHSBL answers
+\&        matches         - contains the number of matched items
+\&        dnsbltext       - contains the dns TXT part of all RBL and RHSBL replies in the form
+\&                          rbltype:rblname:<txt>; rbltype:rblname:<txt>; ...
+.Ve
+.PP
+These special items will be changed for any matching rule:
+.PP
+.Vb 1
+\&        request_hits    - contains ids of all matching rules
+.Ve
+.PP
+This means that it might be necessary to save them, if you plan to use these values in later rules:
+.PP
+.Vb 6
+\&        # set vals
+\&        id=RBL01 ; rhsblcount=all; rblcount=all; \e
+\&                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext); \e
+\&                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org; \e
+\&                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net; \e
+\&                rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
+.Ve
+.PP
+.Vb 4
+\&        # compare
+\&        id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
+\&        id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
+\&        id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]
+.Ve
 .Sh "\s-1FILES\s0"
 .IX Subsection "FILES"
 Since postfwd1 v1.15 and postfwd2 v0.18 long item lists can be stored in separate files:
@@ -750,40 +805,6 @@ You can reference to request attributes, like
 .Vb 1
 \&        id=R-HELO ;  helo_name=^[^\e.]+$ ;  action=REJECT invalid helo '$$helo_name'
 .Ve
-.PP
-These special attributes will be reset for any new rule:
-.PP
-.Vb 5
-\&        rblcount        - contains the number of RBL answers
-\&        rhsblcount      - contains the number of RHSBL answers
-\&        matches         - contains the number of matched items
-\&        dnsbltext       - contains the dns TXT part of all RBL and RHSBL replies in the form
-\&                          rbltype:rblname:<txt>; rbltype:rblname:<txt>; ...
-.Ve
-.PP
-These special attributes will be changed for any matching rule:
-.PP
-.Vb 1
-\&        request_hits    - contains ids of all matching rules
-.Ve
-.PP
-This means that it might be necessary to save them, if you plan to use these values in later rules:
-.PP
-.Vb 6
-\&        # set vals
-\&        id=RBL01 ; rhsblcount=all ; rblcount=all ; \e
-\&                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org ; \e
-\&                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \e
-\&                rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \e
-\&                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)
-.Ve
-.PP
-.Vb 4
-\&        # compare
-\&        id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
-\&        id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
-\&        id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]
-.Ve
 .Sh "\s-1MACROS/ACLS\s0"
 .IX Subsection "MACROS/ACLS"
 Multiple use of long items or combinations of them may be abbreviated by macros. Those must be prefixed by '&&' (two '&' characters).
@@ -834,6 +855,196 @@ Macros can contain macros, too:
 .Ve
 .PP
 Basically macros are simple text substitutions \- see the \*(L"\s-1PARSER\s0\*(R" section for more information.
+.Sh "\s-1PLUGINS\s0"
+.IX Subsection "PLUGINS"
+\&\fBDescription\fR
+.PP
+The plugin interface allow you to define your own checks and enhance postfwd's
+functionality. Feel free to share useful things!
+.PP
+\&\fBWarning\fR
+.PP
+Note that the plugin interface is still at devel stage. Please test your plugins
+carefully, because errors may cause postfwd to break! It is also
+allowed to override attributes or built-in functions, but be sure that you know
+what you do because some of them are used internally.
+.PP
+Please keep security in mind, when you access sensible ressources and never, ever
+run postfwd as privileged user! Also never trust your input (especially hostnames,
+and e\-mail addresses).
+.PP
+\&\fB\s-1ITEMS\s0\fR
+.PP
+Item plugins are perl subroutines which integrate additional attributes to requests
+before they are evaluated against postfwd's ruleset like any other item of the
+policy delegation protocol. This allows you to create your own checks.
+.PP
+plugin-items can not be used selective. these functions will be executed for every
+request postfwd receives, so keep performance in mind.
+.PP
+.Vb 1
+\&        SYNOPSIS: %result = postfwd_items_plugin{<name>}(%request)
+.Ve
+.PP
+means that your subroutine, called <name>, has access to a hash called \f(CW%request\fR,
+which contains all request attributes, like \f(CW$request\fR{client_name} and must
+return a value in the following form:
+.PP
+.Vb 1
+\&        save: $result{<item>} = <value>
+.Ve
+.PP
+this creates the new item <item> containing <value>, which will be integrated in
+the policy delegation request and therefore may be used in postfwd's ruleset.
+.PP
+.Vb 2
+\&        # do NOT remove the next line
+\&        %postfwd_items_plugin = (
+.Ve
+.PP
+.Vb 1
+\&                # EXAMPLES - integrated in postfwd. no need to activate them here.
+.Ve
+.PP
+.Vb 8
+\&                        # allows to check postfwd version in ruleset
+\&                        "version" => sub {
+\&                                my(%request) = @_;
+\&                                my(%result) = (
+\&                                        "version" => $NAME." ".$VERSION,
+\&                                );
+\&                                return %result;
+\&                        },
+.Ve
+.PP
+.Vb 10
+\&                        # sender_domain and recipient_domain
+\&                        "address_parts" => sub {
+\&                                my(%request) = @_;
+\&                                my(%result) = ();
+\&                                $request{sender} =~ /@([^@]*)$/;
+\&                                $result{sender_domain} = ($1 || '');
+\&                                $request{recipient} =~ /@([^@]*)$/;
+\&                                $result{recipient_domain} = ($1 || '');
+\&                                return %result;
+\&                        },
+.Ve
+.PP
+.Vb 2
+\&        # do NOT remove the next line
+\&        );
+.Ve
+.PP
+\&\fB\s-1COMPARE\s0\fR
+.PP
+Compare plugins allow you to define how your new items should be compared to the ruleset.
+These are optional. If you don't specify one, the default (== for exact match, =~ for \s-1PCRE\s0, ...)
+will be used.
+.PP
+.Vb 1
+\&        SYNOPSIS:  <item> => sub { return &{$postfwd_compare{<type>}}(@_); },
+.Ve
+.PP
+.Vb 2
+\&        # do NOT remove the next line
+\&        %postfwd_compare_plugin = (
+.Ve
+.PP
+.Vb 1
+\&                EXAMPLES - integrated in postfwd. no need to activate them here.
+.Ve
+.PP
+.Vb 5
+\&                        # Simple example
+\&                        # SYNOPSIS:  <result> = <item> (return &{$postfwd_compare{<type>}}(@_))
+\&                        "client_address"  => sub { return &{$postfwd_compare{cidr}}(@_); },
+\&                        "size"            => sub { return &{$postfwd_compare{numeric}}(@_); },
+\&                        "recipient_count" => sub { return &{$postfwd_compare{numeric}}(@_); },
+.Ve
+.PP
+.Vb 22
+\&                        # Complex example
+\&                        # SYNOPSIS:  <result> = <item>(<operator>, <ruleset value>, <request value>, <request>)
+\&                        "numeric" => sub {
+\&                                my($cmp,$val,$myitem,%request) = @_;
+\&                                my($myresult) = undef;  $myitem ||= "0"; $val ||= "0";
+\&                                if ($cmp eq '==') {
+\&                                        $myresult = ($myitem == $val);
+\&                                } elsif ($cmp eq '=<') {
+\&                                        $myresult = ($myitem <= $val);
+\&                                } elsif ($cmp eq '=>') {
+\&                                        $myresult = ($myitem >= $val);
+\&                                } elsif ($cmp eq '!=') {
+\&                                        $myresult = not($myitem == $val);
+\&                                } elsif ($cmp eq '!<') {
+\&                                        $myresult = not($myitem <= $val);
+\&                                } elsif ($cmp eq '!>') {
+\&                                        $myresult = not($myitem >= $val);
+\&                                } else {
+\&                                        $myresult = ($myitem >= $val);
+\&                                };
+\&                                return $myresult;
+\&                        },
+.Ve
+.PP
+.Vb 2
+\&        # do NOT remove the next line
+\&        );
+.Ve
+.PP
+\&\fB\s-1ACTIONS\s0\fR
+.PP
+Action plugins allow to define new postfwd actions. By setting the \f(CW$stop\fR\-flag you can decide to
+continue or to stop parsing the ruleset.
+.PP
+.Vb 2
+\&        SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>, <request>) =
+\&                        <action> (<current rule index>, <current time>, <command name>, <argument>, <logprefix>, <request>)
+.Ve
+.PP
+.Vb 2
+\&        # do NOT remove the next line
+\&        %postfwd_actions_plugin = (
+.Ve
+.PP
+.Vb 1
+\&                # EXAMPLES - integrated in postfwd. no need to activate them here.
+.Ve
+.PP
+.Vb 7
+\&                        # note(<logstring>) command
+\&                        "note"  => sub {
+\&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+\&                                my($myaction) = $default_action; my($stop) = 0;
+\&                                mylogs 'info', "[RULES] ".$myline." - note: ".$myarg if $myarg;
+\&                                return ($stop,$index,$myaction,$myline,%request);
+\&                        },
+.Ve
+.PP
+.Vb 7
+\&                        # skips next <myarg> rules
+\&                        "skip" => sub {
+\&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+\&                                my($myaction) = $default_action; my($stop) = 0;
+\&                                $index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
+\&                                return ($stop,$index,$myaction,$myline,%request);
+\&                        },
+.Ve
+.PP
+.Vb 7
+\&                        # dumps current request contents to syslog
+\&                        "dumprequest" => sub {
+\&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+\&                                my($myaction) = $default_action; my($stop) = 0;
+\&                                map { mylogs 'info', "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
+\&                                return ($stop,$index,$myaction,$myline,%request);
+\&                        },
+.Ve
+.PP
+.Vb 2
+\&        # do NOT remove the next line
+\&        );
+.Ve
 .Sh "\s-1COMMAND\s0 \s-1LINE\s0"
 .IX Subsection "COMMAND LINE"
 \&\fIRuleset\fR
@@ -871,16 +1082,38 @@ Multiple usage is allowed. Just chain your arguments, like:
 In case of multiple scores, the highest match will count. The order of the arguments will be
 reflected in the postfwd ruleset.
 .PP
-\&\fINetworking\fR
-.PP
-postfwd can be run as daemon so that it listens on the network for incoming requests.
-The following arguments will control it's behaviour in this case.
+\&\fIControl\fR
 .PP
 .Vb 3
 \&        -d, --daemon
 \&        postfwd will run as daemon and listen on the network for incoming
 \&        queries (default 127.0.0.1:10040).
 .Ve
+.PP
+.Vb 2
+\&        -k, --kill
+\&        Stops a running postfwd daemon.
+.Ve
+.PP
+.Vb 2
+\&        --reload
+\&        Reloads configuration.
+.Ve
+.PP
+.Vb 2
+\&        --dumpstats
+\&        Displays program usage statistics.
+.Ve
+.PP
+.Vb 2
+\&        --dumpcache
+\&        Displays cache contents.
+.Ve
+.PP
+\&\fINetworking\fR
+.PP
+postfwd can be run as daemon so that it listens on the network for incoming requests.
+The following arguments will control it's behaviour in this case.
 .PP
 .Vb 2
 \&        -i, --interface <dev>
@@ -947,6 +1180,14 @@ The following arguments will control it's behaviour in this case.
 .Vb 2
 \&        --loglen <int>
 \&        Truncates any syslog message after <int> characters.
+.Ve
+.PP
+\&\fIPlugins\fR
+.PP
+.Vb 3
+\&        --plugins <file>
+\&        Loads postfwd plugins from file. Please see http://postfwd.org/postfwd.plugins
+\&        or the plugins.postfwd.sample that is available from the tarball for more info.
 .Ve
 .PP
 \&\fIOptional arguments\fR
@@ -1120,6 +1361,13 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        without restarting. Though files will be read only if necessary
 \&        (which means their access times changed since last read) this might
 \&        significantly increase system load.
+.Ve
+.PP
+.Vb 4
+\&        --keep_rates    (default=0)
+\&        With this option set postfwd does not clear the rate limit counters on reload. Please
+\&        note that you have to restart (not reload) postfwd with this option if you change
+\&        any rate limit rules.
 .Ve
 .PP
 .Vb 3
@@ -1613,9 +1861,6 @@ Some of these proposals might not match your environment. Please check your requ
 \&        - use jumps and rate limits
 \&        - use a pre-lookup rule for rbl/rhsbls with empty note() action
 .Ve
-.Sh "\s-1PLUGINS\s0"
-.IX Subsection "PLUGINS"
-There is a plugin interface but it still lacks documentation. Contact me if you need assistance.
 .Sh "\s-1SEE\s0 \s-1ALSO\s0"
 .IX Subsection "SEE ALSO"
 See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description

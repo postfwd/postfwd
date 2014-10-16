@@ -1,0 +1,342 @@
+#!/usr/bin/perl -T -w
+
+package hapolicy;
+
+use strict;
+use warnings;
+use IO::Socket;
+use Pod::Usage;
+use Sys::Syslog qw(:DEFAULT setlogsock);
+use Getopt::Long 2.25 qw(:config no_ignore_case bundling);
+
+
+
+### PARAMETERS ###
+
+# Program settings
+our($NAME)                      = 'hapolicy';
+our($VERSION)                   = '1.00';
+our($DEFAULT)			= 'dunno';	# default action if no service available
+our($TIMEOUT)			= '30';		# default service timeout
+
+# remote server settings
+# command-line: -s <name>=<ip>:<port>:<prio>:<weight>:<timeout>
+our(%Servers)			= (
+#	"GREY1"		=> {
+#		ip		=> '10.0.0.1',		# ip address
+#		port		=> '10031',		# tcp port
+#		prio		=> '10',		# optional, lower wins
+#		weight		=> '1',			# optional, for items with same prio (weighted round-robin), higher is better
+#		timeout		=> '30',		# optional, query timeout in seconds
+#	},
+);
+
+# Environment
+$ENV{PATH}                      = '/bin:/usr/bin:/usr/local/bin';
+$ENV{ENV}                       = '';
+# Syslog options
+our($syslog_name)               = $NAME;
+our($syslog_facility)           = 'mail';
+our($syslog_options)            = 'pid';
+our($syslog_socktype)		= ( (defined $sys::Syslog::VERSION) and ($Sys::Syslog::VERSION ge '0.15') )
+				? 'native'
+				: (($^O eq 'solaris') ? 'inet' : 'unix');
+use vars qw(%opt);
+
+### MAIN ###
+
+# get command-line
+GetOptions (
+	\%opt, 'service|s=s@', 'verbose|v', 'stdout|L', 'logging|l', 'default|d=s'
+	) or pod2usage (-msg => "\nPlease see \"pod2text ".$NAME."\" for detailed instructions.\n", -verbose => 1);
+setlogsock $syslog_socktype;
+openlog $syslog_name, $syslog_options, $syslog_facility;
+
+# check command-line
+$DEFAULT = $opt{default} if defined $opt{default};
+foreach (@{$opt{service}}) {
+    if (/^([^=]+)=([^:]+):([^:]+):(.*)$/) {
+	$Servers{$1}{ip} = $2; $Servers{$1}{port} = $3;
+	($Servers{$1}{prio},$Servers{$1}{weight},$Servers{$1}{timeout}) = split ':', $4 if $4;
+    } else {
+	mylogs ('warning', "ignoring invalid service '$_'");
+    };
+};
+
+# sort servers by prio
+my %ServerPrioHash = ();
+foreach (keys %Servers) {
+    unless ($Servers{$_}{ip} and $Servers{$_}{port}) {
+	mylogs ('warning', "No address or port for '$_'");
+	next;
+    };
+    $Servers{$_}{prio} ||= 10; $Servers{$_}{timeout} ||= $TIMEOUT;
+    $Servers{$_}{weight} = ($Servers{$_}{weight}) ? (1/$Servers{$_}{weight}) : 1;
+    $Servers{$_}{questions} = $Servers{$_}{answers} = $Servers{$_}{failed} = 0;
+    push @{$ServerPrioHash{$Servers{$_}{prio}}}, $_;
+};
+
+# run main loop
+select((select(STDOUT), $| = 1)[0]);
+hapolicy::main();
+
+# end program
+exit;
+
+
+
+### FUNCTIONS ###
+
+# send log message
+sub mylogs {
+    my($prio,$msg) = @_;
+
+    unless ($opt{stdout}) {
+	# escape '%' characters
+	$msg =~ s/\%/%%/g;
+	# Sys::Syslog < 0.15 dies when syslog daemon is temporarily not
+	# present (for example on syslog rotation)
+	if ( (defined $Sys::Syslog::VERSION) or ($Sys::Syslog::VERSION lt '0.15') ) {
+		eval {
+			local $SIG{__DIE__} = sub { };
+			syslog ($prio,$msg);
+		};
+	} else { syslog ($prio,$msg); };
+    } else { printf "[LOG $prio]: $msg\n"; };
+};
+
+# ask remote server
+sub ask {
+    my($srv,$sendstr) = @_;
+    my($action) = '';
+
+    eval {
+	# handle timeout
+        local $SIG{__DIE__} = sub { };
+        local $SIG{'ALRM'}  = sub { mylogs ('warning',"Timeout for '$srv' ($Servers{$srv}{ip}:$Servers{$srv}{port})"); die };
+        my $prevaltert = alarm($Servers{$srv}{timeout});
+
+	# increase server request-counter and try to open socket
+	$Servers{$srv}{questions}+=$Servers{$srv}{weight};
+	mylogs ('info', "Opening socket to '$srv' ($Servers{$srv}{ip}:$Servers{$srv}{port})") if $opt{verbose};
+	unless ( my $socket = new IO::Socket::INET (
+		PeerAddr => $Servers{$srv}{ip},
+		PeerPort => $Servers{$srv}{port},
+		Proto    => 'tcp',
+		Type     => SOCK_STREAM ) ) {
+		mylogs ('warning', "Could not open socket to '$srv' ($Servers{$srv}{ip}:$Servers{$srv}{port})");
+
+	} else {
+		# print request and get answer
+		mylogs ('info', "Connection established to '$srv' ($Servers{$srv}{ip}:$Servers{$srv}{port})") if $opt{verbose};
+		print $socket "$sendstr";
+		$sendstr = <$socket>;
+		chomp($sendstr);
+
+		# check answer
+		$sendstr =~ s/^(action=)//;
+		if ($1 and $sendstr) {
+			$Servers{$srv}{answers}++;
+			mylogs ('info', "Answer from '$srv' -> '$sendstr'") if $opt{verbose};
+			$action = $sendstr;
+		} else {
+			mylogs ('warning', "Invalid answer from '$srv' -> '$sendstr'");
+		};
+	};
+	# restore old sig
+	alarm ($prevaltert);
+    };
+    $Servers{$srv}{failed}++ unless ($Servers{$srv}{last} = $action);
+    # return action
+    return $action;
+};
+
+# process policy delegation request
+sub smtpd_access_policy {
+    my(%attr) = @_;
+    my($sendstr,$action,$srv) = '';
+
+    my $t1 = time();
+
+    # request to str
+    map { $sendstr .= $_."=".$attr{$_}."\n" } (keys %attr); $sendstr .= "\n";
+
+    # loop serverlist until someone answers
+    PRIO: foreach my $prio (sort keys %ServerPrioHash) {
+	foreach my $srv ( sort { $Servers{$a}{questions}<=>$Servers{$b}{questions} } @{$ServerPrioHash{$prio}} ) {
+		$action = ask ($srv, $sendstr) || '';
+		mylogs ('info', "[$srv]"
+			." (".$Servers{$srv}{ip}.":".$Servers{$srv}{port}.")"
+			.", prio: $prio, weight: ".(1/$Servers{$srv}{weight})
+			.", queries: ".($Servers{$srv}{questions} * (1/$Servers{$srv}{weight}))
+			.", answers: ".$Servers{$srv}{answers}
+			.", failed: ".$Servers{$srv}{failed}
+			.", delay: ".(time() - $t1)."s"
+			.", client: ".$attr{client_name}."[".$attr{client_address}."]"
+			.", helo: <".$attr{helo_name}.">"
+			.", from: <".$attr{sender}.">"
+			.", to: <".$attr{recipient}.">"
+			.", action: '".$action."'"
+		) if ($opt{verbose} or $opt{logging});
+		last PRIO if $action;
+	};
+    };
+
+    # return action
+    return $action;
+};
+
+# main loop
+sub main {
+    my($request,$action) = undef;
+    my (%attr) = ();
+
+    while (<>) {
+	next unless /^([^\r\n]*)\r?\n/;
+	$request = $1;
+	if ($request =~ /([^=]+)=(.*)/) {
+		$attr{substr($1, 0, 512)} = substr($2, 0, 512);
+	} elsif ($request eq '') {
+		map { mylogs ('info', "Attribute: $_=$attr{$_}") } (keys %attr) if $opt{verbose};
+		unless ((defined $attr{request}) and ($attr{request} eq 'smtpd_access_policy')) {
+			$attr{request} ||='<undef>';
+			mylogs ('notice', "ignoring unrecognized request type: '$attr{request}'");
+		} else {
+			my($action) = smtpd_access_policy(%attr);
+			$action ||= $DEFAULT; %attr = ();
+			mylogs('info', "Action: $action") if $opt{verbose};
+			print "action=$action\n\n";
+		};
+	} else {
+		chop;
+		mylogs ('notice', "error: ignoring garbage \"".$request."\"");
+	};
+    };
+};
+
+__END__
+
+=head1 NAME
+
+hapolicy - policy delegation high availability script
+
+=head1 SYNOPSIS
+
+B<hapolicy> [OPTIONS] --service=SERVICE1 [--service=SERVICE2 ...]
+
+	Services:
+	-s, --service <name>=<address>:<port>[:<prio>:<weight>:<timeout>]
+
+	Options:
+	-d, --default <action>	returns <action> if no service was available (default: 'dunno')
+	-l, --logging		log requests
+	-v, --verbose		increase logging verbosity
+	-L, --stdout		log to stdout, for debugging, do NOT use with postfix
+
+=head1 DESCRIPTION
+
+=head2 INTRODUCTION
+
+B<hapolicy> enables high availability, weighted loadbalancing and a fallback action for postfix policy delegation services. Invoked via postfix spawn it acts as a wrapper that queries
+other policy servers via tcp connection. The order of the service queries can be influenced by assigning a specific priority and weight to each service. A service is considered 'failing',
+if the connection is refused or the specified service timeout is reached. If all of the configured policy services were failing, B<hapolicy> returns a default action (e.g. dunno) to postfix.
+
+With version 1.00 B<hapolicy> has less than 200 lines of perl code using only standard perl modules. It does not require any disk access nor configuration files and runs under an unpriviledged
+user account. This should allow fast and reliable operation.
+
+=head2 CONFIGURATION
+
+A service has the following attributes
+
+    "servicename"           => {
+               ip              => '127.0.0.1',         # ip address
+               port            => '10040',             # tcp port
+               prio            => '10',                # optional, lower wins
+               weight          => '1',                 # optional, for items with same prio (weighted round-robin), higher is better
+               timeout         => '30',                # optional, query timeout in seconds
+    },
+
+You may define multiple services at the command line. Which means that
+
+	hapolicy -s "grey1=10.0.0.1:10031:10" -s "grey2=10.0.0.2:10031:20"
+
+will always try first service I<grey1> at ip 10.0.0.1 port 10031 and if that service is not available or
+does not answer within the default of 30 seconds the next service I<grey2> at ip 10.0.0.2 port 10031 will
+be queried.
+
+If you want to load balance connections you may define
+
+	hapolicy -s "polw1=10.0.0.1:12525:10:2" -s "polw2=10.0.0.2:12525:10:1"
+
+which queries service I<polw1> at ip 10.0.0.1 twice as much as service I<polw2> at ip 10.0.0.2. Note that this
+setup also ensures high availability for both services. If I<polw1> is not available or does not answer
+within the default of 30 seconds I<polw2> will be queried and vice versa. There is no reason to define a service twice.
+
+=head2 INTEGRATION
+
+Enter the following at the bottom of your postfix master.cf (usually located at /etc/postfix):
+
+	# service description, note the leading blanks at the second line
+	127.0.0.1:10060 inet    n       n       n       -       0       spawn
+	  user=nobody argv=/usr/local/bin/hapolicy -l -s GREY1=10.0.0.1:10031:10 -s GREY2=10.0.0.2:10031:10
+
+save the file and open postfix main.cf. Modify it as follows:
+
+	127.0.0.1:10060_time_limit   = 3600
+
+	smtpd_recipient_restrictions =
+	    permit_mynetworks,
+	    ... other authed permits ...
+	    reject_unauth_destination,
+	    ... other restrictions ...
+	    check_policy_service inet:127.0.0.1:10060	# <- hapolicy query
+
+Now issue 'postfix reload' at the command line. Of course you can have more enhanced setups
+using postfix restriction classes. Please see L</LINKS> for further options.
+
+=head1 LINKS
+
+[1] Postfix SMTP Access Policy Delegation
+L<http://www.postfix.org/SMTPD_POLICY_README.html>
+
+[2] Postfix Per-Client/User/etc. Access Control
+L<http://www.postfix.org/RESTRICTION_CLASS_README.html>
+
+=head1 LICENSE
+
+hapolicy is free software and released under BSD license, which basically means
+that you can do what you want as long as you keep the copyright notice:
+
+Copyright (c) 2008, Jan Peter Kessler
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in
+   the documentation and/or other materials provided with the
+   distribution.
+ * Neither the name of the authors nor the names of his contributors
+   may be used to endorse or promote products derived from this
+   software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY ME ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+
+=head1 AUTHOR
+
+S<Jan Peter Kessler E<lt>info (AT) postfwd (DOT) orgE<gt>>. Let me know, if you have any suggestions.
+
+=cut
+

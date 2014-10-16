@@ -1,6 +1,14 @@
+1.30-devel1
+===========
+- feature: new plugin interface (BETA)
+- feature: new $$ratecount variable for rate() actions
+- feature: ported --dumpstats and --dumpcache option from postfwd2
+- bugfix:  fixed program usage statistics (--summary)
+- docs:    documentation updates
+
 1.22
 =====
-- feature: new option --keep_limits_on_reload
+- feature: new option --keep_rates
 - feature: queueid is logged when available
 - bugfix:  rate limits using the same item and the same limits
            did not work correctly (thanks to Yves Blusseau):

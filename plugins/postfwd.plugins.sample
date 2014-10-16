@@ -1,0 +1,168 @@
+#
+#
+# Example plugin file for postfwd - see http://postfwd.org
+#
+#
+# Description:
+#
+# The plugin interface allow you to define your own checks and enhance postfwd's
+# functionality. Feel free to share useful things!
+#
+#
+# Warning:
+#
+# Check changes carefully, because errors may cause postfwd to break! It is also
+# allowed to override attributes or built-in functions, but be sure that you know
+# what you do because some of them are used internally.
+# Please keep security in mind, when you access sensible ressources and never, ever
+# run postfwd as privileged user! Also never trust your input (especially hostnames,
+# and e-mail addresses).
+
+
+#
+# ITEMS
+# =====
+#
+# Item plugins are perl subroutines which integrate additional attributes to requests
+# before they are evaluated against postfwd's ruleset like any other item of the
+# policy delegation protocol. This allows you to create your own checks.
+#
+# plugin-items can not be used selective. these functions will be executed for every
+# request postfwd receives, so keep performance in mind.
+#
+# SYNOPSIS: %result = postfwd_items_plugin{<name>}(%request)
+#
+# means that your subroutine, called <name>, has access to a hash called %request,
+# which contains all request attributes, like $request{client_name} and must
+# return a value in the following form:
+#
+# save: $result{<item>} = <value>
+#
+# this creates the new item <item> containing <value>, which will be integrated in
+# the policy delegation request and therefore may be used in postfwd's ruleset.
+
+# do NOT remove the next line
+%postfwd_items_plugin = (
+
+	# EXAMPLES - integrated in postfwd. no need to activate them here.
+	#
+	#	# allows to check postfwd version in ruleset
+        #	"version" => sub {
+        #       	my(%request) = @_;
+	#		my(%result) = (
+        #        		"version" => $NAME." ".$VERSION,
+	#		);
+        #       	return %result;
+	#	},
+	#
+	#	# sender_domain and recipient_domain
+        #	"address_parts" => sub {
+        #       	my(%request) = @_;
+	#		my(%result) = ();
+        #		$request{sender} =~ /@([^@]*)$/;
+        #		$result{sender_domain} = ($1 || '');
+        #		$request{recipient} =~ /@([^@]*)$/;
+	#		$result{recipient_domain} = ($1 || '');
+        #       	return %result;
+	#	},
+	# },
+
+# do NOT remove the next line
+);
+
+
+#
+# COMPARE
+# =======
+#
+# Compare plugins allow you to define how your new items should be compared to the ruleset.
+# These are optional. If you don't specify one, the default (== for exact match, =~ for PCRE, ...)
+# will be used.
+#
+# SYNOPSIS:  <item> => sub { return &{$postfwd_compare{<type>}}(@_); },
+
+# do NOT remove the next line
+%postfwd_compare_plugin = (
+
+	# EXAMPLES - integrated in postfwd. no need to activate them here.
+	#
+	#	# CIDR compare
+	#	"client_address"  => sub { return &{$postfwd_compare{cidr}}(@_); },
+	#
+	#	# Numeric compare
+	#	"size"            => sub { return &{$postfwd_compare{numeric}}(@_); },
+	#	"recipient_count" => sub { return &{$postfwd_compare{numeric}}(@_); },
+	#
+	#	# Complex example
+	#	# SYNOPSIS:  <result> = <item>(<operator>, <ruleset value>, <request value>, <request>)
+	#	"numeric" => sub {
+	#		my($cmp,$val,$myitem,%request) = @_;
+	#		my($myresult) = undef;	$myitem ||= "0"; $val ||= "0";
+	#		if ($cmp eq '==') {
+	#			$myresult = ($myitem == $val);
+	#		} elsif ($cmp eq '=<') {
+	#			$myresult = ($myitem <= $val);
+	#		} elsif ($cmp eq '=>') {
+	#			$myresult = ($myitem >= $val);
+	#		} elsif ($cmp eq '!=') {
+	#			$myresult = not($myitem == $val);
+	#		} elsif ($cmp eq '!<') {
+	#			$myresult = not($myitem <= $val);
+	#		} elsif ($cmp eq '!>') {
+	#			$myresult = not($myitem >= $val);
+	#		} else {
+	#			$myresult = ($myitem >= $val);
+	#		};
+	#		return $myresult;
+	#	},
+
+# do NOT remove the next line
+);
+
+
+#
+# ACTIONS
+# =======
+#
+# Action plugins allow to define new postfwd actions.
+#
+# SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>, <request>) =
+#			<action> (<current rule index>, <current time>, <command name>, <argument>, <logprefix>, <request>)
+
+# do NOT remove the next line
+%postfwd_actions_plugin = (
+
+	# EXAMPLES - integrated in postfwd. no need to activate them here.
+	#
+	#	# note(<logstring>) command
+	#	"note"  => sub {
+	#		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+	#		my($myaction) = $default_action; my($stop) = 0;
+	#		mylogs 'info', "[RULES] ".$myline." - note: ".$myarg if $myarg;
+	#		return ($stop,$index,$myaction,$myline,%request);
+	#	},
+	#
+	#	# skips next <myarg> rules
+        #	"skip" => sub {
+	#		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+	#		my($myaction) = $default_action; my($stop) = 0;
+	#		$index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
+	#		return ($stop,$index,$myaction,$myline,%request);
+        #	},
+	#
+	#	# dumps current request contents to syslog
+        #	"dumprequest" => sub {
+	#		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+	#		my($myaction) = $default_action; my($stop) = 0;
+	#		map { mylogs 'info', "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
+	#		return ($stop,$index,$myaction,$myline,%request);
+        #	},
+
+# do NOT remove the next line
+);
+
+# do NOT remove the next line
+1;
+
+## EOF postfwd.plugins
+

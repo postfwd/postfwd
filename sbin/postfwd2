@@ -23,7 +23,7 @@ our @EXPORT_OK = qw(
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.22";
+our $VERSION	= "1.30-devel1";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -35,6 +35,7 @@ our($cmd_pager)                 = "more";
 
 my $sepreq	= '///';
 my $seplst	= ':::';
+my $seplim	= '~~~';
 my $nounixsock	= ($^O eq 'solaris');
 
 # program settings
@@ -148,18 +149,20 @@ our %postfwd_settings = (
 		#getdns		=> 0,
 		#setdns		=> 0,
 	},
-	name	  => $NAME,
-	version   => $VERSION,
-	default   => $DEFAULT,
-	daemon    => 1,
-	manual    => $cmd_manual,
-	pager     => $cmd_pager,
-	sepreq    => $sepreq,
-	seplst    => $seplst,
-	summary   => 600,
-	instant   => 0,
-	verbose   => 0,
-	test	  => 0,
+	name	   => $NAME,
+	version    => $VERSION,
+	default    => $DEFAULT,
+	daemon     => 1,
+	manual     => $cmd_manual,
+	pager      => $cmd_pager,
+	sepreq     => $sepreq,
+	seplst     => $seplst,
+	seplim     => $seplim,
+	summary    => 600,
+	instant    => 0,
+	verbose    => 0,
+	test	   => 0,
+	keep_rates => 0,
 );
 
 # daemon commands
@@ -175,6 +178,8 @@ our %postfwd_commands = (
 	getcacheitem  => 'GC',
 	getcacheval   => 'GV',
 	checkrate     => 'CR',
+	setrateitem  => 'SR',
+	getrateitem  => 'GR',
 );
 
 # precompiled patterns
@@ -193,6 +198,8 @@ our %postfwd_patterns = (
 	getcacheitem  => qr/^CMD\s*=\s*$postfwd_commands{getcacheitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$/i,
 	getcacheval   => qr/^CMD\s*=\s*$postfwd_commands{getcacheval}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*KEY\s*=\s*(.*?)\s*$/i,
 	checkrate     => qr/^CMD\s*=\s*$postfwd_commands{checkrate}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*([^;]+)\s*;\s*SIZE\s*=\s*([^;]+)\s*;\s*RCPT\s*=\s*([^;]+)\s*$/i,
+	setrateitem   => qr/^CMD\s*=\s*$postfwd_commands{setrateitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*(.*?)\s*$/i,
+	getrateitem   => qr/^CMD\s*=\s*$postfwd_commands{getrateitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$/i,
 );
 
 
@@ -441,40 +448,73 @@ sub set_cache {
 	return (join '; ', @answer);
 };
 
-# set item to cache
+# get a whole rate item
+sub get_rate {
+	my ($self,$now,$type,$item) = @_;
+	my @answer = (); my $rindex = '';
+	($item, $rindex) = split $postfwd_settings{seplim}, $item;
+	return '<undef>' unless ( $item and $rindex and defined $Cache{$type}{$item}{$rindex}{'until'} and ($now <= $Cache{$type}{$item}{$rindex}{'until'}[0]));
+	$Count{$type."_hits"}++;
+	map { push @answer, "$_=".(join $postfwd_settings{seplst}, @{$Cache{$type}{$item}{$rindex}{$_}}) } (keys %{$Cache{$type}{$item}{$rindex}});
+	return (join $postfwd_settings{sepreq}, @answer);
+};
+
+# set rate to cache
+sub set_rate {
+	my ($self,$type,$item,$vals) = @_;
+	my @answer = (); my $rindex = '';
+	($item, $rindex) = split $postfwd_settings{seplim}, $item;
+	push @{$Cache{$type}{$item}{'list'}}, $rindex;
+	@{$Cache{$type}{$item}{'list'}} = uniq(@{$Cache{$type}{$item}{'list'}});
+	delete $Cache{$type}{$item}{$rindex} if defined $Cache{$type}{$item}{$rindex};
+	foreach my $arg (split ($postfwd_settings{sepreq}, $vals)) {
+		map {	push @{$Cache{$type}{$item}{$rindex}{$1}}, $_;
+			push @answer, "$type->$item->$rindex->$1=$_";
+			@{$Cache{$type}{$item}{$rindex}{$1}} = uniq(@{$Cache{$type}{$item}{$rindex}{$1}});
+		} (split $postfwd_settings{seplst}, $2) if ($arg =~ m/$postfwd_patterns{keyval}/);
+	};
+	@answer = '<undef>' unless @answer;
+	return (join '; ', @answer);
+};
+
+# check rate limits
 sub check_rate {
 	my ($self,$now,$type,$item,$size,$rcpt) = @_;
 	return '<undef>' unless ($type and $item);
 	$size ||= 0; $rcpt ||= 0; my $answer = '';
 	RATES: foreach my $arg (split ($postfwd_settings{seplst}, $item)) {
-		next RATES unless ($arg and defined $Cache{$type}{$arg});
+		next RATES unless ($arg and defined $Cache{$type}{$arg} and defined $Cache{$type}{$arg}{'list'});
 
-		# renew rate
-		if ( $now > @{$Cache{$type}{$arg}{'until'}}[0] ) {
-			@{$Cache{$type}{$arg}{count}}[0] = ( (@{$Cache{$type}{$arg}{type}}[0] eq 'size') ? $size :
-			  ((@{$Cache{$type}{$arg}{type}}[0] eq 'rcpt') ? $rcpt : 1 ) );
-			@{$Cache{$type}{$arg}{'until'}}[0] = $now + @{$Cache{$type}{$arg}{ttl}}[0];
-			log_info ("[RATES] renewing rate limit object '".$arg."'"
-			  ." [type: ".@{$Cache{$type}{$arg}{type}}[0]
-			  .", max: ".@{$Cache{$type}{$arg}{maxcount}}[0]
-			  .", time: ".@{$Cache{$type}{$arg}{ttl}}[0]."s]")
-			  if wantsdebug (qw[ all rates ]);
+		RINDEX: foreach my $rindex (@{$Cache{$type}{$arg}{'list'}}) {
+			next RINDEX unless (defined $Cache{$type}{$arg}{$rindex}{'until'} and defined $Cache{$type}{$arg}{$rindex}{type});
 
-		# increase rate
-		} else {
-			@{$Cache{$type}{$arg}{count}}[0] += ( (@{$Cache{$type}{$arg}{type}}[0] eq 'size') ? $size :
-			  ((@{$Cache{$type}{$arg}{type}}[0] eq 'rcpt') ? $rcpt : 1 ) );
-			log_info ("[RATES] increasing rate limit object '".$arg."' to ".@{$Cache{$type}{$arg}{count}}[0]
-			  ." [type: ".@{$Cache{$type}{$arg}{type}}[0]
-			  .", max: ".@{$Cache{$type}{$arg}{maxcount}}[0]
-			  .", time: ".@{$Cache{$type}{$arg}{ttl}}[0]."s]")
-			  if wantsdebug (qw[ all rates ]);
-		};
-
-		# check rate
-		if (not($answer) and @{$Cache{$type}{$arg}{count}}[0] > @{$Cache{$type}{$arg}{maxcount}}[0]) {
-			$answer = $arg.$postfwd_settings{seplst}.hash_to_str (%{$Cache{$type}{$arg}});
-			$Count{$type."_hits"}++;
+			# renew rate
+			if ( $now > @{$Cache{$type}{$arg}{$rindex}{'until'}}[0] ) {
+				@{$Cache{$type}{$arg}{$rindex}{count}}[0] = ( (@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'size') ? $size :
+				  ((@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'rcpt') ? $rcpt : 1 ) );
+				@{$Cache{$type}{$arg}{$rindex}{'until'}}[0] = $now + @{$Cache{$type}{$arg}{$rindex}{ttl}}[0];
+				log_info ("[RATES] renewing rate limit object '".$arg."'"
+				  ." [type: ".@{$Cache{$type}{$arg}{$rindex}{type}}[0]
+				  .", max: ".@{$Cache{$type}{$arg}{$rindex}{maxcount}}[0]
+				  .", time: ".@{$Cache{$type}{$arg}{$rindex}{ttl}}[0]."s]")
+				  if wantsdebug (qw[ all rates ]);
+	
+			# increase rate
+			} else {
+				@{$Cache{$type}{$arg}{$rindex}{count}}[0] += ( (@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'size') ? $size :
+				  ((@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'rcpt') ? $rcpt : 1 ) );
+				log_info ("[RATES] increasing rate limit object '".$arg."' to ".@{$Cache{$type}{$arg}{$rindex}{count}}[0]
+				  ." [type: ".@{$Cache{$type}{$arg}{$rindex}{type}}[0]
+				  .", max: ".@{$Cache{$type}{$arg}{$rindex}{maxcount}}[0]
+				  .", time: ".@{$Cache{$type}{$arg}{$rindex}{ttl}}[0]."s]")
+				  if wantsdebug (qw[ all rates ]);
+			};
+	
+			# check rate
+			if (not($answer) and @{$Cache{$type}{$arg}{$rindex}{count}}[0] > @{$Cache{$type}{$arg}{$rindex}{maxcount}}[0]) {
+				$answer = $arg.$postfwd_settings{seplim}.$rindex.$postfwd_settings{seplst}.hash_to_str (%{$Cache{$type}{$arg}{$rindex}});
+				$Count{$type."_hits"}++;
+			};
 		};
 	};
 	$answer = '<undef>' unless $answer;
@@ -485,20 +525,46 @@ sub check_rate {
 sub cleanup_cache {
 	my($type,$now) = @_;
 	my $start = time();
+	log_info ("[CLEANUP] checking $type cache...") if wantsdebug (qw[ all cleanup ]);
 	return unless defined $Cache{$type} and my $count = scalar keys %{$Cache{$type}};
-	foreach my $checkitem (keys %{$Cache{$type}}) {
-		# remove inclomplete objects
-		if ( !defined($Cache{$type}{$checkitem}{'until'}) or !defined($Cache{$type}{$checkitem}{ttl}) ) {
-			log_info ("[CLEANUP] deleting incomplete $type cache item $checkitem after "
-				." timeout: ".((defined $Cache{$type}{$checkitem}{ttl}) ? $Cache{$type}{$checkitem}{ttl}[0] : '<undef>')."s")
-				if wantsdebug (qw[ all ]);
-			delete $Cache{$type}{$checkitem};
-		# remove timed out objects
-		} elsif ( $now > $Cache{$type}{$checkitem}{'until'}[0] ) {
-			log_info ("[CLEANUP] removing $type cache for $checkitem after "
-				." timeout: ".$Cache{$type}{$checkitem}{ttl}[0]."s)")
-				if wantsdebug (qw[ all ]);
-			delete $Cache{$type}{$checkitem};
+	CLEANUP: foreach my $checkitem (keys %{$Cache{$type}}) {
+		next CLEANUP unless (defined $Cache{$type}{$checkitem});
+		unless ( defined $Cache{$type}{$checkitem}{'list'} ) {
+			# remove inclomplete objects
+			if ( !defined($Cache{$type}{$checkitem}{'until'}) or !defined($Cache{$type}{$checkitem}{ttl}) ) {
+				log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'")
+					if wantsdebug (qw[ all cleanup ]);
+				delete $Cache{$type}{$checkitem};
+			# remove timed out objects
+			} elsif ( $now > $Cache{$type}{$checkitem}{'until'}[0] ) {
+				log_info ("[CLEANUP] removing $type cache for item '$checkitem' after timeout: ".$Cache{$type}{$checkitem}{ttl}[0]."s)")
+					if wantsdebug (qw[ all cleanup ]);
+				delete $Cache{$type}{$checkitem};
+			};
+		} else {
+			my @i = ();
+			foreach my $crate (@{$Cache{$type}{$checkitem}{'list'}}) {
+				if ( !(defined $Cache{$type}{$checkitem}{$crate}{'until'}) or !(defined $Cache{$type}{$checkitem}{$crate}{ttl}) ) {
+					log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'->'$crate'")
+						if wantsdebug (qw[ all cleanup ]);
+					delete $Cache{$type}{$checkitem}{$crate};
+				} elsif ( $now > $Cache{$type}{$checkitem}{$crate}{'until'}[0] ) {
+					log_info ("[CLEANUP] removing $type cache for item '$checkitem'->'$crate' after timeout: ".$Cache{$type}{$checkitem}{$crate}{ttl}[0]."s)")
+						if wantsdebug (qw[ all cleanup ]);
+					delete $Cache{$type}{$checkitem}{$crate};
+				} else {
+					push @i, $crate;
+				};
+			};
+			if ($#i < 0) {
+				log_info ("[CLEANUP] removing $type cache complete item '$checkitem'")
+					if wantsdebug (qw[ all cleanup ]);
+				delete $Cache{$type}{$checkitem};
+			} else {
+				log_info ("[CLEANUP] new $type cache limits for item '$checkitem': ".(join ', ', @i))
+					if wantsdebug (qw[ all cleanup ]);
+				@{$Cache{$type}{$checkitem}{'list'}} = @i;
+			};
 		};
 	};
 	my $end = time();
@@ -506,7 +572,7 @@ sub cleanup_cache {
 		." seconds for request cleanup of "
 		.($count - scalar keys %{$Cache{$type}})." out of ".$count
 		." cached items after ".($now - $Cleanup{$type})
-		." seconds (min ".$postfwd_settings{request}{cleanup}."s)") if ( wantsdebug (qw[ all verbose ]) or (($end - $start) > 0) );
+		." seconds (min ".$postfwd_settings{$type}{cleanup}."s)") if ( wantsdebug (qw[ all verbose cleanup ]) or (($end - $start) > 0) );
 	$Cleanup{$type} = $start;
 };
 
@@ -545,9 +611,9 @@ sub mux_input {
 		my $request = $1;
 		log_info ("request: '$request'") if wantsdebug (qw[ all ]);
 		if ($Reload_Conf) {
-			undef $Reload_Conf;
-			delete $Cache{request}; delete $Cache{rate};
-			log_info ("request and rate cache cleared") if wantsdebug (qw[ all verbose ]);
+			undef $Reload_Conf; my $s = ''; delete $Cache{request};
+			unless ($postfwd_settings{keep_rates}) { delete $Cache{rate}; $s = 'and rate' }; 
+			log_info ("request".(($s) ? " $s" : '')." cache cleared") if wantsdebug (qw[ all verbose ]);
 		};
 		if ($request eq $postfwd_patterns{ping}) {
 			$action = $postfwd_patterns{pong};
@@ -574,6 +640,21 @@ sub mux_input {
 			$Count{$type."_set"}++; $Interval{$type."_set"}++;
 			$action = $self->set_cache($type,$item,$vals);
 			log_info ("[SETCACHEITEM] answer: '$action'") if wantsdebug (qw[ all cache setcache ]);
+		} elsif ($request =~ m/$postfwd_patterns{getrateitem}/) {
+			my ($type, $item) = ($1, $2);
+			log_info ("[GETRATEITEM] request: '$request'") if wantsdebug (qw[ all cache getcache rates ]);
+			cleanup_cache ($type,$now) if (($now - $Cleanup{$type}) > ($postfwd_settings{$type}{cleanup} || 300));
+			$Count{cache_queries}++; $Interval{cache_queries}++;
+			$Count{$type."_get"}++; $Interval{$type."_get"}++;
+			$action = $self->get_rate($now,$type,$item);
+			log_info ("[GETRATEITEM] answer: '$action'") if wantsdebug (qw[ all cache getcache rates ]);
+		} elsif ($request =~ m/$postfwd_patterns{setrateitem}/) {
+			my ($type, $item, $vals) = ($1, $2, $3);
+			log_info ("[SETRATEITEM] request: '$request'") if wantsdebug (qw[ all cache setcache ]);
+			$Count{cache_queries}++; $Interval{cache_queries}++;
+			$Count{$type."_set"}++; $Interval{$type."_set"}++;
+			$action = $self->set_rate($type,$item,$vals);
+			log_info ("[SETRATEITEM] answer: '$action'") if wantsdebug (qw[ all cache setcache ]);
 		} elsif ($request =~ m/$postfwd_patterns{dumpstats}/) {
 			$action = join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, list_stats();
 		} elsif ($request =~ m/$postfwd_patterns{dumpcache}/) {
@@ -785,14 +866,13 @@ sub cleanup_dns_cache {
 	foreach my $checkitem (keys %DNS_Cache) {
 		# remove inclomplete objects (dns timeouts)
 		if ( !defined($DNS_Cache{$checkitem}{'until'}) or !defined($DNS_Cache{$checkitem}{ttl}) ) {
-			log_info ("[CLEANUP] deleting incomplete dns-cache item $checkitem after "
-				." timeout: ".((defined $DNS_Cache{$checkitem}{ttl}) ? $DNS_Cache{$checkitem}{ttl} : '<undef>')."s")
-				if wantsdebug (qw[ all ]);
+			log_info ("[CLEANUP] deleting incomplete dns-cache item '$checkitem'")
+				if wantsdebug (qw[ all cleanup ]);
 			delete $DNS_Cache{$checkitem};
 		# remove timed out objects
 		} elsif ( $now > $DNS_Cache{$checkitem}{'until'} ) {
-			log_info ("[CLEANUP] removing rbl-cache for $checkitem after timeout: "
-				.$DNS_Cache{$checkitem}{ttl}."s") if wantsdebug (qw[ all ]);
+			log_info ("[CLEANUP] removing dns-cache item '$checkitem' after timeout: ".$DNS_Cache{$checkitem}{ttl}."s")
+				if wantsdebug (qw[ all cleanup ]);
 			delete $DNS_Cache{$checkitem};
 		};
 	};
@@ -803,9 +883,13 @@ sub cleanup_request_cache {
 	my($now) = $_[0]; return unless $now;
 	RITEM: foreach my $checkitem (keys %Request_Cache) {
 		next RITEM unless defined $Request_Cache{$checkitem}{'until'};
-		if ( $now > $Request_Cache{$checkitem}{'until'} ) {
-			log_info ("[CLEANUP] removing request-cache $checkitem after timeout: "
-				.$Request_Cache{$checkitem}{ttl}."s") if wantsdebug (qw[ all ]);
+		if ( !defined($Request_Cache{$checkitem}{'until'}) or !defined($Request_Cache{$checkitem}{ttl}) ) {
+			log_info ("[CLEANUP] deleting incomplete request-cache item '$checkitem'")
+				if wantsdebug (qw[ all cleanup ]);
+			delete $Request_Cache{$checkitem};
+		} elsif ( $now > $Request_Cache{$checkitem}{'until'} ) {
+			log_info ("[CLEANUP] removing request-cache item '$checkitem' after timeout: ".$Request_Cache{$checkitem}{ttl}."s")
+				if wantsdebug (qw[ all cleanup ]);
 			delete $Request_Cache{$checkitem};
 		};
 	};
@@ -814,12 +898,35 @@ sub cleanup_request_cache {
 # clean up rate cache
 sub cleanup_rate_cache {
 	my($now) = $_[0]; return unless $now;
-	LITEM: foreach my $checkitem (keys %Rate_Cache) {
-		next LITEM unless defined $Rate_Cache{$checkitem}{'until'};
-		if ( $now > $Rate_Cache{$checkitem}{'until'} ) {
-			log_info ("[CLEANUP] removing rate-cache for $checkitem after timeout: "
-				.$Rate_Cache{$checkitem}{ttl}."s") if wantsdebug (qw[ all ]);
+	foreach my $checkitem (keys %Rate_Cache) {
+		unless (defined $Rate_Cache{$checkitem}{'list'}) {
+			log_info ("[CLEANUP] deleting incomplete rate-cache item '$checkitem'")
+				if wantsdebug (qw[ all cleanup ]);
 			delete $Rate_Cache{$checkitem};
+		} else {
+			my @i = ();
+			foreach my $crate (@{$Rate_Cache{$checkitem}{'list'}}) {
+				if ( not(defined $Rate_Cache{$checkitem}{$crate}{'until'}) or not(defined $Rate_Cache{$checkitem}{$crate}{'ttl'}) ) {
+					log_info ("[CLEANUP] deleting incomplete rate-cache item '$checkitem'->'$crate'")
+						if wantsdebug (qw[ all cleanup ]);
+					delete $Rate_Cache{$checkitem}{$crate};
+				} elsif ( $now > $Rate_Cache{$checkitem}{$crate}{'until'} ) {
+					log_info ("[CLEANUP] removing rate-cache item '$checkitem'->'$crate' after timeout: "
+						.$Rate_Cache{$checkitem}{$crate}{ttl}."s") if wantsdebug (qw[ all cleanup ]);
+					delete $Rate_Cache{$checkitem}{$crate};
+				} else {
+					push @i, $crate;
+				};
+			};
+			if ($#i < 0) {
+				log_info ("[CLEANUP] removing complete rate-cache item '$checkitem'")
+					if wantsdebug (qw[ all cleanup ]);
+				delete $Rate_Cache{$checkitem};
+			} else {
+				log_info ("[CLEANUP] new limits for rate-cache item '$checkitem': ".(join ', ', @i))
+					if wantsdebug (qw[ all cleanup ]);
+				@{$Rate_Cache{$checkitem}{'list'}} = @i;
+			};
 		};
 	};
 };
@@ -1009,6 +1116,7 @@ sub read_config {
 
 	# init, cleanup cache and config vars
 	@Rules = (); %Rule_by_ID = %Request_Cache = (); @Rate_Items = ();
+	%Rate_Cache = () unless $postfwd_settings{keep_rates};
 
 	# parse configurations
 	for $config (@{$postfwd_settings{Configs}}) {
@@ -1037,8 +1145,10 @@ sub read_config {
 	} else {
 		# update Rule by ID hash
 		map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
-		@Rate_Items = uniq(@Rate_Items) if @Rate_Items;
-		log_info ("rate items: ".(join ', ', @Rate_Items)) if wantsdebug (qw[ all verbose rates ]);
+		if ( @Rate_Items ) {
+			@Rate_Items = uniq(@Rate_Items);
+			log_info ("rate items: ".(join ', ', @Rate_Items)) if wantsdebug (qw[ all verbose rates ]);
+		};
 	};
 };
 
@@ -1575,10 +1685,6 @@ sub postfwd_items {
 		$cmp = '==' if ( ($var) and ($cmp eq '=') );
 		if ($cmp eq '==') {
 			$myresult = ( lc($myitem) eq lc($val) ) if $myitem;
-		} elsif ( $cmp eq '=~' ) {
-			$myresult = ( $myitem =~ /$val/i );
-		} elsif ( $cmp eq '!~' ) {
-			$myresult = ( $myitem !~ /$val/i );
 		} elsif ($cmp eq '!=') {
 			$myresult = not( lc($myitem) eq lc($val) ) if $myitem;
 		} elsif ($cmp eq '=<') {
@@ -1592,7 +1698,7 @@ sub postfwd_items {
 		} else {
 			# allow // regex
 			$val =~ s/^\/?(.*?)\/?$/$1/;
-			$myresult = ( $myitem =~ /$val/i );
+			$myresult = ( ($cmp eq '!~') ? $myitem !~ /$val/i : $myitem =~ /$val/i );
 		};
 		return $myresult;
 	},
@@ -1708,33 +1814,38 @@ sub postfwd_items {
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0; my $prate = '';
 		my($ratetype,$ratecount,$ratetime,$ratecmd) = split "/", $myarg, 4;
 		if ($ratetype and $ratecount and $ratetime and $ratecmd) {
+		  my $crate = $Rules[$index]{$COMP_ID}.'+'.$ratecount.'_'.$ratetime;
 		  if ( defined $request{$ratetype} ) {
 			$ratetype .= "=".$request{$ratetype};
 
 			# Check if rate already exists in cache
-			my $rate_exists = ( defined $Rate_Cache{$ratetype} );
+			my $rate_exists = ( defined $Rate_Cache{$ratetype}{$crate} );
 			if ( $rate_exists ) {
 				# Child hit
-				log_info ("[RULES] rate limit object '".$ratetype."' exists in local cache") if wantsdebug (qw[ all rates ]);
+				log_info ("[RULES] rate limit object '".$ratetype."' '".$crate."' exists in local cache") if wantsdebug (qw[ all rates ]);
 			# Query parent cache
 			} elsif ( not $postfwd_settings{rate}{noparent} ) {
-				my $prate = "CMD=".$postfwd_commands{getcacheitem}.";TYPE=rate;ITEM=$ratetype";
+				my $prate = "CMD=".$postfwd_commands{getrateitem}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate;
 				log_info ("[RULES] query parent cache: '$prate'") if wantsdebug (qw[ all rates ]);
 				$prate = cache_query($prate);
 				log_info ("[RULES] parent cache answer: '$prate'") if wantsdebug (qw[ all rates ]);
 				$rate_exists = ( $prate ne '<undef>' );
 				if ( $rate_exists ) {
 					# Parent hit, populate local cache
-					%{$Rate_Cache{$ratetype}} = str_to_hash($prate);
+					%{$Rate_Cache{$ratetype}{$crate}} = str_to_hash($prate);
+					push @{$Rate_Cache{$ratetype}{'list'}}, $crate;
+					@{$Rate_Cache{$ratetype}{'list'}} = uniq(@{$Rate_Cache{$ratetype}{'list'}});
 				};
 			};
 
 			unless ( $rate_exists ) {
 				log_info ("[RULES] ".$myline
-					.", creating rate limit object '".$ratetype."'"
+					.", creating rate limit object '".$ratetype."' '".$crate."'"
 					." [type: ".$mycmd.", max: ".$ratecount.", time: ".$ratetime."s]")
 					if wantsdebug (qw[ all rates ]);
-				$Rate_Cache{$ratetype} = {
+				push @{$Rate_Cache{$ratetype}{'list'}}, $crate;
+				@{$Rate_Cache{$ratetype}{'list'}} = uniq(@{$Rate_Cache{$ratetype}{'list'}});
+				$Rate_Cache{$ratetype}{$crate} = {
 					type 		=> $mycmd,
 					maxcount	=> $ratecount,
 					ttl		=> $ratetime,
@@ -1744,8 +1855,8 @@ sub postfwd_items {
 					action		=> $ratecmd,
 				};
 				unless ($postfwd_settings{rate}{noparent}) {
-					$prate = "CMD=".$postfwd_commands{setcacheitem}.";TYPE=rate;ITEM=$ratetype".hash_to_str(%{$Rate_Cache{$ratetype}});
-					log_info ("creating parent rate limit object '".$ratetype."'") if wantsdebug (qw[ all rates setcache ]);
+					$prate = "CMD=".$postfwd_commands{setrateitem}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str(%{$Rate_Cache{$ratetype}{$crate}});
+					log_info ("creating parent rate limit object '".$prate."'") if wantsdebug (qw[ all rates setcache ]);
 					cache_query ($prate);
 				};
 			};
@@ -2187,7 +2298,7 @@ sub smtpd_access_policy {
     my($date)				      		= join(',', localtime($now));
     my($counters)					= "request=1".$postfwd_settings{sepreq}."interval=1";
     my($matched,$rblcnt,$rhlcnt,$t1,$t2,$t3,$stop)      = 0;
-    my($mykey,$cacheid,$myline,$checkreq,$checkval,$var,$ratehit,$rulehits) = "";
+    my($mykey,$cacheid,$myline,$checkreq,$checkval,$var,$ratehit,$rateindex,$rulehits) = "";
 
     # save original request
     $request{orig} = hash_to_str (%request);
@@ -2217,7 +2328,7 @@ sub smtpd_access_policy {
 		." seconds for rate cleanup of "
 		.($t3 - scalar keys %Rate_Cache)." out of ".$t3
 		." cached items after ".($now - $Cleanup_Rates)
-		." seconds (min ".$postfwd_settings{rate}{cleanup}."s)") if ( wantsdebug (qw[ all verbose rates ]) or (($t2 - $t1) > 0) );
+		." seconds (min ".$postfwd_settings{rate}{cleanup}."s)") if ( wantsdebug (qw[ all verbose rates cleanup ]) or (($t2 - $t1) > 0) );
 	$Cleanup_Rates = $t1;
     };
 
@@ -2231,7 +2342,14 @@ sub smtpd_access_policy {
 			log_info ("[RATES] parent rate limit answer: ".$checkval) if wantsdebug (qw[ all verbose rates ]);
 			unless ($checkval eq '<undef>') {
 				my($i,$r) = split $postfwd_settings{seplst}, $checkval;
-				if ($i and $r) { $ratehit = $i; %{$Rate_Cache{$i}} = str_to_hash ($r) };
+				my($it, $ri) = split $postfwd_settings{seplim}, $i;
+				if ($it and $ri and $r) {
+					$ratehit = $it; $rateindex = $ri;
+					%{$Rate_Cache{$it}{$ri}} = str_to_hash ($r);
+					push @{$Rate_Cache{$it}{'list'}}, $ri;
+					@{$Rate_Cache{$it}{'list'}} = uniq(@{$Rate_Cache{$it}{'list'}});
+					$request{'ratecount'} = $Rate_Cache{$it}{$ri}{'count'};
+				};
 			};
 	};
     };
@@ -2267,19 +2385,21 @@ sub smtpd_access_policy {
 			." seconds for request cleanup of "
 			.($t3 - scalar keys %Request_Cache)." out of ".$t3
 			." cached items after ".($now - $Cleanup_Requests)
-			." seconds (min ".$postfwd_settings{request}{cleanup}."s)") if ( wantsdebug (qw[ all verbose ]) or (($t2 - $t1) > 0) );
+			." seconds (min ".$postfwd_settings{request}{cleanup}."s)") if ( wantsdebug (qw[ all verbose cleanup ]) or (($t2 - $t1) > 0) );
 		$Cleanup_Requests = $t1;
 	};
     };
 
     # check rate
-    if ( $ratehit ) {
+    if ( $ratehit and $rateindex and defined $Rate_Cache{$ratehit}{$rateindex} ) {
 
 	$counters .= $postfwd_settings{sepreq}."rate=1";
-	$Matches{$Rate_Cache{$ratehit}{rule}}++;
-	$myaction = $Rate_Cache{$ratehit}{action};
-	log_info ("[RATES] rule=".$Rule_by_ID{$Rate_Cache{$ratehit}{rule}}
-		. ", id=".$Rate_Cache{$ratehit}{rule}
+	$Matches{$Rate_Cache{$ratehit}{$rateindex}{rule}}++;
+	$myaction = $Rate_Cache{$ratehit}{$rateindex}{action};
+	# substitute check for $$vars in action
+	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
+	log_info ("[RATES] rule=".$Rule_by_ID{$Rate_Cache{$ratehit}{$rateindex}{rule}}
+		. ", id=".$Rate_Cache{$ratehit}{$rateindex}{rule}
 		. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 		. ", client=".$request{client_name}."[".$request{client_address}."]"
 		. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
@@ -2289,9 +2409,9 @@ sub smtpd_access_policy {
 		. ", state=".$request{protocol_state}
 		. ", delay=".(time() - $now)."s"
 		. ", action=".$myaction." (item: '".$ratehit."'"
-		. ", type: ".$Rate_Cache{$ratehit}{type}
-		. ", count: ".$Rate_Cache{$ratehit}{count}."/".$Rate_Cache{$ratehit}{maxcount}
-		. ", ttl: ".$Rate_Cache{$ratehit}{ttl}."s"
+		. ", type: ".$Rate_Cache{$ratehit}{$rateindex}{type}
+		. ", count: ".$Rate_Cache{$ratehit}{$rateindex}{count}."/".$Rate_Cache{$ratehit}{$rateindex}{maxcount}
+		. ", ttl: ".$Rate_Cache{$ratehit}{$rateindex}{ttl}."s"
 		) unless $postfwd_settings{request}{nolog};
 
     # check own cache
@@ -2363,7 +2483,7 @@ sub smtpd_access_policy {
 				." seconds for rbl cleanup of "
 				.($t3 - scalar keys %DNS_Cache)." out of ".$t3
 				." cached items after ".($now - $Cleanup_RBLs)
-				." seconds (min ".$postfwd_settings{dns}{cleanup}."s)") if ( wantsdebug (qw[ all verbose ]) or (($t2 - $t1) > 0) );
+				." seconds (min ".$postfwd_settings{dns}{cleanup}."s)") if ( wantsdebug (qw[ all verbose cleanup ]) or (($t2 - $t1) > 0) );
 			$Cleanup_RBLs = $t1;
 		};
 
@@ -2474,6 +2594,9 @@ sub pre_loop_hook {
 	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
 	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
 	init_log ($self->{server}->{syslog_ident});
+	# load plugin-items
+	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
+	# read configuration
 	read_config(1);
 	log_info ("ready for input");
 };
@@ -2543,8 +2666,8 @@ sub list_stats {
 
 		# per rule stats
 		if (%Hits and not($postfwd_settings{syslog}{norulestats})) {
-			my @rulecharts = (sort { $Hits{$b} <=> $Hits{$a} } (keys %Hits)); my $cntln = length($Hits{$rulecharts[0]}) + 2;
-			map { push ( @output, sprintf ("[STATS] %".$cntln."d matches for id:  %s", $Hits{$_}, $_)) } @rulecharts;
+			my @rulecharts = (sort { ($Hits{$b} || 0) <=> ($Hits{$a} || 0) } (keys %Hits)); my $cntln = length(($Hits{$rulecharts[0]} || 2)) + 2;
+			map { push ( @output, sprintf ("[STATS] %".$cntln."d matches for id:  %s", ($Hits{$_} || 0), $_)) } @rulecharts;
 		};
 	};
 
@@ -2721,6 +2844,7 @@ GetOptions( \%options,
 	"no_parent_cache"         => sub{ $postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1 },
 	# Limits
 	"cleanup-rates=i"	  => \$postfwd_settings{rate}{cleanup},
+	"keep_rates|keep_limits|keep_rates_on_reload" => \$postfwd_settings{keep_rates},
 	# Control
 	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", Perl ".$]." on ".$^O.")\n"; exit 1; },
 	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit 1; },
@@ -2752,6 +2876,8 @@ GetOptions( \%options,
 	"norulelog"		  => \$postfwd_settings{request}{nolog},
 	"no-rulelog"		  => \$postfwd_settings{request}{nolog},
 	"perfmon|P"		  => \$postfwd_settings{syslog}{nolog},
+	"plugins=s"		  => sub { push @{$postfwd_settings{Plugins}}, $_[1] },
+
 	# Unused
 	"start",
 	"chroot|R=s",
@@ -2827,6 +2953,7 @@ if (defined $options{'dumpcache'}) {
 # check for --nodaemon option
 unless ($postfwd_settings{daemon}) {
 	my(%attr) = ();
+	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
 	read_config(1);
 	map { $postfwd_settings{daemons}{$_} = 0 } (keys %{$postfwd_settings{daemons}});
 	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1;
@@ -3065,7 +3192,11 @@ B<postfwd2> [OPTIONS] [SOURCE1, SOURCE2, ...]
             --noidlestats		disables statistics when idle
             --norulestats		disables per rule statistics
 	-I, --instantcfg		reloads ruleset on every new request
+            --keep_rates		do not clear rate limit counters on reload
 	    --config_timeout <i>	parser timeout in seconds
+
+	Plugins:
+	    --plugins <file>            loads postfwd plugins from file
 
 	Logging:
         -l, --logname <label>		label for syslog messages
@@ -3237,6 +3368,11 @@ Rules can span multiple lines by adding a trailing backslash "\" character:
 				  id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
 				  	; action=REJECT sorry no access
 
+	ratecount		- only available for rate(), size() and rcpt() actions.
+				  contains the actual limit counter:
+					id=R01; action=rate(sender/200/600/REJECT limit of 200 exceeded [$$ratecount hits])
+					id=R02; action=rate(sender/100/600/WARN limit of 100 exceeded [$$ratecount hits])
+
 Besides these you can specify any attribute of the postfix policy delegation protocol.  
 Feel free to combine them the way you need it (have a look at the EXAMPLES section below).
 
@@ -3331,6 +3467,32 @@ Request attributes can be compared by preceeding '$$' characters, e.g.:
 
 This is only valid for PCRE values (see list above). The comparison will be performed as case insensitive exact match.
 Use the '-vv' option to debug.
+
+These special items will be reset for any new rule:
+
+	rblcount	- contains the number of RBL answers
+	rhsblcount	- contains the number of RHSBL answers
+	matches		- contains the number of matched items
+	dnsbltext	- contains the dns TXT part of all RBL and RHSBL replies in the form
+			  rbltype:rblname:<txt>; rbltype:rblname:<txt>; ...
+
+These special items will be changed for any matching rule:
+
+	request_hits	- contains ids of all matching rules
+
+This means that it might be necessary to save them, if you plan to use these values in later rules:
+
+	# set vals
+	id=RBL01 ; rhsblcount=all; rblcount=all; \
+		action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext); \
+		rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org; \
+		rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net; \
+		rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
+
+	# compare
+	id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
+	id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
+	id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]
 
 
 =head2 FILES
@@ -3523,32 +3685,6 @@ You can reference to request attributes, like
 
 	id=R-HELO ;  helo_name=^[^\.]+$ ;  action=REJECT invalid helo '$$helo_name'
 
-These special attributes will be reset for any new rule:
-
-	rblcount	- contains the number of RBL answers
-	rhsblcount	- contains the number of RHSBL answers
-	matches		- contains the number of matched items
-	dnsbltext	- contains the dns TXT part of all RBL and RHSBL replies in the form
-			  rbltype:rblname:<txt>; rbltype:rblname:<txt>; ...
-
-These special attributes will be changed for any matching rule:
-
-	request_hits	- contains ids of all matching rules
-
-This means that it might be necessary to save them, if you plan to use these values in later rules:
-
-	# set vals
-	id=RBL01 ; rhsblcount=all ; rblcount=all ; \
-		rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org ; \
-		rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
-		rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
-		action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)
-
-	# compare
-	id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
-	id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
-	id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]
-
 
 =head2 MACROS/ACLS
 
@@ -3592,6 +3728,158 @@ Macros can contain macros, too:
 	&&GOAWAY ; action=REJECT dynamic client and listed on RBL
 
 Basically macros are simple text substitutions - see the L</PARSER> section for more information.
+
+
+=head2 PLUGINS
+
+B<Description>
+
+The plugin interface allow you to define your own checks and enhance postfwd's
+functionality. Feel free to share useful things!
+
+B<Warning>
+
+Note that the plugin interface is still at devel stage. Please test your plugins
+carefully, because errors may cause postfwd to break! It is also
+allowed to override attributes or built-in functions, but be sure that you know
+what you do because some of them are used internally.
+
+Please keep security in mind, when you access sensible ressources and never, ever
+run postfwd as privileged user! Also never trust your input (especially hostnames,
+and e-mail addresses).
+
+B<ITEMS>
+
+Item plugins are perl subroutines which integrate additional attributes to requests
+before they are evaluated against postfwd's ruleset like any other item of the
+policy delegation protocol. This allows you to create your own checks.
+
+plugin-items can not be used selective. these functions will be executed for every
+request postfwd receives, so keep performance in mind.
+
+	SYNOPSIS: %result = postfwd_items_plugin{<name>}(%request)
+
+means that your subroutine, called <name>, has access to a hash called %request,
+which contains all request attributes, like $request{client_name} and must
+return a value in the following form:
+
+	save: $result{<item>} = <value>
+
+this creates the new item <item> containing <value>, which will be integrated in
+the policy delegation request and therefore may be used in postfwd's ruleset.
+
+	# do NOT remove the next line
+	%postfwd_items_plugin = (
+
+		# EXAMPLES - integrated in postfwd. no need to activate them here.
+		
+			# allows to check postfwd version in ruleset
+	        	"version" => sub {
+       	 		       	my(%request) = @_;
+				my(%result) = (
+       	 	        		"version" => $NAME." ".$VERSION,
+				);
+       	 		       	return %result;
+			},
+		
+			# sender_domain and recipient_domain
+       	 		"address_parts" => sub {
+       	 		       	my(%request) = @_;
+				my(%result) = ();
+       	 			$request{sender} =~ /@([^@]*)$/;
+       	 			$result{sender_domain} = ($1 || '');
+       	 			$request{recipient} =~ /@([^@]*)$/;
+				$result{recipient_domain} = ($1 || '');
+       			       	return %result;
+			},
+
+	# do NOT remove the next line
+	);
+
+B<COMPARE>
+
+Compare plugins allow you to define how your new items should be compared to the ruleset.
+These are optional. If you don't specify one, the default (== for exact match, =~ for PCRE, ...)
+will be used.
+
+	SYNOPSIS:  <item> => sub { return &{$postfwd_compare{<type>}}(@_); },
+
+	# do NOT remove the next line
+	%postfwd_compare_plugin = (
+
+		EXAMPLES - integrated in postfwd. no need to activate them here.
+	
+			# Simple example
+			# SYNOPSIS:  <result> = <item> (return &{$postfwd_compare{<type>}}(@_))
+			"client_address"  => sub { return &{$postfwd_compare{cidr}}(@_); },
+			"size"            => sub { return &{$postfwd_compare{numeric}}(@_); },
+			"recipient_count" => sub { return &{$postfwd_compare{numeric}}(@_); },
+	
+			# Complex example
+			# SYNOPSIS:  <result> = <item>(<operator>, <ruleset value>, <request value>, <request>)
+			"numeric" => sub {
+				my($cmp,$val,$myitem,%request) = @_;
+				my($myresult) = undef;	$myitem ||= "0"; $val ||= "0";
+				if ($cmp eq '==') {
+					$myresult = ($myitem == $val);
+				} elsif ($cmp eq '=<') {
+					$myresult = ($myitem <= $val);
+				} elsif ($cmp eq '=>') {
+					$myresult = ($myitem >= $val);
+				} elsif ($cmp eq '!=') {
+					$myresult = not($myitem == $val);
+				} elsif ($cmp eq '!<') {
+					$myresult = not($myitem <= $val);
+				} elsif ($cmp eq '!>') {
+					$myresult = not($myitem >= $val);
+				} else {
+					$myresult = ($myitem >= $val);
+				};
+				return $myresult;
+			},
+
+	# do NOT remove the next line
+	);
+
+B<ACTIONS>
+
+Action plugins allow to define new postfwd actions. By setting the $stop-flag you can decide to
+continue or to stop parsing the ruleset.
+
+	SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>, <request>) =
+			<action> (<current rule index>, <current time>, <command name>, <argument>, <logprefix>, <request>)
+
+	# do NOT remove the next line
+	%postfwd_actions_plugin = (
+
+		# EXAMPLES - integrated in postfwd. no need to activate them here.
+	
+			# note(<logstring>) command
+			"note"  => sub {
+				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+				my($myaction) = $default_action; my($stop) = 0;
+				mylogs 'info', "[RULES] ".$myline." - note: ".$myarg if $myarg;
+				return ($stop,$index,$myaction,$myline,%request);
+			},
+	
+			# skips next <myarg> rules
+        		"skip" => sub {
+				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+				my($myaction) = $default_action; my($stop) = 0;
+				$index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
+				return ($stop,$index,$myaction,$myline,%request);
+        		},
+	
+			# dumps current request contents to syslog
+        		"dumprequest" => sub {
+				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+				my($myaction) = $default_action; my($stop) = 0;
+				map { mylogs 'info', "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
+				return ($stop,$index,$myaction,$myline,%request);
+        		},
+
+	# do NOT remove the next line
+	);
 
 
 =head2 COMMAND LINE
@@ -3680,6 +3968,12 @@ The following arguments will control it's behaviour in this case.
 
 	--loglen <int>
 	Truncates any syslog message after <int> characters.
+
+I<Plugins>
+
+	--plugins <file>
+	Loads postfwd plugins from file. Please see http://postfwd.org/postfwd.plugins
+	or the plugins.postfwd.sample that is available from the tarball for more info.
 
 I<Optional arguments>
 
@@ -3803,6 +4097,11 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 	without restarting. Though files will be read only if necessary
 	(which means their access times changed since last read) this might
 	significantly increase system load.
+
+	--keep_rates    (default=0)
+	With this option set postfwd2 does not clear the rate limit counters on reload. Please
+	note that you have to restart (not reload) postfwd with this option if you change
+	any rate limit rules.
 
 	--config_timeout    (default=3)
 	timeout in seconds to parse a single configuration line. if exceeded, the rule will
@@ -4200,11 +4499,6 @@ Some of these proposals might not match your environment. Please check your requ
 	- use set() action on repeated item lists
 	- use jumps and rate limits
 	- use a pre-lookup rule for rbl/rhsbls with empty note() action
-
-
-=head2 PLUGINS
-
-There is a plugin interface but it still lacks documentation. Contact me if you need assistance.
 
 
 =head2 SEE ALSO

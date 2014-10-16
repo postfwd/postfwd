@@ -23,6 +23,7 @@
 		<li><a href="#files">FILES</a></li>
 		<li><a href="#actions">ACTIONS</a></li>
 		<li><a href="#macros_acls">MACROS/ACLS</a></li>
+		<li><a href="#plugins">PLUGINS</a></li>
 		<li><a href="#command_line">COMMAND LINE</a></li>
 		<li><a href="#refresh">REFRESH</a></li>
 		<li><a href="#examples">EXAMPLES</a></li>
@@ -31,7 +32,6 @@
 		<li><a href="#integration">INTEGRATION</a></li>
 		<li><a href="#testing">TESTING</a></li>
 		<li><a href="#performance">PERFORMANCE</a></li>
-		<li><a href="#plugins">PLUGINS</a></li>
 		<li><a href="#see_also">SEE ALSO</a></li>
 	</ul>
 
@@ -119,7 +119,11 @@
             --noidlestats               disables statistics when idle
             --norulestats               disables per rule statistics
         -I, --instantcfg                reloads ruleset on every new request
+            --keep_rates                do not clear rate limit counters on reload
             --config_timeout &lt;i&gt;        parser timeout in seconds</pre>
+<pre>
+        Plugins:
+            --plugins &lt;file&gt;            loads postfwd plugins from file</pre>
 <pre>
         Logging:
         -l, --logname &lt;label&gt;           label for syslog messages
@@ -272,6 +276,11 @@ arguments. Please see the COMMAND LINE section below for more information on thi
                                   # version &gt;= 1.10
                                   id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
                                         ; action=REJECT sorry no access</pre>
+<pre>
+        ratecount               - only available for rate(), size() and rcpt() actions.
+                                  contains the actual limit counter:
+                                        id=R01; action=rate(sender/200/600/REJECT limit of 200 exceeded [$$ratecount hits])
+                                        id=R02; action=rate(sender/100/600/WARN limit of 100 exceeded [$$ratecount hits])</pre>
 <p>Besides these you can specify any attribute of the postfix policy delegation protocol.  
 Feel free to combine them the way you need it (have a look at the EXAMPLES section below).</p>
 <p>Most values can be specified as regular expressions (PCRE). Please see the table below
@@ -356,6 +365,29 @@ Pattern matching is performed case insensitive.</p>
         id=R-003 ;  client_name = !!($$(helo_name))   ;  action=WARN helo does not match DNS</pre>
 <p>This is only valid for PCRE values (see list above). The comparison will be performed as case insensitive exact match.
 Use the '-vv' option to debug.</p>
+<p>These special items will be reset for any new rule:</p>
+<pre>
+        rblcount        - contains the number of RBL answers
+        rhsblcount      - contains the number of RHSBL answers
+        matches         - contains the number of matched items
+        dnsbltext       - contains the dns TXT part of all RBL and RHSBL replies in the form
+                          rbltype:rblname:&lt;txt&gt;; rbltype:rblname:&lt;txt&gt;; ...</pre>
+<p>These special items will be changed for any matching rule:</p>
+<pre>
+        request_hits    - contains ids of all matching rules</pre>
+<p>This means that it might be necessary to save them, if you plan to use these values in later rules:</p>
+<pre>
+        # set vals
+        id=RBL01 ; rhsblcount=all; rblcount=all; \
+                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext); \
+                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org; \
+                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net; \
+                rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net</pre>
+<pre>
+        # compare
+        id=RBL02 ; HIT_rhls&gt;=1 ; HIT_rbls&gt;=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
+        id=RBL03 ; HIT_rhls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
+        id=RBL04 ; HIT_rbls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]</pre>
 <p>
 </p>
 <h2><a name="files">FILES</a></h2>
@@ -525,29 +557,6 @@ rule containing only an action statement:</p>
 <p>You can reference to request attributes, like</p>
 <pre>
         id=R-HELO ;  helo_name=^[^\.]+$ ;  action=REJECT invalid helo '$$helo_name'</pre>
-<p>These special attributes will be reset for any new rule:</p>
-<pre>
-        rblcount        - contains the number of RBL answers
-        rhsblcount      - contains the number of RHSBL answers
-        matches         - contains the number of matched items
-        dnsbltext       - contains the dns TXT part of all RBL and RHSBL replies in the form
-                          rbltype:rblname:&lt;txt&gt;; rbltype:rblname:&lt;txt&gt;; ...</pre>
-<p>These special attributes will be changed for any matching rule:</p>
-<pre>
-        request_hits    - contains ids of all matching rules</pre>
-<p>This means that it might be necessary to save them, if you plan to use these values in later rules:</p>
-<pre>
-        # set vals
-        id=RBL01 ; rhsblcount=all ; rblcount=all ; \
-                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org ; \
-                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
-                rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \
-                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)</pre>
-<pre>
-        # compare
-        id=RBL02 ; HIT_rhls&gt;=1 ; HIT_rbls&gt;=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs [INFO: $$HIT_txt]
-        id=RBL03 ; HIT_rhls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs [INFO: $$HIT_txt]
-        id=RBL04 ; HIT_rbls&gt;=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs [INFO: $$HIT_txt]</pre>
 <p>
 </p>
 <h2><a name="macros_acls">MACROS/ACLS</a></h2>
@@ -587,6 +596,144 @@ First the macros have to be defined as follows:</p>
         # rules
         &amp;&amp;GOAWAY ; action=REJECT dynamic client and listed on RBL</pre>
 <p>Basically macros are simple text substitutions - see the <a href="#parser">PARSER</a> section for more information.</p>
+<p>
+</p>
+<h2><a name="plugins">PLUGINS</a></h2>
+<p><strong>Description</strong></p>
+<p>The plugin interface allow you to define your own checks and enhance postfwd's
+functionality. Feel free to share useful things!</p>
+<p><strong>Warning</strong></p>
+<p>Note that the plugin interface is still at devel stage. Please test your plugins
+carefully, because errors may cause postfwd to break! It is also
+allowed to override attributes or built-in functions, but be sure that you know
+what you do because some of them are used internally.</p>
+<p>Please keep security in mind, when you access sensible ressources and never, ever
+run postfwd as privileged user! Also never trust your input (especially hostnames,
+and e-mail addresses).</p>
+<p><strong>ITEMS</strong></p>
+<p>Item plugins are perl subroutines which integrate additional attributes to requests
+before they are evaluated against postfwd's ruleset like any other item of the
+policy delegation protocol. This allows you to create your own checks.</p>
+<p>plugin-items can not be used selective. these functions will be executed for every
+request postfwd receives, so keep performance in mind.</p>
+<pre>
+        SYNOPSIS: %result = postfwd_items_plugin{&lt;name&gt;}(%request)</pre>
+<p>means that your subroutine, called &lt;name&gt;, has access to a hash called %request,
+which contains all request attributes, like $request{client_name} and must
+return a value in the following form:</p>
+<pre>
+        save: $result{&lt;item&gt;} = &lt;value&gt;</pre>
+<p>this creates the new item &lt;item&gt; containing &lt;value&gt;, which will be integrated in
+the policy delegation request and therefore may be used in postfwd's ruleset.</p>
+<pre>
+        # do NOT remove the next line
+        %postfwd_items_plugin = (</pre>
+<pre>
+                # EXAMPLES - integrated in postfwd. no need to activate them here.
+                
+                        # allows to check postfwd version in ruleset
+                        &quot;version&quot; =&gt; sub {
+                                my(%request) = @_;
+                                my(%result) = (
+                                        &quot;version&quot; =&gt; $NAME.&quot; &quot;.$VERSION,
+                                );
+                                return %result;
+                        },
+                
+                        # sender_domain and recipient_domain
+                        &quot;address_parts&quot; =&gt; sub {
+                                my(%request) = @_;
+                                my(%result) = ();
+                                $request{sender} =~ /@([^@]*)$/;
+                                $result{sender_domain} = ($1 || '');
+                                $request{recipient} =~ /@([^@]*)$/;
+                                $result{recipient_domain} = ($1 || '');
+                                return %result;
+                        },</pre>
+<pre>
+        # do NOT remove the next line
+        );</pre>
+<p><strong>COMPARE</strong></p>
+<p>Compare plugins allow you to define how your new items should be compared to the ruleset.
+These are optional. If you don't specify one, the default (== for exact match, =~ for PCRE, ...)
+will be used.</p>
+<pre>
+        SYNOPSIS:  &lt;item&gt; =&gt; sub { return &amp;{$postfwd_compare{&lt;type&gt;}}(@_); },</pre>
+<pre>
+        # do NOT remove the next line
+        %postfwd_compare_plugin = (</pre>
+<pre>
+                EXAMPLES - integrated in postfwd. no need to activate them here.
+        
+                        # Simple example
+                        # SYNOPSIS:  &lt;result&gt; = &lt;item&gt; (return &amp;{$postfwd_compare{&lt;type&gt;}}(@_))
+                        &quot;client_address&quot;  =&gt; sub { return &amp;{$postfwd_compare{cidr}}(@_); },
+                        &quot;size&quot;            =&gt; sub { return &amp;{$postfwd_compare{numeric}}(@_); },
+                        &quot;recipient_count&quot; =&gt; sub { return &amp;{$postfwd_compare{numeric}}(@_); },
+        
+                        # Complex example
+                        # SYNOPSIS:  &lt;result&gt; = &lt;item&gt;(&lt;operator&gt;, &lt;ruleset value&gt;, &lt;request value&gt;, &lt;request&gt;)
+                        &quot;numeric&quot; =&gt; sub {
+                                my($cmp,$val,$myitem,%request) = @_;
+                                my($myresult) = undef;  $myitem ||= &quot;0&quot;; $val ||= &quot;0&quot;;
+                                if ($cmp eq '==') {
+                                        $myresult = ($myitem == $val);
+                                } elsif ($cmp eq '=&lt;') {
+                                        $myresult = ($myitem &lt;= $val);
+                                } elsif ($cmp eq '=&gt;') {
+                                        $myresult = ($myitem &gt;= $val);
+                                } elsif ($cmp eq '!=') {
+                                        $myresult = not($myitem == $val);
+                                } elsif ($cmp eq '!&lt;') {
+                                        $myresult = not($myitem &lt;= $val);
+                                } elsif ($cmp eq '!&gt;') {
+                                        $myresult = not($myitem &gt;= $val);
+                                } else {
+                                        $myresult = ($myitem &gt;= $val);
+                                };
+                                return $myresult;
+                        },</pre>
+<pre>
+        # do NOT remove the next line
+        );</pre>
+<p><strong>ACTIONS</strong></p>
+<p>Action plugins allow to define new postfwd actions. By setting the $stop-flag you can decide to
+continue or to stop parsing the ruleset.</p>
+<pre>
+        SYNOPSIS:  (&lt;stop rule parsing&gt;, &lt;next rule index&gt;, &lt;return action&gt;, &lt;logprefix&gt;, &lt;request&gt;) =
+                        &lt;action&gt; (&lt;current rule index&gt;, &lt;current time&gt;, &lt;command name&gt;, &lt;argument&gt;, &lt;logprefix&gt;, &lt;request&gt;)</pre>
+<pre>
+        # do NOT remove the next line
+        %postfwd_actions_plugin = (</pre>
+<pre>
+                # EXAMPLES - integrated in postfwd. no need to activate them here.
+        
+                        # note(&lt;logstring&gt;) command
+                        &quot;note&quot;  =&gt; sub {
+                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                my($myaction) = $default_action; my($stop) = 0;
+                                mylogs 'info', &quot;[RULES] &quot;.$myline.&quot; - note: &quot;.$myarg if $myarg;
+                                return ($stop,$index,$myaction,$myline,%request);
+                        },
+        
+                        # skips next &lt;myarg&gt; rules
+                        &quot;skip&quot; =&gt; sub {
+                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                my($myaction) = $default_action; my($stop) = 0;
+                                $index += $myarg if ( $myarg and not(($index + $myarg) &gt; $#Rules) );
+                                return ($stop,$index,$myaction,$myline,%request);
+                        },
+        
+                        # dumps current request contents to syslog
+                        &quot;dumprequest&quot; =&gt; sub {
+                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                my($myaction) = $default_action; my($stop) = 0;
+                                map { mylogs 'info', &quot;[DUMP] rule=$index, Attribute: $_=$request{$_}&quot; } (keys %request);
+                                return ($stop,$index,$myaction,$myline,%request);
+                        },</pre>
+<pre>
+        # do NOT remove the next line
+        );</pre>
 <p>
 </p>
 <h2><a name="command_line">COMMAND LINE</a></h2>
@@ -668,6 +815,11 @@ The following arguments will control it's behaviour in this case.</p>
 <pre>
         --loglen &lt;int&gt;
         Truncates any syslog message after &lt;int&gt; characters.</pre>
+<p><em>Plugins</em></p>
+<pre>
+        --plugins &lt;file&gt;
+        Loads postfwd plugins from file. Please see <a href="http://postfwd.org/postfwd.plugins">http://postfwd.org/postfwd.plugins</a>
+        or the plugins.postfwd.sample that is available from the tarball for more info.</pre>
 <p><em>Optional arguments</em></p>
 <p>These parameters influence the way postfwd2 is working. Any of them can be combined.</p>
 <pre>
@@ -789,6 +941,11 @@ The following arguments will control it's behaviour in this case.</p>
         without restarting. Though files will be read only if necessary
         (which means their access times changed since last read) this might
         significantly increase system load.</pre>
+<pre>
+        --keep_rates    (default=0)
+        With this option set postfwd2 does not clear the rate limit counters on reload. Please
+        note that you have to restart (not reload) postfwd with this option if you change
+        any rate limit rules.</pre>
 <pre>
         --config_timeout    (default=3)
         timeout in seconds to parse a single configuration line. if exceeded, the rule will
@@ -1144,10 +1301,6 @@ listening on the specified network settings.</p>
         - use set() action on repeated item lists
         - use jumps and rate limits
         - use a pre-lookup rule for rbl/rhsbls with empty note() action</pre>
-<p>
-</p>
-<h2><a name="plugins">PLUGINS</a></h2>
-<p>There is a plugin interface but it still lacks documentation. Contact me if you need assistance.</p>
 <p>
 </p>
 <h2><a name="see_also">SEE ALSO</a></h2>

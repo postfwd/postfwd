@@ -17,7 +17,8 @@ As you might have noticed, there are two different versions of postfwd available
 Which version fits best for you depends on your setup. Both versions use the same ruleset parser*. They also share the basic command line arguments (use both with --help for details). This allows to switch easily between them.
 <br><br>
 The following table might help you to decide which version to use. Basically you should stick with postfwd1 for the moment unless you encounter performance issues with dns based checks or very complex rulesets with thousands
-of checks. Please note that, due to implementation, rate limits are handled faster by postfwd1 at the moment.
+of checks. Please note that, due to implementation, rate limits are handled faster by postfwd1 at the moment. If performance really matters and you use a complex ruleset with rate limits and lots of dns based checks you should consider
+running two instances at different ports/sockets: postfwd1 for the rate limits and postfwd2 for the rest.
 <br><br>
 
 </p>
@@ -32,11 +33,13 @@ of checks. Please note that, due to implementation, rate limits are handled fast
   <td align="left" valign="top">
     <ul>
       <li>Single process (Multiplexer)
+      <li>Default port: tcp/10040
       <li>Small memory footprint
     </ul>
   <td align="left" valign="top">
     <ul>
       <li>Multiple processes (Preforker)
+      <li>Default port: tcp/10045
       <li>Scales with multiple cpus/cores
       <li>Builtin watchdog function
       <li>Debug classes
@@ -65,7 +68,12 @@ of checks. Please note that, due to implementation, rate limits are handled fast
   <td align="left" valign="top">
   <td align="left" valign="top">
     <ul>
-      <li>Does not support multiple rate limits for the same item (yet)
+      <li>postfwd2 versions below 1.30 do not support multiple rate limits for the same item:
+	<pre>
+# reject on 300+ connections/hour, warn at 200+
+id=R01; client_address=1.2.3.4; action=rate(client_address/300/3600/REJECT state RED)
+id=R02; client_address=1.2.3.4; action=rate(client_address/200/3600/WARN state YELLOW)
+	</pre>
     </ul>
 </table>
 </p>
