@@ -129,56 +129,73 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2007-10-29" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD 1 "2008-05-05" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
 .IX Header "SYNOPSIS"
-postfwd [\s-1OPTIONS\s0] \s-1SOURCE1\s0, \s-1SOURCE2\s0, ...
+postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 .PP
 .Vb 3
 \&        Ruleset: (at least one, multiple use is allowed):
-\&        -f, --file <file>         reads rules from <file>
-\&        -r, --rule <rule>         adds <rule> to config
+\&        -f, --file <file>           reads rules from <file>
+\&        -r, --rule <rule>           adds <rule> to config
 .Ve
 .PP
 .Vb 2
 \&        Scoring:
-\&        -s, --scores <v>=<r>      returns <r> when score exceeds <v>
+\&        -s, --scores <v>=<r>        returns <r> when score exceeds <v>
 .Ve
 .PP
 .Vb 9
 \&        Networking:
-\&        -d, --daemon              run postfwd as daemon
-\&        -i, --interface <dev>     listen on interface <dev>
-\&        -p, --port <port>         listen on port <port>
-\&        -u, --user <name>         set uid to user <name>
-\&        -g, --group <name>        set gid to group <name>
-\&        -R, --chroot <path>       chroot the daemon to <path>
-\&        -l, --logname <label>     label for syslog messages
-\&            --pidfile <path>      create pidfile under <path>
+\&        -d, --daemon                run postfwd as daemon
+\&        -i, --interface <dev>       listen on interface <dev>
+\&        -p, --port <port>           listen on port <port>
+\&        -u, --user <name>           set uid to user <name>
+\&        -g, --group <name>          set gid to group <name>
+\&        -R, --chroot <path>         chroot the daemon to <path>
+\&        -l, --logname <label>       label for syslog messages
+\&            --pidfile <path>        create pidfile under <path>
 .Ve
 .PP
-.Vb 10
-\&        optional:
-\&        -v, --verbose             verbose logging, use twice (-vv) to increase level
-\&        -c, --cache <int>         sets the request-cache timeout to <int> seconds
-\&            --cache-no-size       ignores size attribute for caching
-\&            --cache-rdomain-only  ignores localpart of recipient address in cache
-\&        -S, --summary <int>       show some usage statistics every <int> seconds
-\&        -L, --stdoutlog           redirect syslog messages to stdout
-\&        -t, --test                testing, always returns "dunno"
-\&        -n, --nodns               disable dns
-\&        -I, --instantcfg          re-reads rulefiles for every new request
+.Vb 11
+\&        Caching:
+\&        -c, --cache <int>           sets the request-cache timeout to <int> seconds
+\&            --cache-no-size         ignores size attribute for caching
+\&            --cache-no-sender       ignores sender address in cache
+\&            --cache-rdomain-only    ignores localpart of recipient address in cache
+\&            --cache-rbl-timeout     default rbl timeout, if not specified in ruleset
+\&            --cache-rbl-default     default rbl response pattern to match (regexp)
+\&            --cacheid <item>, ..    list of attributes for request cache identifier
+\&            --cleanup-requests      cleanup interval in seconds for request cache
+\&            --cleanup-rbls          cleanup interval in seconds for rbl cache
+\&            --cleanup-rates         cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 6
-\&        informational (use only at command-line!):
-\&        -C, --showconfig          shows config, -v for verbose
-\&        -P, --perfmon             no syslogging, no stdout
-\&        -V, --version             shows program version
-\&        -h, --help                shows usage
-\&        -m, --manual              shows program manual
+.Vb 12
+\&        Optional:
+\&        -t, --test                  testing, always returns "dunno"
+\&        -v, --verbose               verbose logging, use twice (-vv) to increase level
+\&            --shortlog              disables logging of some postfwd commands
+\&        -S, --summary <int>         show some usage statistics every <int> seconds
+\&        -n, --nodns                 disable dns
+\&            --dns_queuesize         sets the queue size for asynchonous dns queries
+\&            --dns_retries           how many retries for a single asynchonous dns query
+\&            --dns_timeout           timeout in seconds for asynchonous dns queries
+\&            --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
+\&            --dns_timeout_interval  interval in seconds for dns timeout maximum counter
+\&        -I, --instantcfg            re-reads rulefiles for every new request
+.Ve
+.PP
+.Vb 7
+\&        Informational (use only at command-line, not with postfix!):
+\&        -C, --showconfig            shows ruleset summary, -v for verbose
+\&        -L, --stdoutlog             redirect syslog messages to stdout
+\&        -P, --perfmon               no syslogging, no stdout
+\&        -V, --version               shows program version
+\&        -h, --help                  shows usage
+\&        -m, --manual                shows program manual
 .Ve
 .SH "DESCRIPTION"
 .IX Header "DESCRIPTION"
@@ -215,26 +232,38 @@ A configuration line consists of optional item=value pairs, separated by semicol
 (`;`) and the appropriate desired action:
 .PP
 .Vb 1
-\&        [ <item1>=<value>; <item2>=<value>; ... ] action=<result>
+\&        [ <item1>[=><~]=<value>; <item2>[=><~]=<value>; ... ] action=<result>
 .Ve
 .PP
 \&\fIExample:\fR
 .PP
 .Vb 1
-\&        client_address=192.168.1.1 ; sender=no@bad.local ; action=REJECT
+\&        client_address=192.168.1.1 ; sender==no@bad.local ; action=REJECT
 .Ve
 .PP
 This will deny all mail from 192.168.1.1 with envelope sender no@bad.local. The order of the elements
 is not important. So the following would lead to the same result as the previous example:
 .PP
 .Vb 1
-\&        action=REJECT ; client_address=192.168.1.1 ; sender=no@bad.local
+\&        action=REJECT ; client_address=192.168.1.1 ; sender==no@bad.local
+.Ve
+.PP
+The way how request items are compared to the ruleset can be influenced in the following way:
+.PP
+.Vb 7
+\&        ====================================================================
+\&         ITEM==VALUE                  true if ITEM equals VALUE
+\&         ITEM>=VALUE                  true if ITEM >= VALUE
+\&         ITEM<=VALUE                  true if ITEM <= VALUE
+\&         ITEM~=VALUE                  true if ITEM ~= /^VALUE$/i
+\&         ITEM=VALUE                   default behaviour (see ITEMS section)
+\&        ====================================================================
 .Ve
 .PP
 To identify single rules in your log files, you may add an unique identifier for each of it:
 .PP
 .Vb 1
-\&        id=R_001 ; action=REJECT ; client_address=192.168.1.1 ; sender=no@bad.local
+\&        id=R_001 ; action=REJECT ; client_address=192.168.1.1 ; sender==no@bad.local
 .Ve
 .PP
 You may use these identifiers as target for the `\fIjump()\fR` command (see \s-1ACTIONS\s0 section below). Leading
@@ -247,7 +276,7 @@ arguments. Please see the \s-1COMMAND\s0 \s-1LINE\s0 section below for more info
 Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" character:
 .PP
 .Vb 2
-\&        id=R_001 ;  client_address=192.168.1.0/24; sender=no@bad.local; \e
+\&        id=R_001 ;  client_address=192.168.1.0/24; sender==no@bad.local; \e
 \&                    action=REJECT please use your relay from there
 .Ve
 .Sh "\s-1ITEMS\s0"
@@ -261,6 +290,11 @@ Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" charac
 \&        date, time              - a time or date range within the specified rule shall hit
 .Ve
 .PP
+.Vb 2
+\&        days, months            - a range of weekdays (Sun-Sat) or months (Jan-Dec)
+\&                                  within the specified rule shall hit
+.Ve
+.PP
 .Vb 3
 \&        score                   - when the specified score is hit (see ACTIONS section)
 \&                                  the specified action will be returned to postfix
@@ -268,13 +302,43 @@ Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" charac
 .Ve
 .PP
 .Vb 2
-\&        rbl, rhsbl              - query the specified RBLs/RHSBLs, possible values are:
-\&                                  <name>[/<reply>/<maxcache>, <name>/<reply>/<maxcache>]
+\&        request_score           - this value allows to access a request's score. it
+\&                                  may be used as variable ($$request_score).
+.Ve
+.PP
+.Vb 5
+\&        rbl, rhsbl,             - query the specified RBLs/RHSBLs, possible values are:
+\&        rhsbl_client,             <name>[/<reply>/<maxcache>, <name>/<reply>/<maxcache>]
+\&        rhsbl_sender,             (defaults: reply=^127\e.0\e.0\e.\ed+$ maxcache=3600)
+\&        rhsbl_reverse_client      the results of all rhsbl_* queries will be combined
+\&                                  in rhsbl_count (see below).
+.Ve
+.PP
+.Vb 5
+\&        rblcount, rhsblcount    - minimum RBL/RHSBL hitcounts to match. if not specified
+\&                                  a single RBL/RHSBL hit will match the rbl/rhsbl items.
+\&                                  you may specify 'all' to evaluate all items, and use
+\&                                  it as variable in an action (see ACTIONS section)
+\&                                  (default: 1)
 .Ve
 .PP
 .Vb 2
-\&        rblcount, rhsblcount    - minimum RBL/RHSBL hitcounts to match if not specified
-\&                                  a single RBL/RHSBL hit will match the rbl/rhsbl items
+\&        sender_localpart,       - the local-/domainpart of the sender address
+\&        sender_domain
+.Ve
+.PP
+.Vb 2
+\&        recipient_localpart,    - the local-/domainpart of the recipient address
+\&        recipient_domain
+.Ve
+.PP
+.Vb 6
+\&        version                 - postfwd version, contains "postfwd n.nn"
+\&                                  this enables version based checks in your rulesets
+\&                                  (e.g. for migration). works with old versions too,
+\&                                  because a non-existing item always returns false:
+\&                                  id=R01; version~=1.10; sender_domain==some.org \e
+\&                                        ; action=REJECT sorry no access
 .Ve
 .PP
 Besides these you can specify any attribute of the postfix policy delegation protocol.  
@@ -283,13 +347,15 @@ Feel free to combine them the way you need it (have a look at the \s-1EXAMPLES\s
 Most values can be specified as regular expressions (\s-1PCRE\s0). Please see the table below
 for details:
 .PP
-.Vb 36
+.Vb 38
 \&        # ==========================================================
 \&        # ITEM=VALUE                            TYPE
 \&        # ==========================================================
 \&        id=something                            mask = string
 \&        date=01.04.2007-22.04.2007              mask = date (DD.MM.YYYY-DD.MM.YYYY)
 \&        time=08:30:00-17:00:00                  mask = time (HH:MM:SS-HH:MM:SS)
+\&        days=Mon-Wed                            mask = weekdays (Mon-Wed) or numeric (1-3)
+\&        months=Feb-Apr                          mask = months (Feb-Apr) or numeric (1-3)
 \&        score=5.0                               mask = maximum floating point value
 \&        rbl=zen.spamhaus.org                    mask = <name>/<reply>/<maxcache>[,...]
 \&        rblcount=2                              mask = numeric, will match if rbl hits >= 2
@@ -367,15 +433,26 @@ To avoid confusion with regexps or simply for better visibility you can use '!!(
 Request attributes can be compared by preceeding '$$' characters, e.g.:
 .PP
 .Vb 3
-\&        id=R-003 ;  client_name = !! $$helo_name      ;  action=REJECT helo does not match DNS
+\&        id=R-003 ;  client_name = !! $$helo_name      ;  action=WARN helo does not match DNS
 \&        # or
-\&        id=R-003 ;  client_name = !!($$(helo_name))   ;  action=REJECT helo does not match DNS
+\&        id=R-003 ;  client_name = !!($$(helo_name))   ;  action=WARN helo does not match DNS
 .Ve
 .PP
 This is only valid for \s-1PCRE\s0 values (see list above). The comparison will be performed as case insensitive exact match.
 Use the '\-vv' option to debug.
 .Sh "\s-1ACTIONS\s0"
 .IX Subsection "ACTIONS"
+\&\fIGeneral\fR
+.PP
+Actions will be executed, when all rule items have matched a request (or at least one of any item list). You can refer to
+request attributes by preceeding $$ characters, like:
+.PP
+.Vb 3
+\&        id=R-003; client_name = !!$$helo_name; action=WARN helo '$$helo_name' does not match DNS '$$client_name'
+\&        # or
+\&        id=R-003; client_name = !!$$helo_name; action=WARN helo '$$(helo_name)' does not match DNS '$$(client_name)'
+.Ve
+.PP
 \&\fIpostfix actions\fR
 .PP
 Actions will be replied to postfix as result to policy delegation requests. Any action that postfix understands is allowed \- see
@@ -399,17 +476,50 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        jump (<id>)
 \&        jumps to rule with id <id>, use this to skip certain rules.
 \&        you can jump backwards - but remember that there is no loop
-\&        detection at the moment!
+\&        detection at the moment! jumps to non-existing ids will be skipped.
+.Ve
+.PP
+.Vb 11
+\&        score (<score>)
+\&        the request's score will be modified by the specified <score>,
+\&        which must be a floating point value. the modificator can be either
+\&                +n.nn   adds n.nn to current score
+\&                -n.nn   sustracts n.nn from the current score
+\&                *n.nn   multiplies the current score by n.nn
+\&                /n.nn   divides the current score through n.nn
+\&                =n.nn   sets the current score to n.nn
+\&        if the score exceeds the maximum set by `--scores` option (see
+\&        COMMAND LINE) or the score item (see ITEMS section), the action
+\&        defined for this case will be returned (default: 5.0=>"REJECT postfwd score exceeded").
+.Ve
+.PP
+.Vb 5
+\&        set (<item>=<value>,<item>=<value>,...)
+\&        this command allows you to insert or override request attributes, which then may be
+\&        compared to your further ruleset. use this to speed up repeated comparisons to large item lists.
+\&        please see the EXAMPLES section for more information. you may separate multiple key=value pairs
+\&        by "," characters.
+.Ve
+.PP
+.Vb 8
+\&        rate (<item>/<max>/<time>/<action>)
+\&        this command creates a counter for the given <item>, which will be increased any time a request
+\&        containing it arrives. if it exceeds <max> within <time> seconds it will return <action> to postfix.
+\&        rate counters are very fast as they are executed before the ruleset is parsed.
+\&            # no more than 3 requests per 5 minutes
+\&            # from the same "unknown" client
+\&            id=RATE01 ;  client_name==unknown ; \e
+\&               action==rate($$client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
 .Ve
 .PP
 .Vb 7
-\&        score (<score>)
-\&        the request's score will be increased by the specified <score>,
-\&        which must be a floating point value. if the score exceeds the
-\&        maximum set by `--scores` option (see COMMAND LINE) or the score
-\&        item (see ITEMS section), the action defined for this case
-\&        will be returned (default=REJECT). negative values are allowed.
-\&        Anything else than +/-nnnn.nn will be ignored.
+\&        size (<item>/<max>/<time>/<action>)
+\&        this command works similar to the rate() command with the difference, that the rate counter is
+\&        increased by the request's size attribute. to do this reliably you should call postfwd from
+\&        smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
+\&           # size limit 1.5mb per hour per client
+\&           id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \e
+\&              action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 .Ve
 .PP
 .Vb 3
@@ -428,6 +538,38 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        quit (<code>)
 \&        terminates the program with the given exit-code. postfix doesn`t
 \&        like that too much, so use it with care.
+.Ve
+.PP
+You can reference to request attributes, like
+.PP
+.Vb 1
+\&        id=R-HELO ;  helo_name=^[^\e.]+$ ;  action=REJECT invalid helo '$$helo_name'
+.Ve
+.PP
+These special attributes will be reset for any new rule:
+.PP
+.Vb 3
+\&        rblcount        - contains the number of RBL answers
+\&        rhsblcount      - contains the number of RHSBL answers
+\&        matches         - contains the number of matched items
+.Ve
+.PP
+This means that you must save them, if you plan to use these values in later rules:
+.PP
+.Vb 6
+\&        # set vals
+\&        id=RBL01 ; rhsblcount=all ; rblcount=all ; \e
+\&                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org ; \e
+\&                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \e
+\&                rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net ; \e
+\&                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
+.Ve
+.PP
+.Vb 4
+\&        # compare
+\&        id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
+\&        id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
+\&        id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs
 .Ve
 .Sh "\s-1MACROS/ACLS\s0"
 .IX Subsection "MACROS/ACLS"
@@ -478,7 +620,7 @@ Macros can contain macros, too:
 \&        &&GOAWAY ; action=REJECT dynamic client and listed on RBL
 .Ve
 .PP
-Basically macros are simple text substitutions \- see the #PARSER section for more information.
+Basically macros are simple text substitutions \- see the \*(L"\s-1PARSER\s0\*(R" section for more information.
 .Sh "\s-1COMMAND\s0 \s-1LINE\s0"
 .IX Subsection "COMMAND LINE"
 \&\fIRuleset\fR
@@ -576,7 +718,7 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .Ve
 .PP
 .Vb 4
-\&        -c, --cache <int>
+\&        -c, --cache <int>    (default=600)
 \&        Timeout for request cache, results for identical requests will be
 \&        cached until config is reloaded or this time (in seconds) expired.
 \&        A setting of 0 disables this feature.
@@ -589,6 +731,13 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        item in your ruleset.
 .Ve
 .PP
+.Vb 4
+\&        --cache-no-sender
+\&        Ignores sender address for cache comparisons which will lead to better
+\&        cache-hit rates. You should set this option, if you don't use the sender
+\&        item in your ruleset.
+.Ve
+.PP
 .Vb 3
 \&        --cache-rdomain-only 
 \&        This will strip the localpart of the recipient's address before filling the
@@ -596,9 +745,54 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .Ve
 .PP
 .Vb 3
-\&        -S, --summary <int>
+\&        --cache-rbl-timeout <timeout>     (default=3600)
+\&        This default value will be used as timeout in seconds for rbl cache items,
+\&        if not specified in the ruleset.
+.Ve
+.PP
+.Vb 2
+\&        --cache-rbl-default <pattern>    (default=^127\e.0\e.0\e.\ed+$)
+\&        Matches <pattern> to rbl/rhsbl answers (regexp) if not specified in the ruleset.
+.Ve
+.PP
+.Vb 8
+\&        --cacheid <item>, <item>, ...
+\&        This csv-separated list of request attributes will be used to construct
+\&        the request cache identifier. Use this only, if you know exactly what you
+\&        are doing. If you, for example, use postfwd only for RBL/RHSBL control,
+\&        you may set this to
+\&                postfwd --cache=3600 --cacheid=client_name,client_address
+\&        This increases efficiency of caching and improves postfwd's performance.
+\&        Warning: You should list all items here, which are used in your ruleset!
+.Ve
+.PP
+.Vb 4
+\&        --cleanup-requests <interval>    (default=600)
+\&        The request cache will be searched for timed out items after this <interval> in
+\&        seconds. It is a minimum value. The cleanup process will only take place, when
+\&        a new request arrives.
+.Ve
+.PP
+.Vb 4
+\&        --cleanup-rbls <interval>    (default=600)
+\&        The rbl cache will be searched for timed out items after this <interval> in
+\&        seconds. It is a minimum value. The cleanup process will only take place, when
+\&        a new request arrives.
+.Ve
+.PP
+.Vb 4
+\&        --cleanup-rates <interval>    (default=600)
+\&        The rate cache will be searched for timed out items after this <interval> in
+\&        seconds. It is a minimum value. The cleanup process will only take place, when
+\&        a new request arrives.
+.Ve
+.PP
+.Vb 5
+\&        -S, --summary <int>    (default=600)
 \&        Shows some usage statistics (program uptime, request counter, matching rules)
-\&        every <int> seconds (default: 600). This option is included by the -v switch.
+\&        every <int> seconds. This option is included by the -v switch.
+\&        This feature uses the alarm signal, so you can force postfwd to dump the stats
+\&        using `kill -ALRM <pid>` (where <pid> is the process id of postfwd).
 .Ve
 .PP
 .Vb 9
@@ -619,6 +813,12 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .Ve
 .PP
 .Vb 3
+\&        --shortlog
+\&        As postfwd now logs all hits for a request, you might find it unecessary to log the
+\&        postfwd actions jump(), set() and score(). You may disable it with this option.
+.Ve
+.PP
+.Vb 3
 \&        -t, --test
 \&        In test mode postfwd always returns "dunno", but logs according
 \&        to it`s ruleset. -v will be set automatically with this option.
@@ -628,6 +828,36 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        -n, --nodns
 \&        Disables all DNS based checks like RBL checks. Rules containing
 \&        such elements will be ignored.
+.Ve
+.PP
+.Vb 3
+\&        --dns_queuesize   (default: 100)
+\&        Sets the queue size for asynchonous dns queries. If the query exceeds this value,
+\&        postfwd waits for answers of timeouts for previous queries.
+.Ve
+.PP
+.Vb 3
+\&        --dns_retries     (default: 3)
+\&        Sets the retry counter for asynchonous dns queries. This value will apply to
+\&        every single query.
+.Ve
+.PP
+.Vb 3
+\&        --dns_timeout     (default: 7)
+\&        Sets the timeout for asynchonous dns queries in seconds. This value will apply to
+\&        all dns items in a rule.
+.Ve
+.PP
+.Vb 3
+\&        --dns_timeout_max    (default: 10)
+\&        Sets the maximum timeout counter for dnsbl lookups. If the timeouts exceed this value
+\&        the corresponding dnsbl will be deactivated for a while (see --dns_timeout_interval).
+.Ve
+.PP
+.Vb 3
+\&        --dns_timeout_interval    (default=1200)
+\&        The dnsbl timeout counter will be cleaned after this interval in seconds. Use this
+\&        in conjunction with the --dns_timeout_max parameter.
 .Ve
 .PP
 .Vb 6
@@ -697,7 +927,7 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        ## Combined RBL checks
 \&        # This will reject mail if
 \&        # 1. listed on ix.dnsbl.manitu.net
-\&        # 2. listed on zen.spamhaus.org (sbl and xbl, dns cache timeout 1200s instead of 600s)
+\&        # 2. listed on zen.spamhaus.org (sbl and xbl, dns cache timeout 1200s instead of 3600s)
 \&        # 3. listed on min 2 of bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
 \&        # 4. listed on bl.spamcop.net and one of rhsbl.ahbl.org, rhsbl.sorbs.net
 \&        id=RBL01 ; action=REJECT listed on ix.dnsbl.manitu.net  ; rbl=ix.dnsbl.manitu.net
@@ -711,9 +941,9 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        # 1. 30MB for systems in *.customer1.tld
 \&        # 2. 20MB for SASL user joejob
 \&        # 3. 10MB default
-\&        id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\e.customer1.tld$
-\&        id=SZ002; action=REJECT message too large ; size=20000000 ; sasl_username=^joejob$
-\&        id=SZ003; action=REJECT message too large ; size=10000000
+\&        id=SZ001; state==END-OF-MESSAGE; action=REJECT message too large; size=30000000 ; client_name=\e.customer1.tld$
+\&        id=SZ002; state==END-OF-MESSAGE; action=REJECT message too large; size=20000000 ; sasl_username==joejob
+\&        id=SZ003; state==END-OF-MESSAGE; action=REJECT message too large; size=10000000
 .Ve
 .PP
 .Vb 7
@@ -726,12 +956,14 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        id=GR003; action=greylisting ; client_name=\e.(t-ipconnect|alicedsl|ish)\e.de$
 .Ve
 .PP
-.Vb 5
+.Vb 7
 \&        ## Date Time
 \&        date=24.12.2007-26.12.2007          ;  action=450 4.7.1 office closed during christmas
 \&        time=04:00:00-05:00:00              ;  action=450 4.7.1 maintenance ongoing, try again later
 \&        time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
 \&        time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim
+\&        months=-Apr                         ;  action=450 4.7.1 see you in may
+\&        days=!!Mon-Fri                      ;  action=greylist
 .Ve
 .PP
 .Vb 10
@@ -743,11 +975,11 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        id=R003 ; action=jump(R100) ; ccert_fingerprint=AA:BB:CC:DD:...
 \&        id=R004 ; action=jump(R100) ; ccert_fingerprint=AF:BE:CD:DC:...
 \&        id=R005 ; action=jump(R100) ; ccert_fingerprint=DD:CC:BB:DD:...
-\&        id=R099 ; action=REJECT message too big (max. 10MB); size=10000000
-\&        id=R100 ; action=REJECT message too big (max. 30MB); size=30000000
+\&        id=R099 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 10MB); size=10000000
+\&        id=R100 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 30MB); size=30000000
 .Ve
 .PP
-.Vb 13
+.Vb 14
 \&        ## Usage of score
 \&        # The following rejects a mail, if the client
 \&        # - is listed on 1 RBL and 1 RHSBL
@@ -759,8 +991,20 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        id=R00 ; action=score(-1.0)     ; rbl=exemptions.ahbl.org,list.dnswl.org,query.bondedsender.org,spf.trusted-forwarder.org
 \&        id=R01 ; action=score(2.5)      ; rbl=bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
 \&        id=R02 ; action=score(2.5)      ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
-\&        id=N01 ; action=score(2.7)      ; client_name=^unknown$
+\&        id=N01 ; action=score(-0.2)     ; client_name==$$helo_name
+\&        id=N02 ; action=score(2.7)      ; client_name=^unknown$
 \&        ...
+.Ve
+.PP
+.Vb 8
+\&        ## Usage of rate and size
+\&        # The following temporary rejects requests from "unknown" clients, if they
+\&        # 1. exceeded 30 requests per hour or
+\&        # 2. tried to send more than 1.5mb within 10 minutes
+\&        id=RATE01 ;  client_name==unknown ;  state==RCPT ; \e
+\&                action==rate($$client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
+\&        id=SIZE01 ;  client_name==unknown ;  state==END_OF_DATA ; \e
+\&                action==size($$client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
 .Ve
 .PP
 .Vb 8
@@ -774,7 +1018,7 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        &&GONOW ;  &&RBLS ;  client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_]
 .Ve
 .PP
-.Vb 24
+.Vb 34
 \&        ## Groups
 \&        # definition
 \&        &&RBLS { \e
@@ -784,10 +1028,20 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&                rbl=dnsbl.sorbs.net ;           \e
 \&                rbl=ix.dnsbl.manitu.net ;       \e
 \&        };
+\&        &&RHSBLS { \e
+\&                ...
+\&        };
 \&        &&DYNAMIC { \e
-\&                client_name=^unknown$ ;                         \e
-\&                client_name=(\ed+[\e.-_]){4} ;                    \e
-\&                client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;   \e
+\&                client_name==unknown ;                          \e
+\&                client_name~=(\ed+[\e.-_]){4} ;                   \e
+\&                client_name~=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;  \e
+\&                ...
+\&        };
+\&        &&BAD_HELO { \e
+\&                helo_name==my.name.tld;         \e
+\&                helo_name~=^([^\e.]+)$;          \e
+\&                helo_name~=\e.(local|lan)$;      \e
+\&                ...
 \&        };
 \&        &&MAINTENANCE { \e
 \&                date=15.01.2007  ; \e
@@ -799,6 +1053,28 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        # rules
 \&        id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
 \&        id=MAINTENANCE ;  &&MAINTENANCE       ;  action=DEFER maintenance time - please try again later
+.Ve
+.PP
+.Vb 8
+\&        # now with the set() command, note that long item
+\&        # lists don't have to be compared twice
+\&        id=RBL01    ;  &&RBLS      ;  action=set(HIT_rbls=1)
+\&        id=HELO01   ;  &&BAD_HELO  ;  action=set(HIT_helo=1)
+\&        id=DYNA01   ;  &&DYNAMIC   ;  action=set(HIT_dyna=1)
+\&        id=REJECT01 ;  HIT_rbls==1 ;  HIT_helo==1  ; action=REJECT please see http://some.org/info?reject=01 for more info
+\&        id=REJECT02 ;  HIT_rbls==1 ;  HIT_dyna==1  ; action=REJECT please see http://some.org/info?reject=02 for more info
+\&        id=REJECT03 ;  HIT_helo==1 ;  HIT_dyna==1  ; action=REJECT please see http://some.org/info?reject=03 for more info
+.Ve
+.PP
+.Vb 8
+\&        # combined with enhanced rbl features
+\&        # set vals
+\&        id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS ; \e
+\&          action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount)
+\&        # compare
+\&        id=RBL02 ; HIT_rhls>=1 ; HIT_rbls>=1 ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs and $$HIT_rbls RBLs
+\&        id=RBL03 ; HIT_rhls>=2               ; action=554 5.7.1 blocked using $$HIT_rhls RHSBLs
+\&        id=RBL04 ; HIT_rbls>=2               ; action=554 5.7.1 blocked using $$HIT_rbls RBLs
 .Ve
 .Sh "\s-1PARSER\s0"
 .IX Subsection "PARSER"
@@ -824,7 +1100,7 @@ will produce the following output:
 \&        Rule <n>: id->"DEFAULT" action->"dunno"
 .Ve
 .PP
-Multiple items of the same type will be added to lists (see the #ITEMS section for more info):
+Multiple items of the same type will be added to lists (see the \*(L"\s-1ITEMS\s0\*(R" section for more info):
 .PP
 .Vb 2
 \&        postfwd --showconfig \e
@@ -917,7 +1193,7 @@ If a rule matches, there are two options:
 The parser stops rule processing and returns the action to postfix. Other rules will not be evaluated.
 .PP
 * Rule returns postfwd action (\fIjump()\fR, \fInote()\fR, ...)
-The parser evaluates the given action and continues with the next rule (except for the \fIjump()\fR or \fIquit()\fR actions \- please see the \s-1ACTIONS\s0 section
+The parser evaluates the given action and continues with the next rule (except for the \fIjump()\fR or \fIquit()\fR actions \- please see the \*(L"\s-1ACTIONS\s0\*(R" section
 for more information). Nothing will be sent to postfix.
 .PP
 If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
@@ -941,7 +1217,8 @@ it`s internal caching in that case. Start postfwd with the following parameters:
 \&        postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S
 .Ve
 .PP
-For efficient caching you should check if you can use the options \-\-cache\-rdomain\-only and \-\-cache\-no\-size.
+For efficient caching you should check if you can use the options \-\-cache\-rdomain\-only, \-\-cache\-no\-sender
+and \-\-cache\-no\-size.
 .PP
 Now check your syslogs (default facility \*(L"mail\*(R") for a line like:
 .PP
@@ -1059,6 +1336,17 @@ For network tests I use netcat:
 .PP
 to send a request to postfwd. If you receive nothing, make sure that postfwd is running and
 listening on the specified network settings.
+.Sh "\s-1PERFORMANCE\s0"
+.IX Subsection "PERFORMANCE"
+Some of these proposals might not match your environment. Please check your requirements and test new options carefully!
+.PP
+\&\- use caching options
+\&\- use the correct match operator ==, <=, >=
+\&\- use ^ and $ in regular expressions
+\&\- use item lists (faster than single rules)
+\&\- use \fIset()\fR action on repeated item lists
+\&\- use jump action
+\&\- use pre-lookup rule for rbl/rhsbls with empty \fInote()\fR action
 .Sh "\s-1SEE\s0 \s-1ALSO\s0"
 .IX Subsection "SEE ALSO"
 See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description

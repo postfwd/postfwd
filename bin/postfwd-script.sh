@@ -18,7 +18,7 @@ PFWINET=127.0.0.1
 PFWPORT=10040
 
 # recommended extra arguments
-PFWARG="--summary=600 --cache=600 --cache-rdomain-only --cache-no-size"
+PFWARG="--shortlog --summary=600 --cache=600 --cache-rbl-timeout=3600 --cleanup-requests=1200 --cleanup-rbls=1800 --cleanup-rates=1200"
 
 
 ## should be no need to change below
@@ -36,6 +36,16 @@ case "$1" in
 				${PFWCMD} ${PFWARG} --daemon --file=${PFWCFG} --interface=${PFWINET} --port=${PFWPORT} --user=${PFWUSER} --group=${PFWGROUP};
 			fi ;
 			;;
+
+	debug*)		if [ -n "${PIDS}" ]; then
+                                echo "Process called \"${P1}\" already found at PID ${PIDS}. Please use \"${P2} restart\" instead." ;
+                                false;
+                        else
+                                echo "Starting ${P1} in DEBUG mode...";
+                                ${PFWCMD} ${PFWARG} -vv --daemon --file=${PFWCFG} --interface=${PFWINET} --port=${PFWPORT} --user=${PFWUSER} --group=${PFWGROUP};
+                        fi ;
+                        ;;
+
 
 	stop*)		if [ -z "${PIDS}" ]; then
 				echo "No process called \"${P1}\" found" ;

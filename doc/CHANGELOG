@@ -1,3 +1,119 @@
+
+**************************************************************************************************
+ATTENTION:  requirements changed - as dns queries are now performed asynchronously, postfwd from
+            v1.10pre2 and above needs the perl module Net::DNS::Async! it is available via CPAN
+            and installed for my tests without any problems on different linux and solaris systems
+NOTE:       please see the docs ('postfwd -m' or 'perldoc postfwd') for more information
+**************************************************************************************************
+
+
+1.10pre7b
+==========
+- bugfix:  inter-section links in documentation did not work correctly
+           (thanks to Alexander 'Leo' Bergolth)
+
+1.10pre7a
+==========
+- bugfix:  implemented workaround for possible crash of Sys::Syslog when syslog
+           daemon is unavailable (thanks to Henrik Krohns)
+- bugfix:  changed syslog socktype on solaris
+
+1.10pre7
+=========
+- feature: $$request_score may now be used to access a request's score
+- feature: auto-deactivation of non-responding dnsbls; please see the
+           new --cleanup-timeouts and --dns_timeout_max options
+- feature: the set command allows some basic operations:
+  =========================================================
+   action=set(ITEM+=VALUE)     adds VALUE to ITEM
+   action=set(ITEM-=VALUE)     substracts VALUE from ITEM
+   action=set(ITEM*=VALUE)     multiplies ITEM by VALUE
+   action=set(ITEM/=VALUE)     divides ITEM through VALUE
+   action=set(ITEM.=VALUE)     concatenates ITEM and VALUE
+   action=set(ITEM==VALUE)     sets ITEM to VALUE
+   action=set(ITEM=VALUE)      default: sets ITEM to VALUE
+  =========================================================
+- bugfix:  fixed wrong timestamp for timed out rbls
+- code:    score() command now allows integer values
+- code:    setting an empty score removes it from the table
+- code:    duplicate lookups within the same rule are now recognised
+
+1.10pre6
+=========
+- feature: the new rate() and size() commands offer some basic rate limit controls
+- feature: new cleanup options: --cleanup-rates
+- feature: regexps may now be included in // characters
+- feature: an empty sender address is now replaced by <>
+- bugfix:  some csv-separated itemlists did not work correctly since v1.10pre1
+- bugfix:  fixed a possible race condition with request cache when config was reloaded via HUP signal
+
+1.10pre5a
+=========
+- bugfix:  fixed a possible race condition in rbl_read_dns() function
+
+1.10pre5
+========
+- feature: new dnsbl lookup types: rhsbl_client, rhsbl_sender, rhsbl_reverse_client
+- feature: new caching option --cacheid allows to increase performance and cache efficiency
+- code:    cleanups will only be logged if '-v' was set or if the process took at least 1 second
+
+1.10pre4
+========
+- feature: new date items 'days=Sun-Sat' and 'months=Jan-Dec'
+- feature: all date/time items may now be csv-separated lists
+- feature: the set command can now have multiple, csv-separated arguments
+- feature: enhanced use of rblcount and rhsblcount (see doc)
+- feature: new caching options --cache-no-sender,--cache-rbl-timeout and --cache-rbl-default
+- feature: new cleanup options: --cleanup-requests and --cleanup-rbls
+- code:    cache cleanups are now performed on interval basis (not per request)
+           which should decrease load on busy systems.
+- code:    warning on multiple definitions of id, action, rblcount and rhsblcount is issued
+- bugfix:  date items may now contain whitespaces (e.g. days = Fri - Sat)
+
+1.10pre3
+========
+- feature: all hits for a rule are now logged in the final message
+- feature: option --shortlog disables logging for some postfwd actions
+- feature: introduced set() command, which enables setting of variables, which then can be
+           compared to the ruleset to gain performance on repeated item lists (see doc).
+- feature: introduced new command-line switches --dns_queuesize, --dns_retries and dns_retries
+           to influence the behaviour of DNS lookups
+- code:    restructured code (~+15% speed compared to v1.03, with nodns ruleset)
+
+1.10pre2
+========
+- feature: DNS lookups are now parallelized per rule. this increases the performance of dnsbl
+           items (and any other future dns based check) significantly. implementation (per rule):
+           1.) send dns queries, 2.) process other non-dns items, 3.) evaluate dns results
+           As a downside of this approach the parser does not wait for dns queries anymore, which
+           could result in increased load. you might use the sleep() command to get some delay ;-)
+
+1.10pre1
+========
+- feature: the way how request items are compared to the ruleset can now be influenced.
+  ===============================================================
+   ITEM==VALUE                     true if ITEM equals VALUE
+   ITEM>=VALUE                     true if ITEM >= VALUE
+   ITEM<=VALUE                     true if ITEM <= VALUE
+   ITEM~=VALUE                     true if ITEM ~= /^VALUE$/i
+   ITEM=VALUE                      old default behaviour
+  ===============================================================
+- feature: the score() command now allows some basic arithmetic operations (+-*/=)
+           e.g. action=score(*2) will double the current score
+- feature: you can now refer to request attributes in actions, which will e.g. allow the following:
+           id=R001; rbl=zen.spamhaus.org; \
+		action=554 5.7.1 see http://www.spamhaus.org/query/bl?ip=$$client_address
+- feature: introduced extra request attributes sender_localpart, sender_domain,
+           recipient_localpart, recipient_domain and version for use like:
+             id=test01; client_name ~= $$(sender_domain)$; action=score(-0.5)
+- bugfix:  the "=" character could not be used in items
+- bugfix:  negation of items (!!) did not work correctly under some circumstances
+- bugfix:  time was logged incorrectly during request cache cleanups in verbose mode
+           (thanks to Henrik Krohns)
+- code:    restructured some parts of the code for future enhancement options. a plugin interface
+           was prepared and will be included in the final version. perl's -w switch is used now.
+- note:    the documentation has not been fully updated yet.
+
 1.03
 ====
 - feature: request attributes can now be compared (e.g. to compare client_name and helo_name)
@@ -51,3 +167,4 @@
 0.99n
 =====
 - first public beta version
+
