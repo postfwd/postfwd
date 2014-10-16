@@ -35,7 +35,7 @@ BEGIN {
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.30';
+our($VERSION)			= '1.31';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -224,8 +224,8 @@ use vars qw(
 	$opt_daemon $opt_instantconfig $opt_nodns $opt_nodnslog
 	$opt_norulelog $opt_summary $net_interface $net_port $net_umask
 	$net_user $net_group $net_chroot $net_pid $net_proto
-	$opt_perfmon $opt_test $opt_verbose $opt_noidlestats
-	$opt_cache_rdomain_only $opt_cache_no_size $config_timeout
+	$opt_perfmon $opt_test $opt_verbose $opt_noidlestats $opt_delcache $opt_delrate
+	$opt_cache_rdomain_only $opt_cache_no_size $config_timeout $opt_fast_limits
 	$opt_cache_no_sender $opt_no_rulestats $opt_kill $opt_hup $opt_dumpcache $opt_dumpstats
 	$opt_showconfig $opt_stdoutlog $opt_shortlog $dns_async_txt $opt_keep_rates_on_reload
 	$DNS $Reload_Conf $dns_queuesize $dns_retries $dns_timeout
@@ -828,8 +828,16 @@ sub read_config {
     } else {
 	# update Rule by ID hash
 	map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
-	@Rate_Items = uniq(@Rate_Items) if @Rate_Items;
-	mylogs $syslog_priority, "rate items: ".(join ', ', @Rate_Items) if wantsdebug(qw[ all verbose config rates ]);
+	if (@Rate_Items) {
+		@Rate_Items = uniq(@Rate_Items);
+		mylogs $syslog_priority, "rate items: ".(join ', ', @Rate_Items) if wantsdebug(qw[ all verbose config rates ]);
+		# disable request cache with ratelimits unless --fast_limit_evaluation is set
+		unless ($opt_fast_limits) {
+			$REQUEST_MAX_CACHE = 0;
+			mylogs "notice", "disabling request cache due to ratelimits in configuration. may be changed with the --fast_limit_evaluation option"
+				if wantsdebug (qw[ all verbose ]);
+		};
+	};
     };
 }
 #
@@ -1461,32 +1469,65 @@ sub postfwd_items {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
 		my($myaction) = $default_action; my($stop) = 0;
 		my($ratetype,$ratecount,$ratetime,$ratecmd) = split "/", $myarg, 4;
-		if ($ratetype and $ratecount and $ratetime and $ratecmd) {
+		my($rcount) =  ( ($mycmd eq 'size') ? $request{size} : (($mycmd eq 'rcpt') ? $request{recipient_count} : 1 ) );
+		if ($ratetype and $ratecount and $ratetime and $ratecmd and $rcount) {
 		  my $crate = $Rules[$index]{$COMP_ID}.'+'.$ratecount.'_'.$ratetime;
 		  if ( defined $request{$ratetype} ) {
 			$ratetype .= "=".$request{$ratetype};
 			unless ( defined $Rates{$ratetype}{$crate} ) {
+				 # create rate object
 				push @{$Rates{$ratetype}{'list'}}, $crate;
 				$Rates{$ratetype}{$crate} = {
 					'type' 		=> $mycmd,
 					'maxcount'	=> $ratecount,
 					'ttl'		=> $ratetime,
-					'count'		=> ( ($mycmd eq 'size') ? $request{size} : (($mycmd eq 'rcpt') ? $request{recipient_count} : 1 ) ),
+					'count'		=> $rcount,
 					'time'		=> $now,
 					'until'		=> $now + $ratetime,
 					'rule'		=> $Rules[$index]{$COMP_ID},
 					'action'	=> $ratecmd,
 				};
-				mylogs $syslog_priority, "[RULES] ".$myline
+				mylogs $syslog_priority, "[RATES] ".$myline
 					.", creating rate object ".$ratetype
 					." [type: ".$mycmd.", max: ".$ratecount.", time: ".$ratetime."s]"
-					if (wantsdebug(qw[ all ]));
+					if (wantsdebug(qw[ all rates ]));
+			} elsif (not $opt_fast_limits) {
+				if ( $now > $Rates{$ratetype}{$crate}{'until'} ) {
+					 # renew rate
+					$Rates{$ratetype}{$crate}{'count'} = $rcount;
+					$Rates{$ratetype}{$crate}{'time'}  = $now;
+					$Rates{$ratetype}{$crate}{'until'} = $now + $Rates{$ratetype}{$crate}{ttl};
+					mylogs $syslog_priority, "[RATES] ".$myline
+						.", renewing rate object '".$ratetype."/".$crate."'"
+						." [type: ".$Rates{$ratetype}{$crate}{type}
+						.", max: ".$Rates{$ratetype}{$crate}{maxcount}
+						.", time: ".$Rates{$ratetype}{$crate}{ttl}."s]"
+						if (wantsdebug(qw[ all rates ]));
+				} elsif (not (($rcount+=$Rates{$ratetype}{$crate}{count}) > $Rates{$ratetype}{$crate}{maxcount})) {
+					# increase rate
+					$Rates{$ratetype}{$crate}{count} = $rcount;
+					mylogs $syslog_priority, "[RATES] ".$myline
+						.", increasing rate object '".$ratetype."/".$crate."'"
+						." to ".$Rates{$ratetype}{$crate}{count}
+						." [type: ".$Rates{$ratetype}{$crate}{type}
+						.", max: ".$Rates{$ratetype}{$crate}{maxcount}
+						.", time: ".$Rates{$ratetype}{$crate}{ttl}."s]"
+						if (wantsdebug(qw[ all rates ]));
+				};
+			};
+			# rate exceeded
+			$stop = ($rcount > $Rates{$ratetype}{$crate}{maxcount});
+			if ($stop) {
+				$Counter_Rates++;
+				$myaction=$Rates{$ratetype}{$crate}{action};
+				$request{'ratecount'} = $rcount;
+				$myline .= ", rate=".$Rates{$ratetype}{$crate}{type}."/".$rcount."/".ts($now - $Rates{$ratetype}{$crate}{'time'})."s";
 			};
 		  } else {
 			mylogs $syslog_priority, "[RULES] ".$myline.", ignoring empty index for ".$mycmd." limit '".$ratetype."'" if (wantsdebug(qw[ all ]));
 		  };
 		} else {
-			mylogs "notice", "[RULES] ".$myline.", ignoring unknown ".$mycmd."() attribute \'".$myarg."\'";
+			mylogs "notice", "[RULES] ".$myline.(($rcount) ? ", ignoring unknown ".$mycmd."() attribute \'".$myarg."\'" : ", ignoring empty counter");
 		};
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -1931,7 +1972,7 @@ sub smtpd_access_policy {
     my($index)				      		= 1;
     my($now)				      		= time();
     my($date)				      		= join(',', localtime($now));
-    my($matched,$rblcnt,$rhlcnt,$t1,$t2,$t3,$stop)      = 0;
+    my($matched,$rblcnt,$rhlcnt,$t1,$t2,$t3,$stop,$rcount) = 0;
     my($mykey,$cacheid,$myline,$checkreq,$var,$ratehit,$rateitem) = "";
 
     # save original request
@@ -1975,27 +2016,27 @@ sub smtpd_access_policy {
     };
 
     # increase rate limits
-    if (@Rate_Items) {
+    if (@Rate_Items and $opt_fast_limits) {
       RATES: foreach $checkreq (@Rate_Items) {
 	next RATES unless $request{$checkreq};
 	my $checkval = $checkreq."=".$request{$checkreq};
 	next RATES unless ( defined $Rates{$checkval} and defined $Rates{$checkval}{'list'} );
 	CRATE: foreach my $crate (@{$Rates{$checkval}{'list'}}) {
+		$rcount = ( ($Rates{$checkval}{$crate}{type} eq 'size') ? $request{size} :
+                                (($Rates{$checkval}{$crate}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
 		if ( $now > $Rates{$checkval}{$crate}{'until'} ) {
 			# renew rate
-			$Rates{$checkval}{$crate}{count} = ( ($Rates{$checkval}{$crate}{type} eq 'size') ? $request{size} :
-				(($Rates{$checkval}{$crate}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
-			$Rates{$checkval}{$crate}{"time"} = $now;
+			$Rates{$checkval}{$crate}{'count'} = $rcount;
+			$Rates{$checkval}{$crate}{'time'}  = $now;
 			$Rates{$checkval}{$crate}{'until'} = $now + $Rates{$checkval}{$crate}{ttl};
 			mylogs $syslog_priority, "[RATES] renewing rate object '".$checkval."/".$crate."'"
 				." [type: ".$Rates{$checkval}{$crate}{type}
 				.", max: ".$Rates{$checkval}{$crate}{maxcount}
 				.", time: ".$Rates{$checkval}{$crate}{ttl}."s]"
 				if (wantsdebug(qw[ all ]));
-		} else {
+		} elsif (not (($rcount+=$Rates{$checkval}{$crate}{count}) > $Rates{$checkval}{$crate}{maxcount})) {
 			# increase rate
-			$Rates{$checkval}{$crate}{count} += ( ($Rates{$checkval}{$crate}{type} eq 'size') ? $request{size} :
-				(($Rates{$checkval}{$crate}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
+			$Rates{$checkval}{$crate}{count} = $rcount;
 			mylogs $syslog_priority, "[RATES] increasing rate object '".$checkval."/".$crate."'"
 				." to ".$Rates{$checkval}{$crate}{count}
 				." [type: ".$Rates{$checkval}{$crate}{type}
@@ -2003,9 +2044,9 @@ sub smtpd_access_policy {
 				.", time: ".$Rates{$checkval}{$crate}{ttl}."s]"
 				if (wantsdebug(qw[ all ]));
 		};
-		$ratehit = ($Rates{$checkval}{$crate}{count} > $Rates{$checkval}{$crate}{maxcount}) ? $checkval : undef;
+		$ratehit = ($rcount > $Rates{$checkval}{$crate}{maxcount}) ? $checkval : undef;
 		if ($ratehit) {
-			$request{'ratecount'} = $Rates{$checkval}{$crate}{count};
+			$request{'ratecount'} = $rcount;
 			$rateitem = $crate;
 			last CRATE;
 		};
@@ -2051,7 +2092,7 @@ sub smtpd_access_policy {
     };
 
     # check rate
-    if ( $ratehit ) {
+    if ( $ratehit and $opt_fast_limits ) {
 
 	$Counter_Rates++;
 	$Matches{$Rates{$ratehit}{$rateitem}{rule}}++;
@@ -2062,6 +2103,7 @@ sub smtpd_access_policy {
 		. ", id=".$Rates{$ratehit}{$rateitem}{rule}
 		. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 		. ", client=".$request{client_name}."[".$request{client_address}."]"
+		. ( ($request{sasl_username}) ? ", user=".$request{sasl_username} : '' )
 		. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
 		. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
 		. ", helo=<".$request{helo_name}.">"
@@ -2070,7 +2112,7 @@ sub smtpd_access_policy {
 		. ", delay=".ts(time() - $now)."s"
 		. ", action=".$myaction." (item: '".$ratehit."'"
 		. ", type: ".$Rates{$ratehit}{$rateitem}{type}
-		. ", count: ".$Rates{$ratehit}{$rateitem}{count}."/".$Rates{$ratehit}{$rateitem}{maxcount}
+		. ", count: ".$request{ratecount}."/".$Rates{$ratehit}{$rateitem}{maxcount}
 		. ", time: ".ts($now - $Rates{$ratehit}{$rateitem}{"time"})."/".$Rates{$ratehit}{$rateitem}{ttl}."s)"
 		unless $opt_norulelog;
 
@@ -2086,6 +2128,7 @@ sub smtpd_access_policy {
 			. ", id=".$Request_Cache{$cacheid}{$COMP_ID}
 			. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 			. ", client=".$request{client_name}."[".$request{client_address}."]"
+			. ( ($request{sasl_username}) ? ", user=".$request{sasl_username} : '' )
 			. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
 			. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
 			. ", helo=<".$request{helo_name}.">"
@@ -2150,6 +2193,7 @@ sub smtpd_access_policy {
 					. ", id=".$Rules[$index]{$COMP_ID}
 					. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 					. ", client=".$request{client_name}."[".$request{client_address}."]"
+					. ( ($request{sasl_username}) ? ", user=".$request{sasl_username} : '' )
 					. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
 					. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
 					. ", helo=<".$request{helo_name}.">"
@@ -2220,6 +2264,28 @@ sub process_input {
 	                        mylogs $syslog_priority, "DUMP requested";
 				map { print $client "$_\r\n" } dump_cache();
 				close($client);
+	                } elsif ( $$attr{request} =~ /^delrate (.*)$/ ) {
+				my $del = $1; $del =~ s/^[%]?//g;
+				if (defined $Rates{$del}) {
+					mylogs "notice", "rate cache item '$del' removed";
+					print $client "rate cache item '$del' removed\r\n";
+					delete $Rates{$del};
+				} else {
+					 mylogs "notice", "rate cache removal of '$del' failed: item not found";
+					 print $client "rate cache removal of '$del' failed: item not found\r\n";
+				};
+				close($client);
+	                } elsif ( $$attr{request} =~ /^delcache (.*)$/ ) {
+				my $del = $1; $del =~ s/^[%]?//g;
+				if (defined $Request_Cache{$del}) {
+					mylogs "notice", "request cache item '$del' removed";
+					print $client "request cache item '$del' removed\r\n";
+					delete $Request_Cache{$del};
+				} else {
+					 mylogs "notice", "request cache removal of '$del' failed: item not found";
+					 print $client "request cache removal of '$del' failed: item not found\r\n";
+				};
+				close($client);
                 	} else {
         	                mylogs 'warning', "Ignoring unrecognized request type: '".((defined $$attr{request}) ? substr($$attr{request},0,100) : '')."'";
                 	};
@@ -2287,8 +2353,11 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 		's|scores=s'		 => \%opt_scores,
 		'config_timeout=i'	 => \$config_timeout,
 		'keep_rates|keep_limits|keep_rates_on_reload'	 => \$opt_keep_rates_on_reload,
+		'fast_limit_evaluation'	 => \$opt_fast_limits,
 		'dumpcache'		 => \$opt_dumpcache,
 		'dumpstats'		 => \$opt_dumpstats,
+		'delcache=s' 		 => \$opt_delcache,
+		'delrate=s' 		 => \$opt_delrate,
 		'f|file=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'r|rule=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'plugins=s'	 	=> \@Plugins,
@@ -2368,6 +2437,31 @@ if ($opt_dumpcache) {
 		  Timeout  => 10,
 		  Type     => SOCK_STREAM ) ) {
 			print $socket "request=dumpcache\r\n\r\n";
+			print "\n"; map { print } (<$socket>); print "\n";
+			close($socket);
+		} else {
+			print STDERR "\nERROR: can not open socket to $net_interface:$net_port\n\n";
+		};
+	};
+	alarm($prevalert);
+	exit 1;
+};
+
+# remove cache item
+if ($opt_delcache or $opt_delrate) {
+	$net_interface ||= $def_net_interface; $net_port ||= $def_net_port;
+	my $prevalert = undef;
+	eval {
+		local $SIG{'__DIE__'};
+		local $SIG{'ALRM'}  = sub { print STDERR "\nTimeout for socket $net_interface:$net_port after 60 seconds\n\n"; die };
+		$prevalert = alarm(60);
+		if ( my $socket = new IO::Socket::INET (
+		  PeerAddr => $net_interface,
+		  PeerPort => $net_port,
+		  Proto    => 'tcp',
+		  Timeout  => 10,
+		  Type     => SOCK_STREAM ) ) {
+			print $socket "request=".(($opt_delcache) ? "delcache ".$opt_delcache : "delrate ".$opt_delrate)."\r\n\r\n";
 			print "\n"; map { print } (<$socket>); print "\n";
 			close($socket);
 		} else {
@@ -2565,63 +2659,66 @@ postfwd - postfix firewall daemon
 postfwd [OPTIONS] [SOURCE1, SOURCE2, ...]
 
 	Ruleset: (at least one, multiple use is allowed):
-	-f, --file <file>           reads rules from <file>
-	-r, --rule <rule>           adds <rule> to config
+	-f, --file <file>            reads rules from <file>
+	-r, --rule <rule>            adds <rule> to config
 
 	Scoring:
-	-s, --scores <v>=<r>        returns <r> when score exceeds <v>
+	-s, --scores <v>=<r>         returns <r> when score exceeds <v>
 
 	Control:
-	-d, --daemon                run postfwd as daemon
-	-k, --kill                  stops daemon
-	    --reload                reloads configuration
-	    --dumpstats             displays usage statistics
-	    --dumpcache             displays cache contents
+	-d, --daemon                 run postfwd as daemon
+	-k, --kill                   stops daemon
+	    --reload                 reloads configuration
+	    --dumpstats              displays usage statistics
+	    --dumpcache              displays cache contents
+	    --delcache <item>	     removes an item from the request cache
+	    --delrate <item>	     removes an item from the rate cache
 
 	Networking:
-	-i, --interface <dev>       listen on interface <dev>
-	-p, --port <port>           listen on port <port>
-            --proto <proto>         socket type (tcp or unix)
-	-u, --user <name>           set uid to user <name>
-	-g, --group <name>          set gid to group <name>
-	    --umask <mask>	    set umask for file permissions
-	-R, --chroot <path>         chroot the daemon to <path>
-	    --pidfile <path>        create pidfile under <path>
-	    --facility <f>          syslog facility
-	    --socktype <s>          syslog socktype
-	-l, --logname <label>       label for syslog messages
-	    --loglen <int>          truncates syslogs after <int> chars
+	-i, --interface <dev>        listen on interface <dev>
+	-p, --port <port>            listen on port <port>
+            --proto <proto>          socket type (tcp or unix)
+	-u, --user <name>            set uid to user <name>
+	-g, --group <name>           set gid to group <name>
+	    --umask <mask>	     set umask for file permissions
+	-R, --chroot <path>          chroot the daemon to <path>
+	    --pidfile <path>         create pidfile under <path>
+	    --facility <f>           syslog facility
+	    --socktype <s>           syslog socktype
+	-l, --logname <label>        label for syslog messages
+	    --loglen <int>           truncates syslogs after <int> chars
 
 	Caching:
-	-c, --cache <int>           sets the request-cache timeout to <int> seconds
-	    --cache-no-size         ignores size attribute for caching
-	    --cache-no-sender       ignores sender address in cache
-	    --cache-rdomain-only    ignores localpart of recipient address in cache
-	    --cache-rbl-timeout     default rbl timeout, if not specified in ruleset
-	    --cache-rbl-default	    default rbl response pattern to match (regexp)
-	    --cacheid <item>, ..    list of attributes for request cache identifier
-	    --cleanup-requests	    cleanup interval in seconds for request cache
-	    --cleanup-rbls	    cleanup interval in seconds for rbl cache
-	    --cleanup-rates	    cleanup interval in seconds for rate cache
+	-c, --cache <int>            sets the request-cache timeout to <int> seconds
+	    --cache-no-size          ignores size attribute for caching
+	    --cache-no-sender        ignores sender address in cache
+	    --cache-rdomain-only     ignores localpart of recipient address in cache
+	    --cache-rbl-timeout      default rbl timeout, if not specified in ruleset
+	    --cache-rbl-default	     default rbl response pattern to match (regexp)
+	    --cacheid <item>, ..     list of attributes for request cache identifier
+	    --cleanup-requests	     cleanup interval in seconds for request cache
+	    --cleanup-rbls	     cleanup interval in seconds for rbl cache
+	    --cleanup-rates	     cleanup interval in seconds for rate cache
 
 	Optional:
-	-t, --test                  testing, always returns "dunno"
-	-v, --verbose               verbose logging, use twice (-vv) to increase level
-	-S, --summary <int>         show some usage statistics every <int> seconds
-	    --norulelog             disbles rule logging
-	    --norulestats           disables per rule statistics
-	    --noidlestats           disables statistics when idle
-	-n, --nodns                 disable dns
-	    --nodnslog              disable dns logging
-	    --dns_async_txt         perform dnsbl A and TXT lookups simultaneously
-	    --dns_timeout           timeout in seconds for asynchonous dns queries
-	    --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
-	    --dns_timeout_interval  interval in seconds for dns timeout maximum counter
-	    --dns_max_ns_lookups    max names to look up with sender_ns_addrs
-	    --dns_max_mx_lookups    max names to look up with sender_mx_addrs
-	-I, --instantcfg            re-reads rulefiles for every new request
-	    --keep_rates            do not clear rate limit counters on reload
-	    --config_timeout <i>    parser timeout in seconds
+	-t, --test                   testing, always returns "dunno"
+	-v, --verbose                verbose logging, use twice (-vv) to increase level
+	-S, --summary <int>          show some usage statistics every <int> seconds
+	    --norulelog              disbles rule logging
+	    --norulestats            disables per rule statistics
+	    --noidlestats            disables statistics when idle
+	-n, --nodns                  disable dns
+	    --nodnslog               disable dns logging
+	    --dns_async_txt          perform dnsbl A and TXT lookups simultaneously
+	    --dns_timeout            timeout in seconds for asynchonous dns queries
+	    --dns_timeout_max        maximum of dns timeouts until a dnsbl will be deactivated
+	    --dns_timeout_interval   interval in seconds for dns timeout maximum counter
+	    --dns_max_ns_lookups     max names to look up with sender_ns_addrs
+	    --dns_max_mx_lookups     max names to look up with sender_mx_addrs
+	-I, --instantcfg             re-reads rulefiles for every new request
+	    --config_timeout <i>     parser timeout in seconds
+	    --keep_rates             do not clear rate limit counters on reload
+	    --fast_limit_evaluation  evaluate rate limits before ruleset is parsed
 
 	Plugins:
 	    --plugins <file>        loads postfwd plugins from file
@@ -3360,6 +3457,20 @@ I<Control>
 	--dumpcache
 	Displays cache contents.
 
+	--delcache <item>
+	Removes an item from the request cache. Use --dumpcache to identify objects.
+	E.g.:
+		# postfwd --dumpcache
+		...
+		%rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @count    -> '1'
+		%rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @maxcount -> '2'
+		...
+		# postfwd --delrate="sender=gmato@jqvo.org"
+		rate cache item 'sender=gmato@jqvo.org' removed
+
+	--delrate <item>
+	Removes an item from the rate cache. Use --dumpcache to identify objects.
+
 I<Networking>
 
 postfwd can be run as daemon so that it listens on the network for incoming requests.
@@ -3537,15 +3648,21 @@ These parameters influence the way postfwd is working. Any of them can be combin
 	(which means their access times changed since last read) this might
 	significantly increase system load.
 
+	--config_timeout    (default=3)
+	timeout in seconds to parse a single configuration line. if exceeded, the rule will
+	be skipped. this is used to prevent problems due to large files or loops.
+	
 	--keep_rates    (default=0)
 	With this option set postfwd does not clear the rate limit counters on reload. Please
 	note that you have to restart (not reload) postfwd with this option if you change
 	any rate limit rules.
 
-	--config_timeout    (default=3)
-	timeout in seconds to parse a single configuration line. if exceeded, the rule will
-	be skipped. this is used to prevent problems due to large files or loops.
-	
+	--fast_limit_evaluation    (default=0)
+	Once a ratelimit was set by the ruleset, future requests will be evaluated against it
+	before consulting the ruleset. This mode was the default behaviour until v1.30.
+	With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+	whitelisting-rules within the ruleset might not work as expected.
+
 
 I<Informational arguments>
 

@@ -53,6 +53,8 @@ SYNOPSIS
                 --daemons <list>            list of daemons to start
                 --dumpcache                 show cache contents
                 --dumpstats                 show statistics
+                --delcache <item>           removes an item from the request cache
+                --delrate <item>            removes an item from the rate cache
 
             DNS:
             -n, --nodns                     skip any dns based test
@@ -72,8 +74,9 @@ SYNOPSIS
                 --noidlestats               disables statistics when idle
                 --norulestats               disables per rule statistics
             -I, --instantcfg                reloads ruleset on every new request
-                --keep_rates                do not clear rate limit counters on reload
                 --config_timeout <i>        parser timeout in seconds
+                --keep_rates                do not clear rate limit counters on reload
+                --fast_limit_evaluation     evaluate rate limits before ruleset is parsed
 
             Plugins:
                 --plugins <file>            loads postfwd plugins from file
@@ -1006,15 +1009,21 @@ DESCRIPTION
             (which means their access times changed since last read) this might
             significantly increase system load.
 
+            --config_timeout    (default=3)
+            timeout in seconds to parse a single configuration line. if exceeded, the rule will
+            be skipped. this is used to prevent problems due to large files or loops.
+        
             --keep_rates    (default=0)
             With this option set postfwd2 does not clear the rate limit counters on reload. Please
             note that you have to restart (not reload) postfwd with this option if you change
             any rate limit rules.
 
-            --config_timeout    (default=3)
-            timeout in seconds to parse a single configuration line. if exceeded, the rule will
-            be skipped. this is used to prevent problems due to large files or loops.
-        
+            --fast_limit_evaluation    (default=0)
+            Once a ratelimit was set by the ruleset, future requests will be evaluated against it
+            before consulting the ruleset. This mode was the default behaviour until v1.30.
+            With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+            whitelisting-rules within the ruleset might not work as expected.
+
     *Informational arguments*
 
     These arguments are for command line usage only. Never ever use them
@@ -1038,6 +1047,26 @@ DESCRIPTION
             -P, --perfmon
             This option turns of any syslogging and output. It is included
             for performance testing.
+
+            --dumpstats
+            Displays program usage statistics.
+
+            --dumpcache
+            Displays cache contents.
+
+            --delcache <item>
+            Removes an item from the request cache. Use --dumpcache to identify objects.
+            E.g.:
+                    # postfwd --dumpcache
+                    ...
+                    %rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @count    -> '1'
+                    %rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @maxcount -> '2'
+                    ...
+                    # postfwd --delrate="sender=gmato@jqvo.org"
+                    rate cache item 'sender=gmato@jqvo.org' removed
+
+            --delrate <item>
+            Removes an item from the rate cache. Use --dumpcache to identify objects.
 
   REFRESH
     In daemon mode postfwd2 reloads it's ruleset after receiving a HUP

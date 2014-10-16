@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD1-ALL-IN-ONE 1"
-.TH POSTFWD1-ALL-IN-ONE 1 "2011-08-21" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD1-ALL-IN-ONE 1 "2011-10-16" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -138,73 +138,76 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 .PP
 .Vb 3
 \&        Ruleset: (at least one, multiple use is allowed):
-\&        -f, --file <file>           reads rules from <file>
-\&        -r, --rule <rule>           adds <rule> to config
+\&        -f, --file <file>            reads rules from <file>
+\&        -r, --rule <rule>            adds <rule> to config
 .Ve
 .PP
 .Vb 2
 \&        Scoring:
-\&        -s, --scores <v>=<r>        returns <r> when score exceeds <v>
+\&        -s, --scores <v>=<r>         returns <r> when score exceeds <v>
 .Ve
 .PP
-.Vb 6
+.Vb 8
 \&        Control:
-\&        -d, --daemon                run postfwd as daemon
-\&        -k, --kill                  stops daemon
-\&            --reload                reloads configuration
-\&            --dumpstats             displays usage statistics
-\&            --dumpcache             displays cache contents
+\&        -d, --daemon                 run postfwd as daemon
+\&        -k, --kill                   stops daemon
+\&            --reload                 reloads configuration
+\&            --dumpstats              displays usage statistics
+\&            --dumpcache              displays cache contents
+\&            --delcache <item>        removes an item from the request cache
+\&            --delrate <item>         removes an item from the rate cache
 .Ve
 .PP
 .Vb 13
 \&        Networking:
-\&        -i, --interface <dev>       listen on interface <dev>
-\&        -p, --port <port>           listen on port <port>
-\&            --proto <proto>         socket type (tcp or unix)
-\&        -u, --user <name>           set uid to user <name>
-\&        -g, --group <name>          set gid to group <name>
-\&            --umask <mask>          set umask for file permissions
-\&        -R, --chroot <path>         chroot the daemon to <path>
-\&            --pidfile <path>        create pidfile under <path>
-\&            --facility <f>          syslog facility
-\&            --socktype <s>          syslog socktype
-\&        -l, --logname <label>       label for syslog messages
-\&            --loglen <int>          truncates syslogs after <int> chars
+\&        -i, --interface <dev>        listen on interface <dev>
+\&        -p, --port <port>            listen on port <port>
+\&            --proto <proto>          socket type (tcp or unix)
+\&        -u, --user <name>            set uid to user <name>
+\&        -g, --group <name>           set gid to group <name>
+\&            --umask <mask>           set umask for file permissions
+\&        -R, --chroot <path>          chroot the daemon to <path>
+\&            --pidfile <path>         create pidfile under <path>
+\&            --facility <f>           syslog facility
+\&            --socktype <s>           syslog socktype
+\&        -l, --logname <label>        label for syslog messages
+\&            --loglen <int>           truncates syslogs after <int> chars
 .Ve
 .PP
 .Vb 11
 \&        Caching:
-\&        -c, --cache <int>           sets the request-cache timeout to <int> seconds
-\&            --cache-no-size         ignores size attribute for caching
-\&            --cache-no-sender       ignores sender address in cache
-\&            --cache-rdomain-only    ignores localpart of recipient address in cache
-\&            --cache-rbl-timeout     default rbl timeout, if not specified in ruleset
-\&            --cache-rbl-default     default rbl response pattern to match (regexp)
-\&            --cacheid <item>, ..    list of attributes for request cache identifier
-\&            --cleanup-requests      cleanup interval in seconds for request cache
-\&            --cleanup-rbls          cleanup interval in seconds for rbl cache
-\&            --cleanup-rates         cleanup interval in seconds for rate cache
+\&        -c, --cache <int>            sets the request-cache timeout to <int> seconds
+\&            --cache-no-size          ignores size attribute for caching
+\&            --cache-no-sender        ignores sender address in cache
+\&            --cache-rdomain-only     ignores localpart of recipient address in cache
+\&            --cache-rbl-timeout      default rbl timeout, if not specified in ruleset
+\&            --cache-rbl-default      default rbl response pattern to match (regexp)
+\&            --cacheid <item>, ..     list of attributes for request cache identifier
+\&            --cleanup-requests       cleanup interval in seconds for request cache
+\&            --cleanup-rbls           cleanup interval in seconds for rbl cache
+\&            --cleanup-rates          cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 18
+.Vb 19
 \&        Optional:
-\&        -t, --test                  testing, always returns "dunno"
-\&        -v, --verbose               verbose logging, use twice (-vv) to increase level
-\&        -S, --summary <int>         show some usage statistics every <int> seconds
-\&            --norulelog             disbles rule logging
-\&            --norulestats           disables per rule statistics
-\&            --noidlestats           disables statistics when idle
-\&        -n, --nodns                 disable dns
-\&            --nodnslog              disable dns logging
-\&            --dns_async_txt         perform dnsbl A and TXT lookups simultaneously
-\&            --dns_timeout           timeout in seconds for asynchonous dns queries
-\&            --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
-\&            --dns_timeout_interval  interval in seconds for dns timeout maximum counter
-\&            --dns_max_ns_lookups    max names to look up with sender_ns_addrs
-\&            --dns_max_mx_lookups    max names to look up with sender_mx_addrs
-\&        -I, --instantcfg            re-reads rulefiles for every new request
-\&            --keep_rates            do not clear rate limit counters on reload
-\&            --config_timeout <i>    parser timeout in seconds
+\&        -t, --test                   testing, always returns "dunno"
+\&        -v, --verbose                verbose logging, use twice (-vv) to increase level
+\&        -S, --summary <int>          show some usage statistics every <int> seconds
+\&            --norulelog              disbles rule logging
+\&            --norulestats            disables per rule statistics
+\&            --noidlestats            disables statistics when idle
+\&        -n, --nodns                  disable dns
+\&            --nodnslog               disable dns logging
+\&            --dns_async_txt          perform dnsbl A and TXT lookups simultaneously
+\&            --dns_timeout            timeout in seconds for asynchonous dns queries
+\&            --dns_timeout_max        maximum of dns timeouts until a dnsbl will be deactivated
+\&            --dns_timeout_interval   interval in seconds for dns timeout maximum counter
+\&            --dns_max_ns_lookups     max names to look up with sender_ns_addrs
+\&            --dns_max_mx_lookups     max names to look up with sender_mx_addrs
+\&        -I, --instantcfg             re-reads rulefiles for every new request
+\&            --config_timeout <i>     parser timeout in seconds
+\&            --keep_rates             do not clear rate limit counters on reload
+\&            --fast_limit_evaluation  evaluate rate limits before ruleset is parsed
 .Ve
 .PP
 .Vb 2
@@ -1121,6 +1124,24 @@ reflected in the postfwd ruleset.
 \&        Displays cache contents.
 .Ve
 .PP
+.Vb 10
+\&        --delcache <item>
+\&        Removes an item from the request cache. Use --dumpcache to identify objects.
+\&        E.g.:
+\&                # postfwd --dumpcache
+\&                ...
+\&                %rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @count    -> '1'
+\&                %rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @maxcount -> '2'
+\&                ...
+\&                # postfwd --delrate="sender=gmato@jqvo.org"
+\&                rate cache item 'sender=gmato@jqvo.org' removed
+.Ve
+.PP
+.Vb 2
+\&        --delrate <item>
+\&        Removes an item from the rate cache. Use --dumpcache to identify objects.
+.Ve
+.PP
 \&\fINetworking\fR
 .PP
 postfwd can be run as daemon so that it listens on the network for incoming requests.
@@ -1374,6 +1395,12 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        significantly increase system load.
 .Ve
 .PP
+.Vb 3
+\&        --config_timeout    (default=3)
+\&        timeout in seconds to parse a single configuration line. if exceeded, the rule will
+\&        be skipped. this is used to prevent problems due to large files or loops.
+.Ve
+.PP
 .Vb 4
 \&        --keep_rates    (default=0)
 \&        With this option set postfwd does not clear the rate limit counters on reload. Please
@@ -1381,10 +1408,12 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        any rate limit rules.
 .Ve
 .PP
-.Vb 3
-\&        --config_timeout    (default=3)
-\&        timeout in seconds to parse a single configuration line. if exceeded, the rule will
-\&        be skipped. this is used to prevent problems due to large files or loops.
+.Vb 5
+\&        --fast_limit_evaluation    (default=0)
+\&        Once a ratelimit was set by the ruleset, future requests will be evaluated against it
+\&        before consulting the ruleset. This mode was the default behaviour until v1.30.
+\&        With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+\&        whitelisting-rules within the ruleset might not work as expected.
 .Ve
 .PP
 \&\fIInformational arguments\fR

@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD2-ALL-IN-ONE 1"
-.TH POSTFWD2-ALL-IN-ONE 1 "2011-08-21" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD2-ALL-IN-ONE 1 "2011-10-16" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd2 \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -184,7 +184,7 @@ postfwd2 \- postfix firewall daemon
 \&            --cleanup-rates <int>       cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 9
+.Vb 11
 \&        Control:
 \&        -k, --kill, --stop              terminate postfwd2
 \&            --reload, --hup             reload postfwd2
@@ -194,6 +194,8 @@ postfwd2 \- postfix firewall daemon
 \&            --daemons <list>            list of daemons to start
 \&            --dumpcache                 show cache contents
 \&            --dumpstats                 show statistics
+\&            --delcache <item>           removes an item from the request cache
+\&            --delrate <item>            removes an item from the rate cache
 .Ve
 .PP
 .Vb 11
@@ -210,15 +212,16 @@ postfwd2 \- postfix firewall daemon
 \&            --dns_max_mx_lookups        max names to look up with sender_mx_addrs
 .Ve
 .PP
-.Vb 8
+.Vb 9
 \&        Optional:
 \&        -t, --test                      testing, always returns "dunno"
 \&        -S, --summary <i>               show stats every <i> seconds
 \&            --noidlestats               disables statistics when idle
 \&            --norulestats               disables per rule statistics
 \&        -I, --instantcfg                reloads ruleset on every new request
-\&            --keep_rates                do not clear rate limit counters on reload
 \&            --config_timeout <i>        parser timeout in seconds
+\&            --keep_rates                do not clear rate limit counters on reload
+\&            --fast_limit_evaluation     evaluate rate limits before ruleset is parsed
 .Ve
 .PP
 .Vb 2
@@ -1386,6 +1389,12 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 \&        significantly increase system load.
 .Ve
 .PP
+.Vb 3
+\&        --config_timeout    (default=3)
+\&        timeout in seconds to parse a single configuration line. if exceeded, the rule will
+\&        be skipped. this is used to prevent problems due to large files or loops.
+.Ve
+.PP
 .Vb 4
 \&        --keep_rates    (default=0)
 \&        With this option set postfwd2 does not clear the rate limit counters on reload. Please
@@ -1393,10 +1402,12 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 \&        any rate limit rules.
 .Ve
 .PP
-.Vb 3
-\&        --config_timeout    (default=3)
-\&        timeout in seconds to parse a single configuration line. if exceeded, the rule will
-\&        be skipped. this is used to prevent problems due to large files or loops.
+.Vb 5
+\&        --fast_limit_evaluation    (default=0)
+\&        Once a ratelimit was set by the ruleset, future requests will be evaluated against it
+\&        before consulting the ruleset. This mode was the default behaviour until v1.30.
+\&        With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+\&        whitelisting-rules within the ruleset might not work as expected.
 .Ve
 .PP
 \&\fIInformational arguments\fR
@@ -1432,6 +1443,34 @@ These arguments are for command line usage only. Never ever use them with postfi
 \&        -P, --perfmon
 \&        This option turns of any syslogging and output. It is included
 \&        for performance testing.
+.Ve
+.PP
+.Vb 2
+\&        --dumpstats
+\&        Displays program usage statistics.
+.Ve
+.PP
+.Vb 2
+\&        --dumpcache
+\&        Displays cache contents.
+.Ve
+.PP
+.Vb 10
+\&        --delcache <item>
+\&        Removes an item from the request cache. Use --dumpcache to identify objects.
+\&        E.g.:
+\&                # postfwd --dumpcache
+\&                ...
+\&                %rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @count    -> '1'
+\&                %rate_cache -> %sender=gmato@jqvo.org -> %RATE002+2_600 -> @maxcount -> '2'
+\&                ...
+\&                # postfwd --delrate="sender=gmato@jqvo.org"
+\&                rate cache item 'sender=gmato@jqvo.org' removed
+.Ve
+.PP
+.Vb 2
+\&        --delrate <item>
+\&        Removes an item from the rate cache. Use --dumpcache to identify objects.
 .Ve
 .Sh "\s-1REFRESH\s0"
 .IX Subsection "REFRESH"

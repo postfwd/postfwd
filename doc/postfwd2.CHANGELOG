@@ -1,3 +1,17 @@
+postfwd2 1.31
+=============
+- feature: single cache items can be wiped using --delcache <item>
+	   or --delrate <item> options. use --dumpcache to identify
+- feature: sasl_username is logged if available
+	   (thanks to Bernhard Schmidt)
+- code:    rate limit action is executed, if the first request exceeds the limit
+- code:    exceeded ratecounters will not be kept permanently anymore. this
+	   allows further requests to pass, if they are below the limit
+- code:	   rate limits are evaluated at ruleset stage now, which leads to
+	   much more comprehensible behaviour. due to this change the request
+	   cache is now disabled, if rate limits are used. use the
+	   --fast_limit_evaluation option to return to the former mode.
+
 postfwd2 1.30
 =============
 - feature: new parser enhancement allows to omit the trailing "\" for multi-line rules,
