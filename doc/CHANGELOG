@@ -1,3 +1,7 @@
+1.02
+====
+- bugfix: rblcount and rhsblcount did not work correctly since V1.01, corrected
+
 1.01
 ====
 - feature: multiple rbl, rhsbl and client_address statements in a single rule are now possible

@@ -26,7 +26,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.01';
+our($VERSION)			= '1.02';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -89,6 +89,8 @@ our($COMP_DATE)			= "date";
 our($COMP_TIME)			= "time";
 # always true
 our($COMP_TRUE)			= "(id|action)";
+# dont treat these as lists
+our($COMP_SINGLE)		= "($COMP_TRUE|$COMP_SCORES|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX|$COMP_RBL_CNT|$COMP_RHSBL_CNT)";
 
 # Syslogging options
 # NOTE: try changing the $syslog_socktype line if syslogging does not
@@ -260,7 +262,7 @@ sub parse_config_line {
 			($mykey, $myvalue) = split /=/;
 			if ($mykey =~ /^($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)$/) {
 				push ( @{$myrule{$mykey}}, (split /[,\s]+/, $myvalue) );
-			} elsif ($mykey =~ /^($COMP_SCORES|id|action|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX)$/) {
+			} elsif ($mykey =~ /^$COMP_SINGLE$/) {
 				$myrule{$mykey} = $myvalue;
 			} else {
 				push ( @{$myrule{$mykey}}, $myvalue );
@@ -347,7 +349,7 @@ sub show_config {
 	for $mykey ( reverse sort keys %{$Rules[$index]} ) {
 		unless (($mykey eq "action") or ($mykey eq "id")) {
 			$line .= "; " if !($opt_verbose);
-			$line .= ($mykey =~ /^($COMP_SCORES|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX)$/)
+			$line .= ($mykey =~ /^$COMP_SINGLE$/)
 				? $mykey."->\"".$Rules[$index]{$mykey}."\""
 				: $mykey."->\"".(join ', ', @{$Rules[$index]{$mykey}})."\"";
 			$line .= " ; " if $opt_verbose;
@@ -1529,12 +1531,33 @@ of how Postfix policy servers work.
 
 =head1 LICENSE
 
-This program is free software; you can redistribute and/or modify
-it in any way you want.
+postfwd is free software and released under BSD license, which basically means
+that you can do what you want as long as you keep the copyright notice:
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+Copyright (c) 2007, Jan Peter Kessler
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+        * Redistributions of source code must retain the above copyright notice,
+          this list of conditions and the following disclaimer.
+        * Redistributions in binary form must reproduce the above copyright notice,
+          this list of conditions and the following disclaimer in the documentation
+          and/or other materials provided with the distribution.
+        * Neither the name of the authors nor the names of his contributors may be
+          used to endorse or promote products derived from this software without
+          specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY ME ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
 
 
 =head1 AUTHOR
@@ -1542,3 +1565,4 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 S<Jan Peter Kessler E<lt>info (AT) postfwd (DOT) orgE<gt>>. Let me know, if you have any suggestions.
 
 =cut
+
