@@ -1,3 +1,32 @@
+1.14
+=====
+- feature: new compare operators *
+        ====================================================================
+         ITEM == VALUE                true if ITEM equals VALUE
+         ITEM => VALUE                true if ITEM >= VALUE
+         ITEM =< VALUE                true if ITEM <= VALUE
+         ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
+         *ITEM != VALUE               false if ITEM equals VALUE
+         *ITEM !> VALUE               false if ITEM >= VALUE
+         *ITEM !< VALUE               false if ITEM <= VALUE
+         *ITEM !~ VALUE               false if ITEM ~= /^VALUE$/i
+         ITEM =  VALUE                default behaviour (see ITEMS section)
+        ====================================================================
+- feature: added --nodaemon option
+- code:    non dns items first: if a rule contains dns and non dns items, the
+	   lookups will only be done if all non dns items matched
+- bugfix:  empty pcre with empty sender_(ns|mx)_names was parsed incorrectly.
+	   this bug affects postfwd versions 1.12 - 1.13
+- bugfix:  negated pcre items with '~=' operator were parsed incorrectly.
+	   this bug affects postfwd version 1.13
+
+1.13
+=====
+- feature: enabled dns cache for sender(ns|mx) and helo address
+- feature: new options --dns_max_ns_lookups and --dns_max_mx_lookups
+- bugfix:  workaround: Net::Server died if a unix domain socket
+	   filename without a dot ('.') was used (B. Frauendienst)
+
 1.12
 =====
 - feature: new items sender_ns_names and sender_ns_addrs
@@ -8,7 +37,7 @@
 - feature: added command-line options --kill and --reload
 	   (of course you can still use TERM and HUP signals)
 - feature: dnsbl txt lookups only for dnsbls with at least one a record.
-           use --dns_async_txt for the old behaviour (see docs for more).
+	   use --dns_async_txt for the old behaviour (see docs for more).
 - code:    small performance improvement (5-10%) for pcre (~= or =~) items
 - bugfix:  network 0.0.0.0/0 did not work as expected on all platforms
 - bugfix:  postfwd tried to chop() an uninitialized value when sending

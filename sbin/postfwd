@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.13';
+our($VERSION)			= '1.14';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -126,8 +126,7 @@ our($COMP_HITS)			= "request_hits";
 # item match counter
 our($COMP_MATCHES)		= "matches";
 # separator
-#our($COMP_SEPARATOR)		= "[=\~\<\>]?=";
-our($COMP_SEPARATOR)		= "[=\~\<\>]?=|=[=\~\<\>]";
+our($COMP_SEPARATOR)		= "[=\~\<\>]=|[=\!][=\~\<\>]|=";
 # macros
 our($COMP_ACL)			= "[\&][\&]";
 # negation
@@ -503,7 +502,7 @@ sub acl_parser {
 sub parse_config_line {
     my($mynum, $myindex, $myline) = @_;
     my(%myrule) = ();
-    my($mykey, $myvalue, $mycomp);
+    my($mykey, $myvalue, $mycomp, $neg);
 
     if ( $myline = acl_parser ($myline) ) {
 	unless ( $myline =~ /^\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+(;\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+)*[;\s]*$/ ) {
@@ -513,7 +512,7 @@ sub parse_config_line {
 		foreach (split ";", $myline) {
 			# remove whitespaces around
 			s/^\s*(.*?)\s*($COMP_SEPARATOR)\s*(.*?)\s*$/$1$2$3/;
-			$mycomp = $2;
+			( ($mycomp = $2) =~ /^([\<\>\~])=$/ ) and $mycomp = "=$1";
 			($mykey, $myvalue) = split /$COMP_SEPARATOR/, $_, 2;
 			if ($mykey =~ /^$COMP_CSV$/) {
 				$myvalue =~ s/\s*-\s*/-/g if ($mykey =~ /^$COMP_DATECALC$/);
@@ -526,11 +525,15 @@ sub parse_config_line {
 					if (defined $myrule{$mykey});
 				$myrule{$mykey} = $myvalue;
 			} else {
-				if ( ($mycomp eq '~=') or ($mycomp eq '=~') ) {
+				if ( $mycomp eq '=~' or $mycomp eq '!~') {
+					# temporarily remove negation
+					$myvalue = $neg if ($neg = deneg_item($myvalue));
 					# allow // regex
 					$myvalue =~ s/^\/?(.*?)\/?$/$1/;
 					# tested, slower
 					#$myvalue = qr/$myvalue/i;
+					# re-enable negation
+					$myvalue = "!!($myvalue)" if $neg;
 				};
 				push ( @{$myrule{$mykey}}, $mycomp.";".$myvalue );
 			};
@@ -920,6 +923,7 @@ sub postfwd_items {
 			$val .= '/32' unless ($val =~ /\/\d{1,2}$/);
 			$myresult = cidr_match((cidr_parse($val)),$myitem);
 		};
+		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
 	"numeric" => sub {
@@ -927,10 +931,18 @@ sub postfwd_items {
 		my($myresult) = undef;
 		mylogs $syslog_priority, "type numeric :  \"$myitem\"  \"$cmp\"  \"$val\"" if ($opt_verbose > 1);
 		$myitem ||= "0"; $val ||= "0";
-		if (($cmp eq '<=') or ($cmp eq '=<')) {
-			$myresult = ($myitem <= $val);
-		} elsif ($cmp eq '==') {
+		if ( ($cmp eq '==') or ($cmp eq '=') ) {
 			$myresult = ($myitem == $val);
+		} elsif ($cmp eq '=<') {
+			$myresult = ($myitem <= $val);
+		} elsif ($cmp eq '=>') {
+			$myresult = ($myitem >= $val);
+		} elsif ($cmp eq '!=') {
+			$myresult = not($myitem == $val);
+		} elsif ($cmp eq '!<') {
+			$myresult = not($myitem <= $val);
+		} elsif ($cmp eq '!>') {
+			$myresult = not($myitem >= $val);
 		} else {
 			$myresult = ($myitem >= $val);
 		};
@@ -941,6 +953,7 @@ sub postfwd_items {
 		my($myresult) = not($opt_nodns);
 		mylogs $syslog_priority, "type rbl :  \"$myitem\"  \"$cmp\"  \"$val\"" if ($opt_verbose > 1);
 		$myresult = ( rbl_check ($COMP_RBL_KEY, $val, $myitem) ) if $myresult;
+		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
 	$COMP_RHSBL_KEY => sub {
@@ -948,6 +961,7 @@ sub postfwd_items {
 		my($myresult) = not($opt_nodns);
 		mylogs $syslog_priority, "type rhsbl :  \"$myitem\"  \"$cmp\"  \"$val\"" if ($opt_verbose > 1);
 		$myresult = ( rbl_check ($COMP_RHSBL_KEY, $val, $myitem) ) if $myresult;
+		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
 	$COMP_MONTHS => sub {
@@ -960,6 +974,7 @@ sub postfwd_items {
 		mylogs $syslog_priority, "type months :  \"$imon\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if ($opt_verbose > 1);
 		$myresult = (($rmin <= $imon) and ($rmax >= $imon));
+		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
 	$COMP_DAYS => sub {
@@ -972,6 +987,7 @@ sub postfwd_items {
 		mylogs $syslog_priority, "type days :  \"$iday\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if ($opt_verbose > 1);
 		$myresult = (($rmin <= $iday) and ($rmax >= $iday));
+		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
 	$COMP_DATE => sub {
@@ -985,6 +1001,7 @@ sub postfwd_items {
 		mylogs $syslog_priority, "type date :  \"$idat\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if ($opt_verbose > 1);
 		$myresult = (($rmin <= $idat) and ($rmax >= $idat));
+		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
 	$COMP_TIME => sub {
@@ -998,6 +1015,7 @@ sub postfwd_items {
 		mylogs $syslog_priority, "type time :  \"$idat\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if ($opt_verbose > 1);
 		$myresult = (($rmin <= $idat) and ($rmax >= $idat));
+		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
 	$COMP_HELO_ADDR => sub {
@@ -1019,6 +1037,8 @@ sub postfwd_items {
 		if ( my @answers = dns_query ("$myitem,NS") ) {
 			mylogs $syslog_priority, "type $COMP_NS_NAME : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
 			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+		} else {
+			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',%request)) );
 		};
 		return $myresult;
 	},
@@ -1030,6 +1050,8 @@ sub postfwd_items {
 		if ( my @answers = dns_query ("$myitem,MX") ) {
 			mylogs $syslog_priority, "type $COMP_MX_NAME : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
 			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+		} else {
+			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',%request)) );
 		};
 		return $myresult;
 	},
@@ -1069,12 +1091,20 @@ sub postfwd_items {
 		$cmp = '==' if ( ($var) and ($cmp eq '=') );
 		if ($cmp eq '==') {
 			$myresult = ( lc($myitem) eq lc($val) ) if $myitem;
-		} elsif (($cmp eq '<=') or ($cmp eq '=<')) {
+		} elsif ( $cmp eq '=~' ) {
+			$myresult = ( $myitem =~ /$val/i );
+		} elsif ( $cmp eq '!~' ) {
+			$myresult = ( $myitem !~ /$val/i );
+		} elsif ($cmp eq '!=') {
+			$myresult = not( lc($myitem) eq lc($val) ) if $myitem;
+		} elsif ($cmp eq '=<') {
 			$myresult = (($myitem || 0) <= $val);
-		} elsif (($cmp eq '>=') or ($cmp eq '=>')) {
+		} elsif ($cmp eq '!<') {
+			$myresult = not(($myitem || 0) <= $val);
+		} elsif ($cmp eq '=>') {
 			$myresult = (($myitem || 0) >= $val);
-		} elsif ( ($cmp eq '~=') or ($cmp eq '=~') ) {
-			$myresult = ( $myitem =~ m/$val/i );
+		} elsif ($cmp eq '!>') {
+			$myresult = not(($myitem || 0) >= $val);
 		} else {
 			# allow // regex
 			$val =~ s/^\/?(.*?)\/?$/$1/;
@@ -1365,6 +1395,7 @@ sub compare_item {
 #
 sub compare_rule {
     my($index,$date,%request) = @_;
+    my(@ruleitems) = keys %{$Rules[$index]};
     my($has_rbl) = exists($Rules[$index]{$COMP_RBL_KEY});
     my($has_rhl) = (
 	exists($Rules[$index]{$COMP_RHSBL_KEY}) or exists($Rules[$index]{$COMP_RHSBL_KEY_RCLIENT}) or
@@ -1390,13 +1421,40 @@ sub compare_rule {
     my @ownready = ();
     my $bgsock = undef;
 
-    mylogs $syslog_priority, "rule: $index, id: $Rules[$index]{$COMP_ID}" if ($opt_verbose > 1);
+    mylogs $syslog_priority, "[RULES] rule: $index, id: $Rules[$index]{$COMP_ID}, items: '".((@ruleitems) ? join ';', @ruleitems: '')."'" if ($opt_verbose > 1);
+
+    # COMPARE-ITEMS
+    # check all non-dns items
+    ITEM: for $mykey ( keys %{$Rules[$index]} ) {
+	# always true
+	if ( (($mykey eq $COMP_ID) or ($mykey eq $COMP_ACTION)) ) {
+		$myresult[0]++;
+		next ITEM;
+	};
+	next ITEM if ( (($mykey eq $COMP_RBL_CNT) or ($mykey eq $COMP_RHSBL_CNT)) );
+	next ITEM if ( (($mykey eq $COMP_RBL_KEY) or ($mykey eq $COMP_RHSBL_KEY)) );
+	next ITEM if ( ($mykey eq $COMP_RHSBL_KEY_RCLIENT) or ($mykey eq $COMP_RHSBL_KEY_CLIENT) or ($mykey eq $COMP_RHSBL_KEY_SENDER) or ($mykey eq $COMP_RHSBL_KEY_HELO) );
+
+	# integration at this point enables redefining scores within ruleset
+	if ($mykey eq $COMP_SCORES) {
+		modify_score ($Rules[$index]{$mykey},$Rules[$index]{$COMP_ACTION});
+		$myresult[0] = 0;
+	} else {
+		$val = ( $mykey =~ /^$COMP_DATECALC$/ )
+			# prepare date check
+			? $date
+			# default: compare against request attribute
+			: $request{$mykey};
+		$myresult[0] = ($res = compare_item($mykey, $Rules[$index]{$mykey}, $num, ($val || ''), %request)) ? ($myresult[0] + $res) : 0;
+	};
+	last ITEM unless ($myresult[0] > 0);
+    };
 
     # DNSQUERY-SECTION
     # fire add()s with callback to result cache,
     # if they are not contained already,
     # and $opt_nodns is not set
-    if ($hasdns) {
+    if ($hasdns and $myresult[0]) {
 
 	map { $timed .= (($timed) ? ", $_" : $_) if $Timeouts{$_} > $MAX_DNSBL_TIMEOUTS } (keys %Timeouts);
 	mylogs "notice", "[DNSQUERY] skipping rbls: $timed - too much timeouts" if $timed;
@@ -1434,39 +1492,10 @@ sub compare_rule {
 		mylogs $syslog_priority, "[SENDDNS] rule: $index, id: $Rules[$index]{$COMP_ID}, lookups: ".($#queries + 1)
 			if ($opt_verbose > 1);
 	};
-    };
 
-    # COMPARE-ITEMS
-    # check all non-dns items
-    ITEM: for $mykey ( keys %{$Rules[$index]} ) {
-	# always true
-	if ( (($mykey eq $COMP_ID) or ($mykey eq $COMP_ACTION)) ) {
-		$myresult[0]++;
-		next ITEM;
-	};
-	next ITEM if ( (($mykey eq $COMP_RBL_CNT) or ($mykey eq $COMP_RHSBL_CNT)) );
-	next ITEM if ( (($mykey eq $COMP_RBL_KEY) or ($mykey eq $COMP_RHSBL_KEY)) );
-	next ITEM if ( ($mykey eq $COMP_RHSBL_KEY_RCLIENT) or ($mykey eq $COMP_RHSBL_KEY_CLIENT) or ($mykey eq $COMP_RHSBL_KEY_SENDER) or ($mykey eq $COMP_RHSBL_KEY_HELO) );
-
-	# integration at this point enables redefining scores within ruleset
-	if ($mykey eq $COMP_SCORES) {
-		modify_score ($Rules[$index]{$mykey},$Rules[$index]{$COMP_ACTION});
-		$myresult[0] = 0;
-	} else {
-		$val = ( $mykey =~ /^$COMP_DATECALC$/ )
-			# prepare date check
-			? $date
-			# default: compare against request attribute
-			: $request{$mykey};
-		$myresult[0] = ($res = compare_item($mykey, $Rules[$index]{$mykey}, $num, ($val || ''), %request)) ? ($myresult[0] + $res) : 0;
-	};
-	last ITEM unless ($myresult[0] > 0);
-    };
-
-    # DNSRESULT-SECTION
-    # if all other items matched, run await()
-    # and check the results unless $opt_nodns
-    if ($hasdns) {
+	# DNSRESULT-SECTION
+	# if all other items matched, run await()
+	# and check the results unless $opt_nodns
 	my($ownstart) = time(); @queries = ();
 	my($timout) = $dns_timeout || $def_dns_timeout;
 	while ((scalar keys %ownsock) and (@ownready = $ownsel->can_read($timout))) {
@@ -1893,7 +1922,7 @@ sub smtpd_access_policy {
 ####  MAIN  ####
 
 # parse command-line
-GetOptions (	"term|kill|k"		 => \$opt_kill,
+GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 		"hup|reload"		 => \$opt_hup,
 		't|test'		 => \$opt_test,
 		'v|verbose'		 => sub { $opt_verbose++ },
@@ -1906,7 +1935,7 @@ GetOptions (	"term|kill|k"		 => \$opt_kill,
 		'norulelog'		 => \$opt_norulelog,
 		'no-rulelog'		 => \$opt_norulelog,
 		'shortlog'		 => \$opt_shortlog, # for compatibility
-		'd|daemon'		 => \$opt_daemon,
+		'd|daemon!'		 => \$opt_daemon,
 		'I|instantcfg'		 => \$opt_instantconfig,
 		'P|perfmon'		 => \$opt_perfmon,
 		'L|stdoutlog'		 => \$opt_stdoutlog,
@@ -2299,11 +2328,15 @@ is not important. So the following would lead to the same result as the previous
 The way how request items are compared to the ruleset can be influenced in the following way:
 
 	====================================================================
-	 ITEM==VALUE                  true if ITEM equals VALUE
-	 ITEM>=VALUE                  true if ITEM >= VALUE
-	 ITEM<=VALUE                  true if ITEM <= VALUE
-	 ITEM~=VALUE                  true if ITEM ~= /^VALUE$/i
-	 ITEM=VALUE                   default behaviour (see ITEMS section)
+	 ITEM == VALUE                true if ITEM equals VALUE
+	 ITEM => VALUE                true if ITEM >= VALUE
+	 ITEM =< VALUE                true if ITEM <= VALUE
+	 ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
+	 ITEM != VALUE                false if ITEM equals VALUE
+	 ITEM !> VALUE                false if ITEM >= VALUE
+	 ITEM !< VALUE                false if ITEM <= VALUE
+	 ITEM !~ VALUE                false if ITEM ~= /^VALUE$/i
+	 ITEM =  VALUE                default behaviour (see ITEMS section)
 	====================================================================
 
 To identify single rules in your log files, you may add an unique identifier for each of it:
