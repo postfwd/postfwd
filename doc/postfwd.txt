@@ -22,7 +22,7 @@ SYNOPSIS
                 --pidfile <path>      create pidfile under <path>
 
             optional:
-            -v, --verbose             verbose logging
+            -v, --verbose             verbose logging, use twice (-vv) to increase level
             -c, --cache <int>         sets the request-cache timeout to <int> seconds
                 --cache-no-size       ignores size attribute for caching
                 --cache-rdomain-only  ignores localpart of recipient address in cache
@@ -176,6 +176,10 @@ DESCRIPTION
                     ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \
                     sender=@domain\.local$
 
+    The following items currently have to be unique:
+
+            id, minimum and maximum values
+
   ACTIONS
     *postfix actions*
 
@@ -217,6 +221,7 @@ DESCRIPTION
 
             note (<string>)
             just logs the given string and continues parsing the ruleset.
+            if the string is empty, nothing will be logged.
 
             quit (<code>)
             terminates the program with the given exit-code. postfix doesn`t
@@ -247,14 +252,14 @@ DESCRIPTION
     Macros can contain macros, too:
 
             # definition (note the trailing "\" characters)
-            &&RBLS { rbl=                                           \
-                    zen.spamhaus.org,                               \
-                    list.dsbl.org,                                  \
-                    bl.spamcop.net,                                 \
-                    dnsbl.sorbs.net,                                \
-                    ix.dnsbl.manitu.net;                            \
+            &&RBLS {                                                \
+                    rbl=zen.spamhaus.org ;                          \
+                    rbl=list.dsbl.org ;                             \
+                    rbl=bl.spamcop.net ;                            \
+                    rbl=dnsbl.sorbs.net ;                           \
+                    rbl=ix.dnsbl.manitu.net ;                       \
             };
-            &&DYNAMIC { \
+            &&DYNAMIC {                                             \
                     client_name=^unknown$ ;                         \
                     client_name=(\d+[\.-_]){4} ;                    \
                     client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;   \
@@ -332,7 +337,8 @@ DESCRIPTION
 
             -v, --verbose
             Verbose logging displays a lot of useful information but can cause
-            your logfiles to grow noticeably. So use it with caution.
+            your logfiles to grow noticeably. So use it with caution. Set the option
+            twice (-vv) to get more information (logs all request attributes).
 
             -c, --cache <int>
             Timeout for request cache, results for identical requests will be
@@ -407,17 +413,17 @@ DESCRIPTION
             ## whitelisting
             # 1. networks 192.168.1.0/24, 192.168.2.4
             # 2. client_names *.gmx.net and *.gmx.de
-            # 3. sender *@someshop.com from 11.22.33.44
+            # 3. sender *@someshop.tld from 11.22.33.44
             id=WL001; action=dunno ; client_address=192.168.1.0/24, 192.168.2.4
             id=WL002; action=dunno ; client_name=\.gmx\.(net|de)$
-            id=WL003; action=dunno ; sender=@someshop\.com$ ; client_address=11.22.33.44
+            id=WL003; action=dunno ; sender=@someshop\.tld$ ; client_address=11.22.33.44
 
             ## TLS control
-            # 1. *@authority.com only with correct TLS fingerprint
-            # 2. *@secret.com only with keysizes >=64
-            id=TL001; action=dunno                          ; sender=@authority\.com$ ; ccert_fingerprint=AA:BB:CC..
-            id=TL002; action=REJECT wrong TLS fingerprint   ; sender=@authority\.com$
-            id=TL003; action=REJECT tls keylength < 64      ; sender=@secret\.com$ ; encryption_keysize=64
+            # 1. *@authority.tld only with correct TLS fingerprint
+            # 2. *@secret.tld only with keysizes >=64
+            id=TL001; action=dunno                          ; sender=@authority\.tld$ ; ccert_fingerprint=AA:BB:CC..
+            id=TL002; action=REJECT wrong TLS fingerprint   ; sender=@authority\.tld$
+            id=TL003; action=REJECT tls keylength < 64      ; sender=@secret\.tld$ ; encryption_keysize=64
 
             ## Combined RBL checks
             # This will reject mail if
@@ -431,10 +437,10 @@ DESCRIPTION
             id=RBL04 ; action=REJECT combined RBL+RHSBL check       ; rbl=bl.spamcop.net ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
 
             ## Message size (requires message_size_limit to be set to 30000000)
-            # 1. 30MB for systems in *.customer1.local
+            # 1. 30MB for systems in *.customer1.tld
             # 2. 20MB for SASL user joejob
             # 3. 10MB default
-            id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\.customer1.local$
+            id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\.customer1.tld$
             id=SZ002; action=REJECT message too large ; size=20000000 ; sasl_username=^joejob$
             id=SZ003; action=REJECT message too large ; size=10000000
 
@@ -447,10 +453,10 @@ DESCRIPTION
             id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$
 
             ## Date Time
-            date=24.12.2007-26.12.2007          ; action=450 4.7.1 office closed during christmas
-            time=04:00:00-05:00:00              ; action=450 4.7.1 maintenance ongoing, try again later
-            time=07:00:00- ; sasl_username=jim  ; action=450 4.7.1 to early for you, jim
-            time=-22:00:00 ; sasl_username=jim  ; action=450 4.7.1 to late now, jim
+            date=24.12.2007-26.12.2007          ;  action=450 4.7.1 office closed during christmas
+            time=04:00:00-05:00:00              ;  action=450 4.7.1 maintenance ongoing, try again later
+            time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
+            time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim
 
             ## Usage of jump
             # The following allows a message size of 30MB for different
@@ -488,23 +494,23 @@ DESCRIPTION
 
             ## Groups
             # definition
-            &&RBLS { rbl=                \
-                    zen.spamhaus.org,    \
-                    list.dsbl.org,       \
-                    bl.spamcop.net,      \
-                    dnsbl.sorbs.net,     \
-                    ix.dnsbl.manitu.net; \
+            &&RBLS { \
+                    rbl=zen.spamhaus.org ;          \
+                    rbl=list.dsbl.org ;             \
+                    rbl=bl.spamcop.net ;            \
+                    rbl=dnsbl.sorbs.net ;           \
+                    rbl=ix.dnsbl.manitu.net ;       \
             };
-            &&DYNAMIC {                                           \
-                    client_name=^unknown$ ;                       \
-                    client_name=(\d+[\.-_]){4} ;                  \
-                    client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ; \
+            &&DYNAMIC { \
+                    client_name=^unknown$ ;                         \
+                    client_name=(\d+[\.-_]){4} ;                    \
+                    client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;   \
             };
-            &&MAINTENANCE {                  \
-                    date=15.01.2007 ;        \
-                    date=15.04.2007 ;        \
-                    date=15.07.2007 ;        \
-                    date=15.10.2007 ;        \
+            &&MAINTENANCE { \
+                    date=15.01.2007  ; \
+                    date=15.04.2007  ; \
+                    date=15.07.2007  ; \
+                    date=15.10.2007  ; \
                     time=03:00:00-04:00:00 ; \
             };
             # rules
@@ -539,7 +545,7 @@ DESCRIPTION
     Reload your configuration with `postfix reload` and watch your logs. In
     it works you should see lines like the following in your mail log:
 
-            Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.org, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
+            Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.tld, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
 
     If you want to check for size or rcpt_count items you must integrate
     postfwd in smtp_data_restrictions or smtpd_end_of_data_restrictions. Of
@@ -632,6 +638,6 @@ LICENSE
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 AUTHOR
-    Jan Peter Kessler <postfwd@jpkessler.de>. Let me know, if you have any
-    suggestions.
+    Jan Peter Kessler <info (AT) postfwd (DOT) org>. Let me know, if you
+    have any suggestions.
 

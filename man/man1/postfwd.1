@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2007-10-21" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD 1 "2007-10-23" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -161,7 +161,7 @@ postfwd [\s-1OPTIONS\s0] \s-1SOURCE1\s0, \s-1SOURCE2\s0, ...
 .PP
 .Vb 9
 \&        optional:
-\&        -v, --verbose             verbose logging
+\&        -v, --verbose             verbose logging, use twice (-vv) to increase level
 \&        -c, --cache <int>         sets the request-cache timeout to <int> seconds
 \&            --cache-no-size       ignores size attribute for caching
 \&            --cache-rdomain-only  ignores localpart of recipient address in cache
@@ -329,6 +329,12 @@ Multiple use of the same item is allowed and will compared as logical \s-1OR\s0,
 \&                ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \e
 \&                sender=@domain\e.local$
 .Ve
+.PP
+The following items currently have to be unique:
+.PP
+.Vb 1
+\&        id, minimum and maximum values
+.Ve
 .Sh "\s-1ACTIONS\s0"
 .IX Subsection "ACTIONS"
 \&\fIpostfix actions\fR
@@ -373,9 +379,10 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        delaying or throtteling connections.
 .Ve
 .PP
-.Vb 2
+.Vb 3
 \&        note (<string>)
 \&        just logs the given string and continues parsing the ruleset.
+\&        if the string is empty, nothing will be logged.
 .Ve
 .PP
 .Vb 3
@@ -415,14 +422,14 @@ Macros can contain macros, too:
 .PP
 .Vb 16
 \&        # definition (note the trailing "\e" characters)
-\&        &&RBLS { rbl=                                           \e
-\&                zen.spamhaus.org,                               \e
-\&                list.dsbl.org,                                  \e
-\&                bl.spamcop.net,                                 \e
-\&                dnsbl.sorbs.net,                                \e
-\&                ix.dnsbl.manitu.net;                            \e
+\&        &&RBLS {                                                \e
+\&                rbl=zen.spamhaus.org ;                          \e
+\&                rbl=list.dsbl.org ;                             \e
+\&                rbl=bl.spamcop.net ;                            \e
+\&                rbl=dnsbl.sorbs.net ;                           \e
+\&                rbl=ix.dnsbl.manitu.net ;                       \e
 \&        };
-\&        &&DYNAMIC { \e
+\&        &&DYNAMIC {                                             \e
 \&                client_name=^unknown$ ;                         \e
 \&                client_name=(\ed+[\e.-_]){4} ;                    \e
 \&                client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;   \e
@@ -520,10 +527,11 @@ The following arguments will control it's behaviour in this case.
 .PP
 These parameters influence the way postfwd is working. Any of them can be combined.
 .PP
-.Vb 3
+.Vb 4
 \&        -v, --verbose
 \&        Verbose logging displays a lot of useful information but can cause
-\&        your logfiles to grow noticeably. So use it with caution.
+\&        your logfiles to grow noticeably. So use it with caution. Set the option
+\&        twice (-vv) to get more information (logs all request attributes).
 .Ve
 .PP
 .Vb 4
@@ -624,19 +632,19 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        ## whitelisting
 \&        # 1. networks 192.168.1.0/24, 192.168.2.4
 \&        # 2. client_names *.gmx.net and *.gmx.de
-\&        # 3. sender *@someshop.com from 11.22.33.44
+\&        # 3. sender *@someshop.tld from 11.22.33.44
 \&        id=WL001; action=dunno ; client_address=192.168.1.0/24, 192.168.2.4
 \&        id=WL002; action=dunno ; client_name=\e.gmx\e.(net|de)$
-\&        id=WL003; action=dunno ; sender=@someshop\e.com$ ; client_address=11.22.33.44
+\&        id=WL003; action=dunno ; sender=@someshop\e.tld$ ; client_address=11.22.33.44
 .Ve
 .PP
 .Vb 6
 \&        ## TLS control
-\&        # 1. *@authority.com only with correct TLS fingerprint
-\&        # 2. *@secret.com only with keysizes >=64
-\&        id=TL001; action=dunno                          ; sender=@authority\e.com$ ; ccert_fingerprint=AA:BB:CC..
-\&        id=TL002; action=REJECT wrong TLS fingerprint   ; sender=@authority\e.com$
-\&        id=TL003; action=REJECT tls keylength < 64      ; sender=@secret\e.com$ ; encryption_keysize=64
+\&        # 1. *@authority.tld only with correct TLS fingerprint
+\&        # 2. *@secret.tld only with keysizes >=64
+\&        id=TL001; action=dunno                          ; sender=@authority\e.tld$ ; ccert_fingerprint=AA:BB:CC..
+\&        id=TL002; action=REJECT wrong TLS fingerprint   ; sender=@authority\e.tld$
+\&        id=TL003; action=REJECT tls keylength < 64      ; sender=@secret\e.tld$ ; encryption_keysize=64
 .Ve
 .PP
 .Vb 10
@@ -654,10 +662,10 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 .PP
 .Vb 7
 \&        ## Message size (requires message_size_limit to be set to 30000000)
-\&        # 1. 30MB for systems in *.customer1.local
+\&        # 1. 30MB for systems in *.customer1.tld
 \&        # 2. 20MB for SASL user joejob
 \&        # 3. 10MB default
-\&        id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\e.customer1.local$
+\&        id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\e.customer1.tld$
 \&        id=SZ002; action=REJECT message too large ; size=20000000 ; sasl_username=^joejob$
 \&        id=SZ003; action=REJECT message too large ; size=10000000
 .Ve
@@ -674,10 +682,10 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 .PP
 .Vb 5
 \&        ## Date Time
-\&        date=24.12.2007-26.12.2007         ;  action=450 4.7.1 office closed during christmas
-\&        time=04:00:00-05:00:00             ;  action=450 4.7.1 maintenance ongoing, try again later
-\&        time=07:00:00- ; sasl_username=jim ;  action=450 4.7.1 to early for you, jim
-\&        time=-22:00:00 ; sasl_username=jim ;  action=450 4.7.1 to late now, jim
+\&        date=24.12.2007-26.12.2007          ;  action=450 4.7.1 office closed during christmas
+\&        time=04:00:00-05:00:00              ;  action=450 4.7.1 maintenance ongoing, try again later
+\&        time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
+\&        time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim
 .Ve
 .PP
 .Vb 10
@@ -723,23 +731,23 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 .Vb 24
 \&        ## Groups
 \&        # definition
-\&        &&RBLS { rbl=                   \e
-\&                zen.spamhaus.org,       \e
-\&                list.dsbl.org,          \e
-\&                bl.spamcop.net,         \e
-\&                dnsbl.sorbs.net,        \e
-\&                ix.dnsbl.manitu.net;    \e
+\&        &&RBLS { \e
+\&                rbl=zen.spamhaus.org ;          \e
+\&                rbl=list.dsbl.org ;             \e
+\&                rbl=bl.spamcop.net ;            \e
+\&                rbl=dnsbl.sorbs.net ;           \e
+\&                rbl=ix.dnsbl.manitu.net ;       \e
 \&        };
-\&        &&DYNAMIC {                                             \e
+\&        &&DYNAMIC { \e
 \&                client_name=^unknown$ ;                         \e
 \&                client_name=(\ed+[\e.-_]){4} ;                    \e
 \&                client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;   \e
 \&        };
-\&        &&MAINTENANCE {                  \e
-\&                date=15.01.2007  ;       \e
-\&                date=15.04.2007  ;       \e
-\&                date=15.07.2007  ;       \e
-\&                date=15.10.2007  ;       \e
+\&        &&MAINTENANCE { \e
+\&                date=15.01.2007  ; \e
+\&                date=15.04.2007  ; \e
+\&                date=15.07.2007  ; \e
+\&                date=15.10.2007  ; \e
 \&                time=03:00:00-04:00:00 ; \e
 \&        };
 \&        # rules
@@ -783,7 +791,7 @@ Reload your configuration with `postfix reload` and watch your logs. In it works
 lines like the following in your mail log:
 .PP
 .Vb 1
-\&        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.org, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
+\&        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.tld, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
 .Ve
 .PP
 If you want to check for size or rcpt_count items you must integrate postfwd in smtp_data_restrictions or
@@ -888,4 +896,4 @@ but \s-1WITHOUT\s0 \s-1ANY\s0 \s-1WARRANTY\s0; without even the implied warranty
 \&\s-1MERCHANTABILITY\s0 or \s-1FITNESS\s0 \s-1FOR\s0 A \s-1PARTICULAR\s0 \s-1PURPOSE\s0.
 .SH "AUTHOR"
 .IX Header "AUTHOR"
-Jan\ Peter\ Kessler\ <postfwd@jpkessler.de>. Let me know, if you have any suggestions.
+Jan\ Peter\ Kessler\ <info\ (\s-1AT\s0)\ postfwd\ (\s-1DOT\s0)\ org>. Let me know, if you have any suggestions.

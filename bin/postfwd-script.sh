@@ -18,7 +18,7 @@ PFWINET=127.0.0.1
 PFWPORT=10040
 
 # recommended extra arguments
-PFWARG="--summary=600 --cache=600 --cache-rdomain-only --cache-no-size"
+PFWARG="--summary=1800 --cache=600 --cache-rdomain-only --cache-no-size"
 
 
 ## should be no need to change below

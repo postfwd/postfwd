@@ -26,7 +26,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.00';
+our($VERSION)			= '1.01';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -103,7 +103,6 @@ our($syslog_priority)		= "info";
 our(@CommandArgs) 		= @ARGV;
 
 # initializations - do not change
-# (strict and tainted perl smells somehow like pascal ;)
 our(@Configs,@Rules)				= ();
 our(%Config_Cache, %RBL_Cache, %Request_Cache)	= ();
 our(%Matches, %attr, %opt_scores, %ACLs)	= ();
@@ -260,13 +259,11 @@ sub parse_config_line {
 			s/^\s*(.*?)\s*=\s*(.*?)\s*$/$1=$2/;
 			($mykey, $myvalue) = split /=/;
 			if ($mykey =~ /^($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)$/) {
-				@{$myrule{$mykey}} = split /[,\s]+/, $myvalue;
+				push ( @{$myrule{$mykey}}, (split /[,\s]+/, $myvalue) );
+			} elsif ($mykey =~ /^($COMP_SCORES|id|action|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX)$/) {
+				$myrule{$mykey} = $myvalue;
 			} else {
-				if ($mykey =~ /^($COMP_SCORES|id|action|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX)$/) {
-					$myrule{$mykey} = $myvalue;
-				} else {
-					push (@{$myrule{$mykey}}, $myvalue );
-				};
+				push ( @{$myrule{$mykey}}, $myvalue );
 			};
 		};
 		unless (exists($myrule{"action"})) {
@@ -345,7 +342,7 @@ sub show_config {
    };
    for $index (0 .. $#Rules) {
 	next unless exists $Rules[$index];
-	myprintf "Rule %3d: id->\"%s\" action->\"%s\"", $index, $Rules[$index]{"id"}, $Rules[$index]{"action"};
+	myprintf "Rule %3d: id->\"%s\"; action->\"%s\"", $index, $Rules[$index]{"id"}, $Rules[$index]{"action"};
 	$line = ($opt_verbose) ? "\n\t  " : "";
 	for $mykey ( reverse sort keys %{$Rules[$index]} ) {
 		unless (($mykey eq "action") or ($mykey eq "id")) {
@@ -391,7 +388,7 @@ sub rbl_check {
     if ( exists($RBL_Cache{$myrbl}{$myval}) ) {
 	($myanswer, $mystart, $myend) = @{$RBL_Cache{$myrbl}{$myval}};
 	$myresult = ( $myanswer =~ /$myrblans/ );
-	mylogs $syslog_priority, "[DNSBL] client $myval listed on ".uc($mytype).":$myrbl (answer: $myanswer, cached: ".($now - $mystart)."s ago)" if $myresult;
+	mylogs $syslog_priority, "[DNSBL] client $myval listed on ".uc($mytype).":$myrbl (answer: $myanswer, cached: ".($now - $mystart)."s ago)" if ( $myresult and $opt_verbose );
     } else {
 	# create query
 	$myval =~ /^([^\[]+)\[([^\]]+)\]/;
@@ -618,7 +615,7 @@ sub smtpd_access_policy {
 					. ", state=".$myattr{"protocol_state"};
 
 				# check for postfwd action
-				if ($myaction =~ /^([a-zA-Z]{4,5})\(([^\)]+)\)$/) {
+				if ($myaction =~ /^([a-zA-Z]{4,5})\(([^\)]*)\)$/) {
 					my($mycmd,$myarg) = ($1, $2);
 	
 					# jump() command
@@ -656,7 +653,7 @@ sub smtpd_access_policy {
 						};
 					# note() command
 					} elsif ($mycmd eq "note") {
-						warn "[RULES] ".$myline." - note: ".$myarg;
+						mylogs $syslog_priority, "[RULES] ".$myline." - note: ".$myarg if $myarg;
 						$myaction = $default_action;
 					# quit() command
 					} elsif ($mycmd eq "quit") {
@@ -704,7 +701,7 @@ sub process_request_line {
 	if ($request =~ /([^=]+)=(.*)\n/) {
 		$attr{$client}{substr($1, 0, 512)} = substr($2, 0, 512);
 	} elsif ($request eq "\n") {
-		if ($opt_verbose) {
+		if ($opt_verbose > 1) {
 		    for (keys %{$attr{$client}}) {
 			mylogs $syslog_priority, "Attribute: $_=$attr{$client}{$_}";
 		    };
@@ -728,7 +725,7 @@ sub process_request_line {
 
 # parse command-line
 GetOptions (	't|test'		=> \$opt_test,
-		'v|verbose'		=> \$opt_verbose,
+		'v|verbose'		=> sub { $opt_verbose++ },
 		'l|logname=s'		=> \$syslog_name,
 		'n|nodns'		=> \$opt_nodns,
 		'd|daemon'		=> \$opt_daemon,
@@ -930,7 +927,7 @@ postfwd [OPTIONS] SOURCE1, SOURCE2, ...
 	    --pidfile <path>      create pidfile under <path>
 
 	optional:
-	-v, --verbose             verbose logging
+	-v, --verbose             verbose logging, use twice (-vv) to increase level
 	-c, --cache <int>         sets the request-cache timeout to <int> seconds
 	    --cache-no-size       ignores size attribute for caching
 	    --cache-rdomain-only  ignores localpart of recipient address in cache
@@ -1079,6 +1076,10 @@ Multiple use of the same item is allowed and will compared as logical OR, which 
 		ccert_fingerprint=33:44:55:66:77:88:99:00:11;	\
 		sender=@domain\.local$
 
+The following items currently have to be unique:
+
+	id, minimum and maximum values
+
 
 =head2 ACTIONS
 
@@ -1118,6 +1119,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 
 	note (<string>)
 	just logs the given string and continues parsing the ruleset.
+	if the string is empty, nothing will be logged.
 
 	quit (<code>)
 	terminates the program with the given exit-code. postfix doesn`t
@@ -1149,14 +1151,14 @@ Macros can contain actions, too:
 Macros can contain macros, too:
 
 	# definition (note the trailing "\" characters)
-	&&RBLS { rbl= 						\
-		zen.spamhaus.org, 				\
-		list.dsbl.org, 					\
-		bl.spamcop.net, 				\
-		dnsbl.sorbs.net, 				\
-		ix.dnsbl.manitu.net; 				\
+	&&RBLS { 						\
+		rbl=zen.spamhaus.org ;				\
+		rbl=list.dsbl.org ;				\
+		rbl=bl.spamcop.net ;				\
+		rbl=dnsbl.sorbs.net ;				\
+		rbl=ix.dnsbl.manitu.net ;			\
 	};
-	&&DYNAMIC { \
+	&&DYNAMIC { 						\
 		client_name=^unknown$ ; 			\
 		client_name=(\d+[\.-_]){4} ; 			\
 		client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;	\
@@ -1232,7 +1234,8 @@ These parameters influence the way postfwd is working. Any of them can be combin
 
 	-v, --verbose
 	Verbose logging displays a lot of useful information but can cause
-	your logfiles to grow noticeably. So use it with caution.
+	your logfiles to grow noticeably. So use it with caution. Set the option
+	twice (-vv) to get more information (logs all request attributes).
 
 	-c, --cache <int>
 	Timeout for request cache, results for identical requests will be
@@ -1309,17 +1312,17 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	## whitelisting
 	# 1. networks 192.168.1.0/24, 192.168.2.4
 	# 2. client_names *.gmx.net and *.gmx.de
-	# 3. sender *@someshop.com from 11.22.33.44
+	# 3. sender *@someshop.tld from 11.22.33.44
 	id=WL001; action=dunno ; client_address=192.168.1.0/24, 192.168.2.4
 	id=WL002; action=dunno ; client_name=\.gmx\.(net|de)$
-	id=WL003; action=dunno ; sender=@someshop\.com$ ; client_address=11.22.33.44
+	id=WL003; action=dunno ; sender=@someshop\.tld$ ; client_address=11.22.33.44
 
 	## TLS control
-	# 1. *@authority.com only with correct TLS fingerprint
-	# 2. *@secret.com only with keysizes >=64
-	id=TL001; action=dunno 				; sender=@authority\.com$ ; ccert_fingerprint=AA:BB:CC..
-	id=TL002; action=REJECT wrong TLS fingerprint	; sender=@authority\.com$
-	id=TL003; action=REJECT tls keylength < 64	; sender=@secret\.com$ ; encryption_keysize=64
+	# 1. *@authority.tld only with correct TLS fingerprint
+	# 2. *@secret.tld only with keysizes >=64
+	id=TL001; action=dunno 				; sender=@authority\.tld$ ; ccert_fingerprint=AA:BB:CC..
+	id=TL002; action=REJECT wrong TLS fingerprint	; sender=@authority\.tld$
+	id=TL003; action=REJECT tls keylength < 64	; sender=@secret\.tld$ ; encryption_keysize=64
 
 	## Combined RBL checks
 	# This will reject mail if
@@ -1333,10 +1336,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=RBL04 ; action=REJECT combined RBL+RHSBL check  	; rbl=bl.spamcop.net ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
 
 	## Message size (requires message_size_limit to be set to 30000000)
-	# 1. 30MB for systems in *.customer1.local
+	# 1. 30MB for systems in *.customer1.tld
 	# 2. 20MB for SASL user joejob
 	# 3. 10MB default
-	id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\.customer1.local$
+	id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\.customer1.tld$
 	id=SZ002; action=REJECT message too large ; size=20000000 ; sasl_username=^joejob$
 	id=SZ003; action=REJECT message too large ; size=10000000
 
@@ -1349,10 +1352,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$
 
 	## Date Time
-	date=24.12.2007-26.12.2007         ;  action=450 4.7.1 office closed during christmas
-	time=04:00:00-05:00:00             ;  action=450 4.7.1 maintenance ongoing, try again later
-	time=07:00:00- ; sasl_username=jim ;  action=450 4.7.1 to early for you, jim
-	time=-22:00:00 ; sasl_username=jim ;  action=450 4.7.1 to late now, jim
+	date=24.12.2007-26.12.2007          ;  action=450 4.7.1 office closed during christmas
+	time=04:00:00-05:00:00              ;  action=450 4.7.1 maintenance ongoing, try again later
+	time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
+	time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim
 
 	## Usage of jump
 	# The following allows a message size of 30MB for different
@@ -1390,23 +1393,23 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 
 	## Groups
 	# definition
-        &&RBLS { rbl= 			\
-		zen.spamhaus.org,	\
-		list.dsbl.org,		\
-		bl.spamcop.net,		\
-		dnsbl.sorbs.net,	\
-		ix.dnsbl.manitu.net;	\
+        &&RBLS { \
+		rbl=zen.spamhaus.org ;		\
+		rbl=list.dsbl.org ;		\
+		rbl=bl.spamcop.net ;		\
+		rbl=dnsbl.sorbs.net ;		\
+		rbl=ix.dnsbl.manitu.net ;	\
 	};
-	&&DYNAMIC { 						\
+	&&DYNAMIC { \
         	client_name=^unknown$ ;				\
         	client_name=(\d+[\.-_]){4} ;			\
         	client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;	\
 	};
-	&&MAINTENANCE { 		 \
-		date=15.01.2007  ; 	 \
-		date=15.04.2007  ; 	 \
-		date=15.07.2007  ; 	 \
-		date=15.10.2007  ; 	 \
+	&&MAINTENANCE { \
+		date=15.01.2007  ; \
+		date=15.04.2007  ; \
+		date=15.07.2007  ; \
+		date=15.10.2007  ; \
 		time=03:00:00-04:00:00 ; \
 	};
 	# rules
@@ -1442,7 +1445,7 @@ If everything works, open your postfix main.cf and insert the following
 Reload your configuration with `postfix reload` and watch your logs. In it works you should see
 lines like the following in your mail log:
 
-	Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.org, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
+	Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.tld, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno
 
 If you want to check for size or rcpt_count items you must integrate postfwd in smtp_data_restrictions or
 smtpd_end_of_data_restrictions. Of course you can also specify a restriction class and use it in your access
@@ -1536,6 +1539,6 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 =head1 AUTHOR
 
-S<Jan Peter Kessler E<lt>postfwd@jpkessler.deE<gt>>. Let me know, if you have any suggestions.
+S<Jan Peter Kessler E<lt>info (AT) postfwd (DOT) orgE<gt>>. Let me know, if you have any suggestions.
 
 =cut

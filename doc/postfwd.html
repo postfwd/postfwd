@@ -1,10 +1,8 @@
-<?xml version="1.0" ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <title>postfwd - postfix firewall daemon</title>
-<meta http-equiv="content-type" content="text/html; charset=utf-8" />
-<link rev="made" href="mailto:feedback@suse.de" />
+<link rev="made" href="mailto:root@localhost" />
 </head>
 
 <body style="background-color: white">
@@ -66,7 +64,7 @@
             --pidfile &lt;path&gt;      create pidfile under &lt;path&gt;</pre>
 <pre>
         optional:
-        -v, --verbose             verbose logging
+        -v, --verbose             verbose logging, use twice (-vv) to increase level
         -c, --cache &lt;int&gt;         sets the request-cache timeout to &lt;int&gt; seconds
             --cache-no-size       ignores size attribute for caching
             --cache-rdomain-only  ignores localpart of recipient address in cache
@@ -194,6 +192,9 @@ for details:</p>
                 ccert_fingerprint=22:33:44:55:66:77:88:99:00;   \
                 ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \
                 sender=@domain\.local$</pre>
+<p>The following items currently have to be unique:</p>
+<pre>
+        id, minimum and maximum values</pre>
 <p>
 </p>
 <h2><a name="actions">ACTIONS</a></h2>
@@ -228,7 +229,8 @@ rule containing only an action statement:</p>
         delaying or throtteling connections.</pre>
 <pre>
         note (&lt;string&gt;)
-        just logs the given string and continues parsing the ruleset.</pre>
+        just logs the given string and continues parsing the ruleset.
+        if the string is empty, nothing will be logged.</pre>
 <pre>
         quit (&lt;code&gt;)
         terminates the program with the given exit-code. postfix doesn`t
@@ -256,14 +258,14 @@ First the macros have to be defined as follows:</p>
 <p>Macros can contain macros, too:</p>
 <pre>
         # definition (note the trailing &quot;\&quot; characters)
-        &amp;&amp;RBLS { rbl=                                           \
-                zen.spamhaus.org,                               \
-                list.dsbl.org,                                  \
-                bl.spamcop.net,                                 \
-                dnsbl.sorbs.net,                                \
-                ix.dnsbl.manitu.net;                            \
+        &amp;&amp;RBLS {                                                \
+                rbl=zen.spamhaus.org ;                          \
+                rbl=list.dsbl.org ;                             \
+                rbl=bl.spamcop.net ;                            \
+                rbl=dnsbl.sorbs.net ;                           \
+                rbl=ix.dnsbl.manitu.net ;                       \
         };
-        &amp;&amp;DYNAMIC { \
+        &amp;&amp;DYNAMIC {                                             \
                 client_name=^unknown$ ;                         \
                 client_name=(\d+[\.-_]){4} ;                    \
                 client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;   \
@@ -331,7 +333,8 @@ The following arguments will control it's behaviour in this case.</p>
 <pre>
         -v, --verbose
         Verbose logging displays a lot of useful information but can cause
-        your logfiles to grow noticeably. So use it with caution.</pre>
+        your logfiles to grow noticeably. So use it with caution. Set the option
+        twice (-vv) to get more information (logs all request attributes).</pre>
 <pre>
         -c, --cache &lt;int&gt;
         Timeout for request cache, results for identical requests will be
@@ -405,17 +408,17 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         ## whitelisting
         # 1. networks 192.168.1.0/24, 192.168.2.4
         # 2. client_names *.gmx.net and *.gmx.de
-        # 3. sender *@someshop.com from 11.22.33.44
+        # 3. sender *@someshop.tld from 11.22.33.44
         id=WL001; action=dunno ; client_address=192.168.1.0/24, 192.168.2.4
         id=WL002; action=dunno ; client_name=\.gmx\.(net|de)$
-        id=WL003; action=dunno ; sender=@someshop\.com$ ; client_address=11.22.33.44</pre>
+        id=WL003; action=dunno ; sender=@someshop\.tld$ ; client_address=11.22.33.44</pre>
 <pre>
         ## TLS control
-        # 1. *@authority.com only with correct TLS fingerprint
-        # 2. *@secret.com only with keysizes &gt;=64
-        id=TL001; action=dunno                          ; sender=@authority\.com$ ; ccert_fingerprint=AA:BB:CC..
-        id=TL002; action=REJECT wrong TLS fingerprint   ; sender=@authority\.com$
-        id=TL003; action=REJECT tls keylength &lt; 64      ; sender=@secret\.com$ ; encryption_keysize=64</pre>
+        # 1. *@authority.tld only with correct TLS fingerprint
+        # 2. *@secret.tld only with keysizes &gt;=64
+        id=TL001; action=dunno                          ; sender=@authority\.tld$ ; ccert_fingerprint=AA:BB:CC..
+        id=TL002; action=REJECT wrong TLS fingerprint   ; sender=@authority\.tld$
+        id=TL003; action=REJECT tls keylength &lt; 64      ; sender=@secret\.tld$ ; encryption_keysize=64</pre>
 <pre>
         ## Combined RBL checks
         # This will reject mail if
@@ -429,10 +432,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=RBL04 ; action=REJECT combined RBL+RHSBL check       ; rbl=bl.spamcop.net ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net</pre>
 <pre>
         ## Message size (requires message_size_limit to be set to 30000000)
-        # 1. 30MB for systems in *.customer1.local
+        # 1. 30MB for systems in *.customer1.tld
         # 2. 20MB for SASL user joejob
         # 3. 10MB default
-        id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\.customer1.local$
+        id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\.customer1.tld$
         id=SZ002; action=REJECT message too large ; size=20000000 ; sasl_username=^joejob$
         id=SZ003; action=REJECT message too large ; size=10000000</pre>
 <pre>
@@ -445,10 +448,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$</pre>
 <pre>
         ## Date Time
-        date=24.12.2007-26.12.2007          ; action=450 4.7.1 office closed during christmas
-        time=04:00:00-05:00:00              ; action=450 4.7.1 maintenance ongoing, try again later
-        time=07:00:00- ; sasl_username=jim  ; action=450 4.7.1 to early for you, jim
-        time=-22:00:00 ; sasl_username=jim  ; action=450 4.7.1 to late now, jim</pre>
+        date=24.12.2007-26.12.2007          ;  action=450 4.7.1 office closed during christmas
+        time=04:00:00-05:00:00              ;  action=450 4.7.1 maintenance ongoing, try again later
+        time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
+        time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim</pre>
 <pre>
         ## Usage of jump
         # The following allows a message size of 30MB for different
@@ -486,12 +489,12 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 <pre>
         ## Groups
         # definition
-        &amp;&amp;RBLS { rbl= \
-                zen.spamhaus.org,       \
-                list.dsbl.org,          \
-                bl.spamcop.net,         \
-                dnsbl.sorbs.net,        \
-                ix.dnsbl.manitu.net;    \
+        &amp;&amp;RBLS { \
+                rbl=zen.spamhaus.org ;          \
+                rbl=list.dsbl.org ;             \
+                rbl=bl.spamcop.net ;            \
+                rbl=dnsbl.sorbs.net ;           \
+                rbl=ix.dnsbl.manitu.net ;       \
         };
         &amp;&amp;DYNAMIC { \
                 client_name=^unknown$ ;                         \
@@ -532,7 +535,7 @@ it`s internal caching in that case. Start postfwd with the following parameters:
 <p>Reload your configuration with `postfix reload` and watch your logs. In it works you should see
 lines like the following in your mail log:</p>
 <pre>
-        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.org, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno</pre>
+        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.tld, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno</pre>
 <p>If you want to check for size or rcpt_count items you must integrate postfwd in smtp_data_restrictions or
 smtpd_end_of_data_restrictions. Of course you can also specify a restriction class and use it in your access
 tables. First create a file /etc/postfix/policy containing:</p>
@@ -611,7 +614,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.</p>
 </p>
 <hr />
 <h1><a name="author">AUTHOR</a></h1>
-<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;<a&nbsp;href="mailto:postfwd@jpkessler.de">postfwd@jpkessler.de</a>&gt;. Let me know, if you have any suggestions.</p>
+<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;info&nbsp;(AT)&nbsp;postfwd&nbsp;(DOT)&nbsp;org&gt;. Let me know, if you have any suggestions.</p>
 
 </body>
 

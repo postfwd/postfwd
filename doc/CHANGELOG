@@ -1,3 +1,11 @@
+1.01
+====
+- feature: multiple rbl, rhsbl and client_address statements in a single rule are now possible
+- feature: note() command will now log (not warn!). an empty argument suppresses logging
+- feature: in verbose mode you must set -vv now to see the whole request attributes
+- feature: cached dnsbl results are now only logged in verbose mode
+- manual:  several minor updates
+
 1.00
 ====
 - feature: multiple definitions of the same item in a single rule to build groups
