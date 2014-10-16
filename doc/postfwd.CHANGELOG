@@ -1,3 +1,35 @@
+1.32
+====
+- feature: new option --save_rates=<file> allows to load and save
+	   rate limit counters to disk on program start and termination.
+	   this allows rate limit persistence during restarts and reboots
+	   (requires perl module 'Storable')
+- feature: the --debugitem="sender=example\.org$" option
+           allows verbose logging for particular requests
+- feature: the debug() action allows verbose logging for certain
+           rules:
+    ------------------------------------------------------------
+     id=R01
+        client_address=1.1.1.1
+        action=debug(on)
+     id=R02
+     ...
+     id=R42
+        action=debug(off)
+    ------------------------------------------------------------
+- feature: nested commands are possible now, e.g.:
+    ------------------------------------------------------------
+     # throttle
+     action=rate(client_address/10/60/wait(3))
+    ------------------------------------------------------------
+- feature: new mail(server/helo/from/to/subject/body) action.
+           Please take a look at the manual, especially about
+           it's limitations, before using it!
+    ------------------------------------------------------------
+     # alert
+     action=size(recipient_domain/100000000/86400/mail(mailhost/helo/from/to/subject/text))
+    ------------------------------------------------------------
+
 1.31
 ====
 - feature: single cache items can be wiped using --delcache <item>

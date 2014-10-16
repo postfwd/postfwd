@@ -100,6 +100,7 @@
             --daemons &lt;list&gt;            list of daemons to start
             --dumpcache                 show cache contents
             --dumpstats                 show statistics
+        -R, --chroot &lt;path&gt;             chroot to &lt;path&gt; before start
             --delcache &lt;item&gt;           removes an item from the request cache
             --delrate &lt;item&gt;            removes an item from the rate cache</pre>
 <pre>
@@ -123,6 +124,7 @@
         -I, --instantcfg                reloads ruleset on every new request
             --config_timeout &lt;i&gt;        parser timeout in seconds
             --keep_rates                do not clear rate limit counters on reload
+            --save_rates &lt;file&gt;         save and load rate limits on disk
             --fast_limit_evaluation     evaluate rate limits before ruleset is parsed</pre>
 <pre>
         Plugins:
@@ -554,6 +556,11 @@ rule containing only an action statement:</p>
            # and continue parsing postfwd's ruleset
            id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)</pre>
 <pre>
+        mail(server/helo/from/to/subject/body)
+        Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
+        This basically performs a telnet. No authentication or TLS are available. Additionally it does
+        not track notification state and will notify you any time, the corresponding rule hits.</pre>
+<pre>
         wait (&lt;delay&gt;)
         pauses the program execution for &lt;delay&gt; seconds. use this for
         delaying or throtteling connections.</pre>
@@ -808,7 +815,7 @@ The following arguments will control it's behaviour in this case.</p>
 <pre>
         -R, --chroot &lt;path&gt;
         Chroot the process to the specified path.
-        Test this before using - you might need some libs there.</pre>
+        Please look at <a href="http://postfwd.org/postfwd2-chroot.html">http://postfwd.org/postfwd2-chroot.html</a> before use!</pre>
 <pre>
         --pidfile &lt;path&gt;
         The process id will be saved in the specified file.</pre>
@@ -962,10 +969,15 @@ The following arguments will control it's behaviour in this case.</p>
         note that you have to restart (not reload) postfwd with this option if you change
         any rate limit rules.</pre>
 <pre>
+        --save_rates    (default=none)
+        With this option postfwd saves existing rate limit counters to disk and reloads them
+        on program start. This allows persistent rate limits across program restarts or reboots.
+        Please note that postfwd needs read and write access to the specified file.</pre>
+<pre>
         --fast_limit_evaluation    (default=0)
         Once a ratelimit was set by the ruleset, future requests will be evaluated against it
         before consulting the ruleset. This mode was the default behaviour until v1.30.
-        With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+        With this mode rate limits will be faster, but also eventually set up
         whitelisting-rules within the ruleset might not work as expected.</pre>
 <p><em>Informational arguments</em></p>
 <p>These arguments are for command line usage only. Never ever use them with postfix!</p>

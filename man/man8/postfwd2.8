@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD2-ALL-IN-ONE 1"
-.TH POSTFWD2-ALL-IN-ONE 1 "2011-10-16" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD2-ALL-IN-ONE 1 "2011-12-18" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd2 \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -184,7 +184,7 @@ postfwd2 \- postfix firewall daemon
 \&            --cleanup-rates <int>       cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 11
+.Vb 12
 \&        Control:
 \&        -k, --kill, --stop              terminate postfwd2
 \&            --reload, --hup             reload postfwd2
@@ -194,6 +194,7 @@ postfwd2 \- postfix firewall daemon
 \&            --daemons <list>            list of daemons to start
 \&            --dumpcache                 show cache contents
 \&            --dumpstats                 show statistics
+\&        -R, --chroot <path>             chroot to <path> before start
 \&            --delcache <item>           removes an item from the request cache
 \&            --delrate <item>            removes an item from the rate cache
 .Ve
@@ -212,7 +213,7 @@ postfwd2 \- postfix firewall daemon
 \&            --dns_max_mx_lookups        max names to look up with sender_mx_addrs
 .Ve
 .PP
-.Vb 9
+.Vb 10
 \&        Optional:
 \&        -t, --test                      testing, always returns "dunno"
 \&        -S, --summary <i>               show stats every <i> seconds
@@ -221,6 +222,7 @@ postfwd2 \- postfix firewall daemon
 \&        -I, --instantcfg                reloads ruleset on every new request
 \&            --config_timeout <i>        parser timeout in seconds
 \&            --keep_rates                do not clear rate limit counters on reload
+\&            --save_rates <file>         save and load rate limits on disk
 \&            --fast_limit_evaluation     evaluate rate limits before ruleset is parsed
 .Ve
 .PP
@@ -820,6 +822,13 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 \&           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 .Ve
 .PP
+.Vb 4
+\&        mail(server/helo/from/to/subject/body)
+\&        Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
+\&        This basically performs a telnet. No authentication or TLS are available. Additionally it does
+\&        not track notification state and will notify you any time, the corresponding rule hits.
+.Ve
+.PP
 .Vb 3
 \&        wait (<delay>)
 \&        pauses the program execution for <delay> seconds. use this for
@@ -1178,7 +1187,7 @@ The following arguments will control it's behaviour in this case.
 .Vb 3
 \&        -R, --chroot <path>
 \&        Chroot the process to the specified path.
-\&        Test this before using - you might need some libs there.
+\&        Please look at http://postfwd.org/postfwd2-chroot.html before use!
 .Ve
 .PP
 .Vb 2
@@ -1402,11 +1411,18 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 \&        any rate limit rules.
 .Ve
 .PP
+.Vb 4
+\&        --save_rates    (default=none)
+\&        With this option postfwd saves existing rate limit counters to disk and reloads them
+\&        on program start. This allows persistent rate limits across program restarts or reboots.
+\&        Please note that postfwd needs read and write access to the specified file.
+.Ve
+.PP
 .Vb 5
 \&        --fast_limit_evaluation    (default=0)
 \&        Once a ratelimit was set by the ruleset, future requests will be evaluated against it
 \&        before consulting the ruleset. This mode was the default behaviour until v1.30.
-\&        With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+\&        With this mode rate limits will be faster, but also eventually set up
 \&        whitelisting-rules within the ruleset might not work as expected.
 .Ve
 .PP

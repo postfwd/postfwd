@@ -64,6 +64,7 @@ SYNOPSIS
             -I, --instantcfg             re-reads rulefiles for every new request
                 --config_timeout <i>     parser timeout in seconds
                 --keep_rates             do not clear rate limit counters on reload
+                --save_rates <file>      save and load rate limits on disk
                 --fast_limit_evaluation  evaluate rate limits before ruleset is parsed
 
             Plugins:
@@ -561,6 +562,11 @@ DESCRIPTION
                # and continue parsing postfwd's ruleset
                id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 
+            mail(server/helo/from/to/subject/body)
+            Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
+            This basically performs a telnet. No authentication or TLS are available. Additionally it does
+            not track notification state and will notify you any time, the corresponding rule hits.
+
             wait (<delay>)
             pauses the program execution for <delay> seconds. use this for
             delaying or throtteling connections.
@@ -1022,10 +1028,15 @@ DESCRIPTION
             note that you have to restart (not reload) postfwd with this option if you change
             any rate limit rules.
 
+            --save_rates    (default=none)
+            With this option postfwd saves existing rate limit counters to disk and reloads them
+            on program start. This allows persistent rate limits across program restarts or reboots.
+            Please note that postfwd needs read and write access to the specified file.
+
             --fast_limit_evaluation    (default=0)
             Once a ratelimit was set by the ruleset, future requests will be evaluated against it
             before consulting the ruleset. This mode was the default behaviour until v1.30.
-            With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+            With this mode rate limits will be faster, but also eventually set up
             whitelisting-rules within the ruleset might not work as expected.
 
     *Informational arguments*

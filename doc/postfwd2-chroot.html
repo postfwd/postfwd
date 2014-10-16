@@ -1,0 +1,99 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+
+<head>
+<title>postfwd2 - chroot setup</title>
+<link rel="stylesheet" type="text/css" href="http://www.jpkessler.de/css/postfwd.css">
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<meta name="description" content="postfwd version differences">
+<meta name="author" content="jpk">
+<meta name="keywords" content="postfwd, postfwd 2 chroot, postfwd usage, postfwd manual, postfix, policy, policy delegation, firewall, postfix acl, postfix acls, pfwpolicy, postfw, restrictions, IT-Security, IT-Consulting, Jan, Peter, Kessler">
+</head>
+
+<body>
+<p>
+<h1>postfwd2 - chroot setup</h1><br>
+If you care about security and want to run postfwd2 within a chroot environment you have to setup it up before. This document will give you an idea about what has to be prepared.
+
+<p><pre>
+How to create a minimal chroot environment for postfwd2
+=======================================================
+
+Tested with SLES 11 x86_64, customize this to suit your specific system.
+For example, on SLES 10 x86_64, use perl version 5.8.8 instead of 5.10.0
+and glibc version 2.4 instead of 2.11.1.
+
+cd $CHROOTDIR
+for dir in tmp dev var var/tmp etc lib64 usr usr/lib usr/lib/perl5 \
+  usr/lib/perl5/site_perl \
+  usr/lib/perl5/site_perl/5.10.0 \
+  usr/lib/perl5/site_perl/5.10.0/Net \
+  usr/lib/perl5/site_perl/5.10.0/Net/Server \
+  usr/lib/perl5/site_perl/5.10.0/Net/Server/Proto ; do
+    mkdir $dir
+    chmod --reference /$dir $dir
+    chown --reference /$dir $dir
+done
+for file in dev/null etc/protocols etc/localtime etc/resolv.conf \
+  lib64/libnss_files-2.11.1.so lib64/libnss_files.so.2 \
+  usr/lib/perl5/site_perl/5.10.0/Net/Server/Proto/TCP.pm \
+  usr/lib/perl5/site_perl/5.10.0/Net/Server/Proto/UNIX.pm ; do
+    cp -p /$file $file
+done
+grep nobody /etc/passwd > etc/passwd
+grep nobody /etc/group > etc/group
+echo -e 'passwd: files\ngroup: files\nprotocols: files' > etc/nsswitch.conf
+
+=> Configure your syslog daemon to listen to $CHROOTDIR/dev/log:
+    echo 'SYSLOGD_ADDITIONAL_SOCKET_POSTFWD="$CHROOTDIR/dev/log"' \
+      >> /etc/sysconfig/syslog
+    /etc/init.d/syslog restart
+
+=> Place your postfwd configuration in $CHROOTDIR:
+    cp $POSTFWDCONF $CHROOTDIR/etc/postfwd.conf
+
+=> Start postfwd2:
+    /usr/local/sbin/postfwd2 --file=/etc/postfwd.conf --chroot=$CHROOTDIR
+
+
+List of directories
+===================
+
+tmp
+lib64
+dev
+var
+var/tmp
+etc
+usr
+usr/lib
+usr/lib/perl5
+usr/lib/perl5/site_perl
+usr/lib/perl5/site_perl/5.10.0
+usr/lib/perl5/site_perl/5.10.0/Net
+usr/lib/perl5/site_perl/5.10.0/Net/Server
+usr/lib/perl5/site_perl/5.10.0/Net/Server/Proto
+
+
+List of files
+=============
+
+lib64/libnss_files.so.2
+lib64/libnss_files-2.11.1.so
+dev/null
+dev/log
+etc/localtime
+etc/protocols
+etc/postfwd.conf
+etc/nsswitch.conf
+etc/passwd
+etc/resolv.conf
+etc/group
+usr/lib/perl5/site_perl/5.10.0/Net/Server/Proto/UNIX.pm
+usr/lib/perl5/site_perl/5.10.0/Net/Server/Proto/TCP.pm
+</pre></p>
+
+Thanks to Lukas Wunner for providing this howto and the patch for postfwd2!
+
+</body>
+</html>

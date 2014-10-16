@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD1-ALL-IN-ONE 1"
-.TH POSTFWD1-ALL-IN-ONE 1 "2011-10-16" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD1-ALL-IN-ONE 1 "2011-12-18" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -188,7 +188,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --cleanup-rates          cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 19
+.Vb 20
 \&        Optional:
 \&        -t, --test                   testing, always returns "dunno"
 \&        -v, --verbose                verbose logging, use twice (-vv) to increase level
@@ -207,6 +207,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&        -I, --instantcfg             re-reads rulefiles for every new request
 \&            --config_timeout <i>     parser timeout in seconds
 \&            --keep_rates             do not clear rate limit counters on reload
+\&            --save_rates <file>      save and load rate limits on disk
 \&            --fast_limit_evaluation  evaluate rate limits before ruleset is parsed
 .Ve
 .PP
@@ -794,6 +795,13 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&           # example2: query postgrey but ignore the answer, if it matches 'DUNNO'
 \&           # and continue parsing postfwd's ruleset
 \&           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
+.Ve
+.PP
+.Vb 4
+\&        mail(server/helo/from/to/subject/body)
+\&        Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
+\&        This basically performs a telnet. No authentication or TLS are available. Additionally it does
+\&        not track notification state and will notify you any time, the corresponding rule hits.
 .Ve
 .PP
 .Vb 3
@@ -1408,11 +1416,18 @@ These parameters influence the way postfwd is working. Any of them can be combin
 \&        any rate limit rules.
 .Ve
 .PP
+.Vb 4
+\&        --save_rates    (default=none)
+\&        With this option postfwd saves existing rate limit counters to disk and reloads them
+\&        on program start. This allows persistent rate limits across program restarts or reboots.
+\&        Please note that postfwd needs read and write access to the specified file.
+.Ve
+.PP
 .Vb 5
 \&        --fast_limit_evaluation    (default=0)
 \&        Once a ratelimit was set by the ruleset, future requests will be evaluated against it
 \&        before consulting the ruleset. This mode was the default behaviour until v1.30.
-\&        With this mode, rate limits will be a lot faster (5-10 times), but also eventually set up
+\&        With this mode rate limits will be faster, but also eventually set up
 \&        whitelisting-rules within the ruleset might not work as expected.
 .Ve
 .PP
