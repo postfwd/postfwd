@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2007-10-23" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD 1 "2007-10-29" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -159,13 +159,14 @@ postfwd [\s-1OPTIONS\s0] \s-1SOURCE1\s0, \s-1SOURCE2\s0, ...
 \&            --pidfile <path>      create pidfile under <path>
 .Ve
 .PP
-.Vb 9
+.Vb 10
 \&        optional:
 \&        -v, --verbose             verbose logging, use twice (-vv) to increase level
 \&        -c, --cache <int>         sets the request-cache timeout to <int> seconds
 \&            --cache-no-size       ignores size attribute for caching
 \&            --cache-rdomain-only  ignores localpart of recipient address in cache
 \&        -S, --summary <int>       show some usage statistics every <int> seconds
+\&        -L, --stdoutlog           redirect syslog messages to stdout
 \&        -t, --test                testing, always returns "dunno"
 \&        -n, --nodns               disable dns
 \&        -I, --instantcfg          re-reads rulefiles for every new request
@@ -195,13 +196,15 @@ which should allow straightforward and easy-to-read configurations.
 .PP
 * Complex combinations of smtp parameters
 .PP
-* Macros/ACLs, Groups
-.PP
 * Combined \s-1RBL/RHSBL\s0 lookups with arbitrary actions depending on results
 .PP
 * Scoring system
 .PP
 * Date/time based rules
+.PP
+* Macros/ACLs, Groups, Negation
+.PP
+* Compare request attributes (e.g. client_name and helo_name)
 .PP
 * Internal caching for requests and dns lookups
 .PP
@@ -258,9 +261,10 @@ Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" charac
 \&        date, time              - a time or date range within the specified rule shall hit
 .Ve
 .PP
-.Vb 2
+.Vb 3
 \&        score                   - when the specified score is hit (see ACTIONS section)
 \&                                  the specified action will be returned to postfix
+\&                                  scores are set global until redefined!
 .Ve
 .PP
 .Vb 2
@@ -288,7 +292,7 @@ for details:
 \&        time=08:30:00-17:00:00                  mask = time (HH:MM:SS-HH:MM:SS)
 \&        score=5.0                               mask = maximum floating point value
 \&        rbl=zen.spamhaus.org                    mask = <name>/<reply>/<maxcache>[,...]
-\&        rblcount=2                              mask = maximum integer value
+\&        rblcount=2                              mask = numeric, will match if rbl hits >= 2
 \&        # ------------------------------
 \&        # Postfix version 2.1 and later:
 \&        # ------------------------------
@@ -298,14 +302,14 @@ for details:
 \&        helo_name=some.domain.tld               mask = PCRE
 \&        sender=foo@bar.tld                      mask = PCRE
 \&        recipient=bar@foo.tld                   mask = PCRE
-\&        recipient_count=0                       mask = maximum integer value
+\&        recipient_count=5                       mask = numeric, will match if recipients >= 5
 \&        # ------------------------------
 \&        # Postfix version 2.2 and later:
 \&        # ------------------------------
 \&        sasl_method=plain                       mask = PCRE
 \&        sasl_username=you                       mask = PCRE
 \&        sasl_sender=                            mask = PCRE
-\&        size=12345                              mask = maximum integer value
+\&        size=12345                              mask = numeric, will match if size >= 12345
 \&        ccert_subject=blackhole.nowhere.local   mask = PCRE (only if tls verified)
 \&        ccert_issuer=John+20Doe                 mask = PCRE (only if tls verified)
 \&        ccert_fingerprint=AA:BB:CC:DD:EE:...    mask = PCRE (do NOT use "..." here)
@@ -314,11 +318,13 @@ for details:
 \&        # ------------------------------
 \&        encryption_protocol=TLSv1/SSLv3         mask = PCRE
 \&        encryption_cipher=DHE-RSA-AES256-SHA    mask = PCRE
-\&        encryption_keysize=256                  mask = minimum integer value
+\&        encryption_keysize=256                  mask = numeric, will match if keysize >= 256
 \&        ...
 .Ve
 .PP
-the current list can be found at <http://www.postfix.org/SMTPD_POLICY_README.html>. Pattern matching is performed case insensitive.
+the current list can be found at <http://www.postfix.org/SMTPD_POLICY_README.html>. Please read carefully about which
+attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at \s-1END_OF_DATA\s0 level).
+Pattern matching is performed case insensitive.
 .PP
 Multiple use of the same item is allowed and will compared as logical \s-1OR\s0, which means that this will work as expected:
 .PP
@@ -330,11 +336,44 @@ Multiple use of the same item is allowed and will compared as logical \s-1OR\s0,
 \&                sender=@domain\e.local$
 .Ve
 .PP
+client_address, rbl and rhsbl items may also be specified as whitespace-or-comma-separated values:
+.PP
+.Vb 5
+\&        id=SKIP01; action=dunno; \e
+\&                client_address=192.168.1.0/24, 172.16.254.23
+\&        id=SKIP02; action=dunno; \e
+\&                client_address= 10.10.3.32       \e
+\&                                10.216.222.0/27
+.Ve
+.PP
 The following items currently have to be unique:
 .PP
 .Vb 1
-\&        id, minimum and maximum values
+\&        id, minimum and maximum values, rblcount and rhsblcount
 .Ve
+.PP
+Any item can be negated by preceeding '!!' to it, e.g.:
+.PP
+.Vb 1
+\&        id=TLS001 ;  hostname=!!^secure\e.trust\e.local$ ;  action=REJECT only secure.trust.local please
+.Ve
+.PP
+To avoid confusion with regexps or simply for better visibility you can use '!!(...)':
+.PP
+.Vb 1
+\&        id=USER01 ;  sasl_username=!!( (bob|alice) )  ;  action=REJECT who is that?
+.Ve
+.PP
+Request attributes can be compared by preceeding '$$' characters, e.g.:
+.PP
+.Vb 3
+\&        id=R-003 ;  client_name = !! $$helo_name      ;  action=REJECT helo does not match DNS
+\&        # or
+\&        id=R-003 ;  client_name = !!($$(helo_name))   ;  action=REJECT helo does not match DNS
+.Ve
+.PP
+This is only valid for \s-1PCRE\s0 values (see list above). The comparison will be performed as case insensitive exact match.
+Use the '\-vv' option to debug.
 .Sh "\s-1ACTIONS\s0"
 .IX Subsection "ACTIONS"
 \&\fIpostfix actions\fR
@@ -438,6 +477,8 @@ Macros can contain macros, too:
 \&        # rules
 \&        &&GOAWAY ; action=REJECT dynamic client and listed on RBL
 .Ve
+.PP
+Basically macros are simple text substitutions \- see the #PARSER section for more information.
 .Sh "\s-1COMMAND\s0 \s-1LINE\s0"
 .IX Subsection "COMMAND LINE"
 \&\fIRuleset\fR
@@ -563,13 +604,18 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .Vb 9
 \&        Example:
 \&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Counters: 213000 seconds uptime, 39 rules
-\&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
 \&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Requests: 71643 overall, 49 last interval, 62.88% cache hits
 \&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Averages: 20.18 overall, 4.90 last interval, 557.30 top
+\&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
 \&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-001   matched: 2704 times
 \&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-002   matched: 9351 times
 \&        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
 \&        ...
+.Ve
+.PP
+.Vb 2
+\&        -L, --stdoutlog
+\&        Redirects all syslog messages to stdout for debugging. Never use this with postfix!
 .Ve
 .PP
 .Vb 3
@@ -754,6 +800,135 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
 \&        id=MAINTENANCE ;  &&MAINTENANCE       ;  action=DEFER maintenance time - please try again later
 .Ve
+.Sh "\s-1PARSER\s0"
+.IX Subsection "PARSER"
+\&\fIConfiguration\fR
+.PP
+The postfwd ruleset can be specified at the commandline (\-r option) or be read from files (\-f). The order of your arguments will be kept. You should
+check the parser with the \-C | \-\-showconfig switch at the command line before applying a new config. The following call:
+.PP
+.Vb 4
+\&        postfwd --showconfig \e
+\&                -r "id=TEST; recipient_count=100; action=WARN mail with 100+ recipients" \e
+\&                -f /etc/postfwd.cf \e
+\&                -r "id=DEFAULT; action=dunno";
+.Ve
+.PP
+will produce the following output:
+.PP
+.Vb 5
+\&        Rule   0: id->"TEST" action->"WARN mail with 100+ recipients"; recipient_count->"100"
+\&        ...
+\&        ... <content of /etc/postfwd.cf> ...
+\&        ...
+\&        Rule <n>: id->"DEFAULT" action->"dunno"
+.Ve
+.PP
+Multiple items of the same type will be added to lists (see the #ITEMS section for more info):
+.PP
+.Vb 2
+\&        postfwd --showconfig \e
+\&                -r "client_address=192.168.1.0/24; client_address=172.16.26.32; action=dunno"
+.Ve
+.PP
+will result in:
+.PP
+.Vb 1
+\&        Rule   0: id->"R-0"; action->"dunno"; client_address->"192.168.1.0/24, 172.16.26.32"
+.Ve
+.PP
+Macros are evaluated at configuration stage, which means that
+.PP
+.Vb 3
+\&        postfwd --showconfig \e
+\&                -r "&&RBLS { rbl=bl.spamcop.net; client_name=^unknown$; };" \e
+\&                -r "id=RBL001; &&RBLS; action=REJECT listed on spamcop and bad rdns";
+.Ve
+.PP
+will result in:
+.PP
+.Vb 1
+\&        Rule   0: id->"RBL001"; action->"REJECT listed on spamcop and bad rdns"; rbl->"bl.spamcop.net"; client_name->"^unknown$"
+.Ve
+.PP
+\&\fIRequest processing\fR
+.PP
+When a policy delegation request arrives it will be compared against postfwd`s ruleset. To inspect the processing in detail you should increase
+verbority using use the \*(L"\-v\*(R" or \*(L"\-vv\*(R" switch. \*(L"\-L\*(R" redirects log messages to stdout.
+.PP
+Keeping the order of the ruleset in general, items will be compared in random order, which basically means that
+.PP
+.Vb 1
+\&        id=R001; action=dunno; client_address=192.168.1.1; sender=bob@alice.local
+.Ve
+.PP
+equals to
+.PP
+.Vb 1
+\&        id=R001; sender=bob@alice.local; client_address=192.168.1.1; action=dunno
+.Ve
+.PP
+Lists will be evaluated in the specified order. This allows to place faster expressions at first:
+.PP
+.Vb 1
+\&        postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.small
+.Ve
+.PP
+produces the following
+.PP
+.Vb 11
+\&        [LOGS info]: compare rbl: "remotehost.remote.net[68.10.1.7]"  ->  "localrbl.local"
+\&        [LOGS info]: count1 rbl:  "2"  ->  "0"
+\&        [LOGS info]: query rbl:   localrbl.local 7.1.10.68 (7.1.10.68.localrbl.local)
+\&        [LOGS info]: count2 rbl:  "2"  ->  "0"
+\&        [LOGS info]: match rbl:   FALSE
+\&        [LOGS info]: compare rbl: "remotehost.remote.net[68.10.1.7]"  ->  "zen.spamhaus.org"
+\&        [LOGS info]: count1 rbl:  "2"  ->  "0"
+\&        [LOGS info]: query rbl:   zen.spamhaus.org 7.1.10.68 (7.1.10.68.zen.spamhaus.org)
+\&        [LOGS info]: count2 rbl:  "2"  ->  "0"
+\&        [LOGS info]: match rbl:   FALSE
+\&        [LOGS info]: Action: dunno
+.Ve
+.PP
+The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
+.PP
+.Vb 1
+\&        postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.small
+.Ve
+.PP
+will give
+.PP
+.Vb 5
+\&        [LOGS info]: compare client_name:     "unknown"  ->  "!!($$helo_name)"
+\&        [LOGS info]: negate client_name:      "unknown"  ->  "$$helo_name"
+\&        [LOGS info]: substitute client_name:  "unknown"  ->  "english-breakfast.cloud8.net"
+\&        [LOGS info]: match client_name:  TRUE
+\&        [LOGS info]: Action: REJECT
+.Ve
+.PP
+\&\fIRuleset evaluation\fR
+.PP
+A rule hits when all items (or at least one element of a list for each item) have matched. As soon as one item (or all elements of a list) fails
+to compare against the request attribute the parser will jump to the next rule in the postfwd ruleset.
+.PP
+If a rule matches, there are two options:
+.PP
+* Rule returns postfix action (dunno, reject, ...)
+The parser stops rule processing and returns the action to postfix. Other rules will not be evaluated.
+.PP
+* Rule returns postfwd action (\fIjump()\fR, \fInote()\fR, ...)
+The parser evaluates the given action and continues with the next rule (except for the \fIjump()\fR or \fIquit()\fR actions \- please see the \s-1ACTIONS\s0 section
+for more information). Nothing will be sent to postfix.
+.PP
+If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
+simply place a last `catch\-all´ rule to change that behaviour:
+.PP
+.Vb 2
+\&        ... <your rules> ...
+\&        id=DEFAULT ;  action=dunno
+.Ve
+.PP
+will log any request that passes the ruleset without having hit a prior rule.
 .Sh "\s-1INTEGRATION\s0"
 .IX Subsection "INTEGRATION"
 \&\fIIntegration via daemon mode\fR
@@ -766,7 +941,9 @@ it`s internal caching in that case. Start postfwd with the following parameters:
 \&        postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S
 .Ve
 .PP
-Check your syslogs (default facility \*(L"mail\*(R") for a line like:
+For efficient caching you should check if you can use the options \-\-cache\-rdomain\-only and \-\-cache\-no\-size.
+.PP
+Now check your syslogs (default facility \*(L"mail\*(R") for a line like:
 .PP
 .Vb 1
 \&        Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input
@@ -897,15 +1074,16 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 .PP
-.Vb 8
-\&        * Redistributions of source code must retain the above copyright notice,
-\&          this list of conditions and the following disclaimer.
-\&        * Redistributions in binary form must reproduce the above copyright notice,
-\&          this list of conditions and the following disclaimer in the documentation
-\&          and/or other materials provided with the distribution.
-\&        * Neither the name of the authors nor the names of his contributors may be
-\&          used to endorse or promote products derived from this software without
-\&          specific prior written permission.
+.Vb 9
+\& * Redistributions of source code must retain the above copyright
+\&   notice, this list of conditions and the following disclaimer.
+\& * Redistributions in binary form must reproduce the above copyright
+\&   notice, this list of conditions and the following disclaimer in
+\&   the documentation and/or other materials provided with the
+\&   distribution.
+\& * Neither the name of the authors nor the names of his contributors
+\&   may be used to endorse or promote products derived from this
+\&   software without specific prior written permission.
 .Ve
 .PP
 \&\s-1THIS\s0 \s-1SOFTWARE\s0 \s-1IS\s0 \s-1PROVIDED\s0 \s-1BY\s0 \s-1ME\s0 ``\s-1AS\s0 \s-1IS\s0'' \s-1AND\s0 \s-1ANY\s0 \s-1EXPRESS\s0 \s-1OR\s0 \s-1IMPLIED\s0 \s-1WARRANTIES\s0,

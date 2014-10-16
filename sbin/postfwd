@@ -26,7 +26,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.02';
+our($VERSION)			= '1.03';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -71,12 +71,10 @@ our($RBL_MAX_CACHE)		= 600;
 our($RBL_DEFAULT)		= '^127\.0\.0\.\d+$';
 
 # these items have to be compared as...
-# numeric maximum
+# scoring
 our($COMP_SCORES)		= "score";
-# numeric maximum
-our($COMP_NUMERIC_ITEMS_MAX)	= "(size|recipient_count)";
-# numeric minimum
-our($COMP_NUMERIC_ITEMS_MIN)	= "encryption_keysize";
+# numeric items
+our($COMP_NUMERIC_ITEMS)	= "(recipient_count|size|encryption_keysize)";
 # networks in CIDR notation (a.b.c.d/nn)
 our($COMP_NETWORK_CIDRS)	= "client_address";
 # RBL checks
@@ -87,10 +85,19 @@ our($COMP_RHSBL_CNT)		= "rhsblcount";
 # date checks
 our($COMP_DATE)			= "date";
 our($COMP_TIME)			= "time";
+# macros
+our($COMP_ACL)			= "[\&][\&]";
+# negation
+our($COMP_NEG)			= "[\!][\!]";
+# variables
+our($COMP_VAR)			= "[\$][\$]";
 # always true
-our($COMP_TRUE)			= "(id|action)";
+our($COMP_ACTION)		= "action";
+our($COMP_ID)			= "id";
+# these items allow whitespace-or-comma-separated values
+our($COMP_CSV)			= "($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)";
 # dont treat these as lists
-our($COMP_SINGLE)		= "($COMP_TRUE|$COMP_SCORES|$COMP_NUMERIC_ITEMS_MIN|$COMP_NUMERIC_ITEMS_MAX|$COMP_RBL_CNT|$COMP_RHSBL_CNT)";
+our($COMP_SINGLE)		= "($COMP_ID|$COMP_ACTION|$COMP_SCORES|$COMP_NUMERIC_ITEMS|$COMP_RBL_CNT|$COMP_RHSBL_CNT)";
 
 # Syslogging options
 # NOTE: try changing the $syslog_socktype line if syslogging does not
@@ -116,7 +123,7 @@ use vars qw(
 	$net_user $net_group $net_chroot $net_pid
 	$opt_perfmon $opt_test $opt_verbose
 	$opt_cache_domain_only $opt_cache_no_size
-	$opt_showconfig
+	$opt_showconfig $opt_stdoutlog
 );
 
 
@@ -131,7 +138,11 @@ sub mylogs {
     my($msg)  = shift(@_);
     # dangerous % will be replaced by %%
     $msg =~ s/\%/%%/g;
-    syslog $prio, "$msg", @_ if (($prio eq "crit") or not($opt_perfmon));
+    unless ($opt_stdoutlog) {
+	syslog $prio, "$msg", @_ if (($prio eq "crit") or not($opt_perfmon));
+    } else {
+	printf "[LOGS $prio]: $msg\n", @_ if (($prio eq "crit") or not($opt_perfmon));
+    };
 }
 #
 # send log message
@@ -140,7 +151,11 @@ sub mylogs {
 sub mylog {
     my($prio) = shift(@_);
     my($msg)  = shift(@_);
-    syslog $prio, "$msg", @_ if (($prio eq "crit") or not($opt_perfmon));
+    unless ($opt_stdoutlog) {
+	syslog $prio, "$msg", @_ if (($prio eq "crit") or not($opt_perfmon));
+    } else {
+	printf "[LOG $prio]: $msg\n", @_ if (($prio eq "crit") or not($opt_perfmon));
+    };
 }
 #
 # print a string to STDOUT
@@ -170,14 +185,14 @@ sub show_stats {
     mylog "notice", "[STATS] Counters: %d seconds uptime since %s",
 	($now - $Starttime), $Startdate;
 
-    mylog "notice", "[STATS] Contents: %d rules, %d cached requests, %d cached dnsbl results",
-	$#Rules, scalar keys %Request_Cache, $rblitems;
-
     mylog "notice", "[STATS] Requests: %d overall, %d last interval, %.2f%% cache hits",
 	$Counter_Requests, $Counter_Interval, ($Counter_Requests > 0) ? (($Counter_Hits / $Counter_Requests) * 100) : 0;
 
     mylog "notice", "[STATS] Averages: %.2f overall, %.2f last interval, %.2f top",
 	$totalreqpermin, $lastreqpermin, $Counter_Top;
+
+    mylog "notice", "[STATS] Contents: %d rules, %d cached requests, %d cached dnsbl results",
+	$#Rules, scalar keys %Request_Cache, $rblitems;
 
     # per rule stats
     map { mylogs "notice", "[STATS] Rule ID: $_   matched: $Matches{$_} times" } (sort keys %Matches);
@@ -237,10 +252,10 @@ sub modify_score {
 #
 sub acl_parser {
     my($myline) = @_;
-    if ( $myline =~ /^\s*(\&\&[\-\w]+)\s*{\s*(.*)\s*;\s*}[\s;]*$/ ) {
+    if ( $myline =~ /^\s*($COMP_ACL[\-\w]+)\s*{\s*(.*?)\s*;\s*}[\s;]*$/ ) {
 	$ACLs{$1} = $2; $myline = "";
     } else {
-	while ( $myline =~ /(\&\&[\-\w]+)/) {
+	while ( $myline =~ /($COMP_ACL[\-\w]+)/) {
 		my($acl)  = $1; $myline =~ s/\s*$acl\s*/$ACLs{$acl}/g if exists($ACLs{$acl});
 	};
     };
@@ -260,7 +275,7 @@ sub parse_config_line {
 			# remove whitespaces around
 			s/^\s*(.*?)\s*=\s*(.*?)\s*$/$1=$2/;
 			($mykey, $myvalue) = split /=/;
-			if ($mykey =~ /^($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)$/) {
+			if ($mykey =~ /^$COMP_CSV$/) {
 				push ( @{$myrule{$mykey}}, (split /[,\s]+/, $myvalue) );
 			} elsif ($mykey =~ /^$COMP_SINGLE$/) {
 				$myrule{$mykey} = $myvalue;
@@ -268,12 +283,12 @@ sub parse_config_line {
 				push ( @{$myrule{$mykey}}, $myvalue );
 			};
 		};
-		unless (exists($myrule{"action"})) {
-			$myrule{"action"} = "WARN rule found but no action was defined";
+		unless (exists($myrule{$COMP_ACTION})) {
+			$myrule{$COMP_ACTION} = "WARN rule found but no action was defined";
 			mylogs "notice", "warning: Rule ".$myindex." (line ".$mynum."): contains no action - default will be used";
 		};
-		unless (exists($myrule{"id"})) {
-			$myrule{"id"} = "R-".$myindex;
+		unless (exists($myrule{$COMP_ID})) {
+			$myrule{$COMP_ID} = "R-".$myindex;
 			mylogs "notice", "notice: Rule $myindex (line $mynum): contains no rule identifier - will use \"$myrule{id}\"" if $opt_verbose;
 		};
 		mylogs $syslog_priority, "loaded: Rule $myindex (line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"" if $opt_verbose;
@@ -321,7 +336,9 @@ sub read_config {
 		push ( @Rules, { %myrule } ) if (%myrule);
 	} elsif	($mytype eq "f" or $mytype eq "file") {
 		if ( $Config_Cache{$myitem}{lastread} > (stat $myitem)[9] ) {
-			mylogs $syslog_priority, "file \"$myitem\" unchanged - using cached ruleset (mtime: ".(stat $myitem)[9].", cache: $Config_Cache{$myitem}{lastread})"
+			mylogs	$syslog_priority,
+				"file \"$myitem\" unchanged - using cached ruleset (mtime: ".(stat $myitem)[9].",
+				cache: $Config_Cache{$myitem}{lastread})"
 				if $opt_verbose;
 			push ( @Rules, @{$Config_Cache{$myitem}{ruleset}} );
 		} else {
@@ -344,10 +361,10 @@ sub show_config {
    };
    for $index (0 .. $#Rules) {
 	next unless exists $Rules[$index];
-	myprintf "Rule %3d: id->\"%s\"; action->\"%s\"", $index, $Rules[$index]{"id"}, $Rules[$index]{"action"};
+	myprintf "Rule %3d: id->\"%s\"; action->\"%s\"", $index, $Rules[$index]{$COMP_ID}, $Rules[$index]{$COMP_ACTION};
 	$line = ($opt_verbose) ? "\n\t  " : "";
 	for $mykey ( reverse sort keys %{$Rules[$index]} ) {
-		unless (($mykey eq "action") or ($mykey eq "id")) {
+		unless (($mykey eq $COMP_ACTION) or ($mykey eq $COMP_ID)) {
 			$line .= "; " if !($opt_verbose);
 			$line .= ($mykey =~ /^$COMP_SINGLE$/)
 				? $mykey."->\"".$Rules[$index]{$mykey}."\""
@@ -399,7 +416,7 @@ sub rbl_check {
 	if ( ($mytype eq $COMP_RHSBL_KEY) and ($myip eq "unknown") ) {
 		mylogs $syslog_priority, "skipped rhsbl query: $myrbl $myip ($myrip)" if $opt_verbose;
 	} else {
-		mylogs $syslog_priority, "query: $myrbl $myip ($myrip)" if $opt_verbose;
+		mylogs $syslog_priority, "query $mytype:  $myrbl $myip ($myrip)" if $opt_verbose;
 		# resolve
 		$mystart = time;
 		($g1,$g2,$g3,$g4,@addrs) = gethostbyname($myrip);
@@ -427,52 +444,76 @@ sub get_rule_by_id {
 
     RULE: for $index (0 .. $#Rules) {
 	next unless exists $Rules[$index];
-	$matched = ( $id eq $Rules[$index]{"id"} );
+	$matched = ( $id eq $Rules[$index]{$COMP_ID} );
 	$myresult = $index if $matched;
 	last RULE if $matched;
     };
     return $myresult;
 }
 #
+# returns content of !!() when given
+#
+sub deneg_item {
+    return ( (@_[0] =~ /^$COMP_NEG\s*\(?\s*(.+?)\s*\)?$/) ? $1 : '' );
+};
+#
 # compare item
 # use: compare_item ( TYPE, RULEITEM, MIN, REQUESTITEM );
 #
 sub compare_item {
-    my($mykey,$mymask,$mymin,$myitem) 	= @_;
+    my($mykey,$mymask,$mymin,$myitem, %request)	= @_;
     my($rcount)				= 0;
-    my($cmp, $myresult)			= "";
+    #my($cmp,$neg,$myresult)		= "";
+    my($cmp,$neg,$myresult);
 
     #
-    # ignore (always true)
-    if ( $mykey =~ /^$COMP_TRUE$/ ) {
-	$myresult = "1";
-    #
     # CIDR values (client address, ...)
-    } elsif ( $mykey =~ /^$COMP_NETWORK_CIDRS$/ ) {
-	my $myref = Net::CIDR::Lite->new(@{$mymask});
-	$myresult = ( $myref->find($myitem) );
-	undef($myref);
+    if ( $mykey =~ /^$COMP_NETWORK_CIDRS$/ ) {
+	CIDR: foreach $cmp (@{$mymask}) {
+		mylogs $syslog_priority, "compare-cidr $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($opt_verbose > 1);
+		$cmp = $neg if ($neg = deneg_item($cmp));
+		mylogs $syslog_priority, "negate $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($neg and ($opt_verbose > 1));
+		my $myref = Net::CIDR::Lite->new($cmp);
+		$myresult = ( $myref->find($myitem) );
+		undef($myref);
+		$myresult = not($myresult) if $neg;
+		mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if ($opt_verbose > 1);
+		last CIDR if $myresult;
+	};
     #
-    # maximum values (size, ...)
-    } elsif ( $mykey =~ /^$COMP_NUMERIC_ITEMS_MIN$/ ) {
-	$myresult = ( $myitem <= $mymask );
-    #
-    # minimum values (tls key length, ...)
-    } elsif ( $mykey =~ /^$COMP_NUMERIC_ITEMS_MAX$/ ) {
+    # numeric values (size, tls key length, ...)
+    } elsif ( $mykey =~ /^$COMP_NUMERIC_ITEMS$/ ) {
+	mylogs $syslog_priority, "compare-numeric $mykey:  \"$myitem\"  ->  \"$mymask\"" if ($opt_verbose > 1);
+	$mymask = $neg if ($neg = deneg_item($mymask));
+	mylogs $syslog_priority, "negate $mykey:  \"$myitem\"  ->  \"$mymask\"" if ($neg and ($opt_verbose > 1));
 	$myitem ||= "0"; $mymask ||= "0";
 	$myresult = ( $myitem >= $mymask );
+	$myresult = not($myresult) if $neg;
+	mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if ($opt_verbose > 1);
     #
     # RBL checks
     } elsif ( not($opt_nodns) and (($mykey eq $COMP_RBL_KEY) or ($mykey eq $COMP_RHSBL_KEY)) ) {
 	RBLS: foreach $cmp (@{$mymask}) {
+		mylogs $syslog_priority, "compare-rbl $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($opt_verbose > 1);
+		$cmp = $neg if ($neg = deneg_item($cmp));
+		mylogs $syslog_priority, "negate $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($neg and ($opt_verbose > 1));
+		last RBLS unless $cmp;
+		mylogs $syslog_priority, "count1 $mykey:  \"$mymin\"  ->  \"$rcount\"" if ($opt_verbose > 1);
 		$rcount++ if ( rbl_check ($mykey, $cmp, $myitem) );
+		mylogs $syslog_priority, "count2 $mykey:  \"$mymin\"  ->  \"$rcount\"" if ($opt_verbose > 1);
 		$myresult = ( $rcount >= $mymin );
+		$myresult = not($myresult) if $neg;
+		mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if ($opt_verbose > 1);
 		last RBLS if $myresult;
 	};
     #
     # date/time check
     } elsif ( ($mykey eq $COMP_DATE) or ($mykey eq $COMP_TIME) ) {
 	DATS: foreach $cmp (@{$mymask}) {
+		mylogs $syslog_priority, "compare-date $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($opt_verbose > 1);
+		$cmp = $neg if ($neg = deneg_item($cmp));
+		mylogs $syslog_priority, "negate $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($neg and ($opt_verbose > 1));
+		next DATS unless $cmp;
 		my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
 		my($rmin,$rmax) = split ('-', $cmp); my($idat);
 		if ( $mykey eq $COMP_DATE ) {
@@ -485,17 +526,31 @@ sub compare_item {
 			$rmax = ($rmax) ? join ('', split ('\:', $rmax)) : $idat;
 		};
 		$myresult = (($rmin <= $idat) and ($rmax >= $idat));
+		$myresult = not($myresult) if $neg;
+		mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if ($opt_verbose > 1);
 		last DATS if $myresult;
 	};
     #
-    # default: regexp compare
+    # default: compare values
     } else {
 	VALS: foreach $cmp (@{$mymask}) {
-		$myresult = ( $myitem =~ /$cmp/i ) if $myitem;
+		mylogs $syslog_priority, "compare-default $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($opt_verbose > 1);
+		$cmp = $neg if ($neg = deneg_item($cmp));
+		mylogs $syslog_priority, "negate $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($neg and ($opt_verbose > 1));
+		next VALS unless $cmp;
+		if ( $cmp =~ /^$COMP_VAR\s*\(?\s*(.+?)\s*\)?$/ ) {
+			$cmp = $request{$1};
+			mylogs $syslog_priority, "substitute $mykey:  \"$myitem\"  ->  \"$cmp\"" if ($opt_verbose > 1);
+			next VALS unless $cmp;
+			$myresult = ( lc($myitem) eq lc($cmp) ) if $myitem;
+		} else {
+			$myresult = ( $myitem =~ /$cmp/i ) if $myitem;
+		};
+		$myresult = not($myresult) if $neg;
+		mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if ($opt_verbose > 1);
 		last VALS if $myresult;
 	};
     };
-
     return $myresult;
 }
 #
@@ -503,24 +558,35 @@ sub compare_item {
 #
 sub compare_rule {
     (my($index), my($date), my(%request)) = @_;
-    my($mykey,$myresult);
+    my($mykey,$myresult,$myitem,$cmp,$num);
+
+    mylogs $syslog_priority, "rule: $index, id: $Rules[$index]{$COMP_ID}" if ($opt_verbose > 1);
 
     ITEM: for $mykey ( keys %{$Rules[$index]} ) {
-	next ITEM if ( ($mykey eq $COMP_RBL_CNT) or ($mykey eq $COMP_RHSBL_CNT) );
-	# integration at this point enables different scores for different files
+	# always true
+	next ITEM if ( $myresult = (($mykey eq $COMP_ID) or ($mykey eq $COMP_ACTION)) );
+	next ITEM if ( $myresult = (($mykey eq $COMP_RBL_CNT) or ($mykey eq $COMP_RHSBL_CNT)) );
+
+	# integration at this point enables redefining scores within ruleset
 	if ($mykey eq $COMP_SCORES) {
-		modify_score ($Rules[$index]{$mykey},$Rules[$index]{"action"});
+		modify_score ($Rules[$index]{$mykey},$Rules[$index]{$COMP_ACTION});
 		undef($myresult);
-	} elsif ($mykey eq $COMP_RBL_KEY) {
-		$Rules[$index]{$COMP_RBL_CNT} = 1 unless $Rules[$index]{$COMP_RBL_CNT};
-		$myresult = (compare_item($mykey,$Rules[$index]{$mykey},$Rules[$index]{$COMP_RBL_CNT},$request{"client_name"}."[".$request{"client_address"}."]"));
-	} elsif ($mykey eq $COMP_RHSBL_KEY) {
-		$Rules[$index]{$COMP_RHSBL_CNT} = 1 unless $Rules[$index]{$COMP_RHSBL_CNT};
-		$myresult = (compare_item($mykey,$Rules[$index]{$mykey},$Rules[$index]{$COMP_RHSBL_CNT},$request{"client_name"}."[".$request{"client_address"}."]"));
-	} elsif ( ($mykey eq $COMP_DATE) or ($mykey eq $COMP_TIME) ) {
-		$myresult = (compare_item($mykey,$Rules[$index]{$mykey},0,$date));
 	} else {
-		$myresult = (compare_item($mykey,$Rules[$index]{$mykey},0,$request{$mykey}));
+		# prepare rbl/rhsbl lookups
+		if ( ($mykey eq $COMP_RBL_KEY) or ($mykey eq $COMP_RHSBL_KEY) ) {
+			$cmp = $request{"client_name"}."[".$request{"client_address"}."]";
+			$num = ( ($mykey eq $COMP_RBL_KEY)  ? $Rules[$index]{$COMP_RBL_CNT} : $Rules[$index]{$COMP_RHSBL_CNT} );
+			$num = 1 if $num < 1;
+		# prepare date check
+		} elsif ( ($mykey eq $COMP_DATE) or ($mykey eq $COMP_TIME) ) {
+			$cmp = $date;
+			$num = 0;
+		# default: compare against request attribute
+		} else {
+			$cmp = $request{$mykey};
+			$num = 0;
+		};
+		$myresult = (compare_item($mykey, $Rules[$index]{$mykey}, $num, $cmp, %request));
 	};
 	last ITEM if !($myresult);
     };
@@ -547,7 +613,7 @@ sub smtpd_access_policy {
     	# construct request identifier
 	REQITEM: foreach $checkreq (sort keys %myattr) {
 		next REQITEM unless $myattr{$checkreq};
-		next REQITEM if ($checkreq eq "instance");
+		next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") );
 		next REQITEM if ( $opt_cache_no_size and ($checkreq eq "size") );
 		if ( $opt_cache_domain_only and ($checkreq eq "recipient") ) {
 			$myattr{$checkreq} =~ /^[^@]+(@[^@]+)$/;
@@ -567,21 +633,21 @@ sub smtpd_access_policy {
     };
 
     # check cache or
-    if ( ($REQUEST_MAX_CACHE > 0) and (exists($Request_Cache{$cacheid}{"action"})) ) {
+    if ( ($REQUEST_MAX_CACHE > 0) and (exists($Request_Cache{$cacheid}{$COMP_ACTION})) ) {
 	$Counter_Hits++;
-	$myaction = $Request_Cache{$cacheid}{"action"};
+	$myaction = $Request_Cache{$cacheid}{$COMP_ACTION};
 	if ( $Request_Cache{$cacheid}{"hit"} ) {
-		$Matches{$Request_Cache{$cacheid}{"id"}}++;
+		$Matches{$Request_Cache{$cacheid}{$COMP_ID}}++;
 
-		mylogs $syslog_priority, "[CACHE] rule=".get_rule_by_id ($Request_Cache{$cacheid}{"id"})
-			. ", id=".$Request_Cache{$cacheid}{"id"}
+		mylogs $syslog_priority, "[CACHE] rule=".get_rule_by_id ($Request_Cache{$cacheid}{$COMP_ID})
+			. ", id=".$Request_Cache{$cacheid}{$COMP_ID}
 			. ", client=".$myattr{"client_name"}."[".$myattr{"client_address"}."]"
 			. ", sender=".$myattr{"sender"}
 			. ", recipient=".$myattr{"recipient"}
 			. ", helo=".$myattr{"helo_name"}
 			. ", proto=".$myattr{"protocol_name"}
 			. ", state=".$myattr{"protocol_state"}
-			. ", action=".$Request_Cache{$cacheid}{"action"};
+			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION};
 	};
 
     # check rules
@@ -605,10 +671,10 @@ sub smtpd_access_policy {
 
 			# matched? prepare logline, increase counters
 			if ($matched) {
-				$myaction = $Rules[$index]{"action"};
-				$Matches{$Rules[$index]{"id"}}++;
+				$myaction = $Rules[$index]{$COMP_ACTION};
+				$Matches{$Rules[$index]{$COMP_ID}}++;
 				$myline = "rule=".$index
-					. ", id=".$Rules[$index]{"id"}
+					. ", id=".$Rules[$index]{$COMP_ID}
 					. ", client=".$myattr{"client_name"}."[".$myattr{"client_address"}."]"
 					. ", sender=".$myattr{"sender"}
 					. ", recipient=".$myattr{"recipient"}
@@ -675,7 +741,7 @@ sub smtpd_access_policy {
 					};
 				# normal rule. returns $action.
 				} else {
-					$myline .= ", action=".$Rules[$index]{"action"};
+					$myline .= ", action=".$Rules[$index]{$COMP_ACTION};
     					mylogs $syslog_priority, "[RULES] ".$myline;
 					last RULE;
 				};
@@ -683,10 +749,10 @@ sub smtpd_access_policy {
 		};
 	};
 	# update cache
-	$Request_Cache{$cacheid}{"time"}    = $now;
-	$Request_Cache{$cacheid}{"action"}  = $myaction;
-	$Request_Cache{$cacheid}{"hit"}	    = $matched;
-	$Request_Cache{$cacheid}{"id"} 	    = $Rules[$index]{"id"} if $matched;
+	$Request_Cache{$cacheid}{"time"}	    = $now;
+	$Request_Cache{$cacheid}{$COMP_ACTION}	    = $myaction;
+	$Request_Cache{$cacheid}{"hit"}		    = $matched;
+	$Request_Cache{$cacheid}{$COMP_ID} 	    = $Rules[$index]{$COMP_ID} if $matched;
     };
     $myaction = $default_action if ($opt_test or !($myaction));
     return $myaction;
@@ -700,7 +766,7 @@ sub process_request_line {
 	my($request) 		= @_;
 	my($output)		= "";
 
-	if ($request =~ /([^=]+)=(.*)\n/) {
+	if ($request =~ /^([^=\r\n]+)=([^\r\n]*)\r?\n/) {
 		$attr{$client}{substr($1, 0, 512)} = substr($2, 0, 512);
 	} elsif ($request eq "\n") {
 		if ($opt_verbose > 1) {
@@ -733,6 +799,7 @@ GetOptions (	't|test'		=> \$opt_test,
 		'd|daemon'		=> \$opt_daemon,
 		'I|instantcfg'		=> \$opt_instantconfig,
 		'P|perfmon'		=> \$opt_perfmon,
+		'L|stdoutlog'		=> \$opt_stdoutlog,
 		'i|interface=s'		=> \$net_interface,
 		'p|port=s'		=> \$net_port,
 		'R|chroot=s'		=> \$net_chroot,
@@ -934,6 +1001,7 @@ postfwd [OPTIONS] SOURCE1, SOURCE2, ...
 	    --cache-no-size       ignores size attribute for caching
 	    --cache-rdomain-only  ignores localpart of recipient address in cache
 	-S, --summary <int>       show some usage statistics every <int> seconds
+	-L, --stdoutlog           redirect syslog messages to stdout
 	-t, --test                testing, always returns "dunno"
 	-n, --nodns               disable dns
 	-I, --instantcfg          re-reads rulefiles for every new request
@@ -963,13 +1031,15 @@ I<Features:>
 
 * Complex combinations of smtp parameters
 
-* Macros/ACLs, Groups
-
 * Combined RBL/RHSBL lookups with arbitrary actions depending on results
 
 * Scoring system
 
 * Date/time based rules
+
+* Macros/ACLs, Groups, Negation
+
+* Compare request attributes (e.g. client_name and helo_name)
 
 * Internal caching for requests and dns lookups
 
@@ -1018,6 +1088,7 @@ Rules can span multiple lines by adding a trailing backslash "\" character:
 
 	score			- when the specified score is hit (see ACTIONS section)
 				  the specified action will be returned to postfix
+				  scores are set global until redefined!
 
 	rbl, rhsbl	 	- query the specified RBLs/RHSBLs, possible values are:
 				  <name>[/<reply>/<maxcache>, <name>/<reply>/<maxcache>]
@@ -1039,7 +1110,7 @@ for details:
 	time=08:30:00-17:00:00			mask = time (HH:MM:SS-HH:MM:SS)
 	score=5.0				mask = maximum floating point value
 	rbl=zen.spamhaus.org			mask = <name>/<reply>/<maxcache>[,...]
-	rblcount=2				mask = maximum integer value
+	rblcount=2				mask = numeric, will match if rbl hits >= 2
 	# ------------------------------
 	# Postfix version 2.1 and later:
 	# ------------------------------
@@ -1049,14 +1120,14 @@ for details:
 	helo_name=some.domain.tld		mask = PCRE
 	sender=foo@bar.tld			mask = PCRE
 	recipient=bar@foo.tld			mask = PCRE
-	recipient_count=0			mask = maximum integer value
+	recipient_count=5			mask = numeric, will match if recipients >= 5
 	# ------------------------------
 	# Postfix version 2.2 and later:
 	# ------------------------------
 	sasl_method=plain			mask = PCRE
 	sasl_username=you			mask = PCRE
 	sasl_sender=				mask = PCRE
-	size=12345				mask = maximum integer value
+	size=12345				mask = numeric, will match if size >= 12345
 	ccert_subject=blackhole.nowhere.local	mask = PCRE (only if tls verified)
 	ccert_issuer=John+20Doe			mask = PCRE (only if tls verified)
 	ccert_fingerprint=AA:BB:CC:DD:EE:...	mask = PCRE (do NOT use "..." here)
@@ -1065,10 +1136,12 @@ for details:
 	# ------------------------------
 	encryption_protocol=TLSv1/SSLv3		mask = PCRE
 	encryption_cipher=DHE-RSA-AES256-SHA	mask = PCRE
-	encryption_keysize=256			mask = minimum integer value
+	encryption_keysize=256			mask = numeric, will match if keysize >= 256
 	...
 
-the current list can be found at L<http://www.postfix.org/SMTPD_POLICY_README.html>. Pattern matching is performed case insensitive.
+the current list can be found at L<http://www.postfix.org/SMTPD_POLICY_README.html>. Please read carefully about which
+attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at END_OF_DATA level).
+Pattern matching is performed case insensitive.
 
 Multiple use of the same item is allowed and will compared as logical OR, which means that this will work as expected:
 
@@ -1078,9 +1151,34 @@ Multiple use of the same item is allowed and will compared as logical OR, which 
 		ccert_fingerprint=33:44:55:66:77:88:99:00:11;	\
 		sender=@domain\.local$
 
+client_address, rbl and rhsbl items may also be specified as whitespace-or-comma-separated values:
+
+	id=SKIP01; action=dunno; \
+		client_address=192.168.1.0/24, 172.16.254.23
+	id=SKIP02; action=dunno; \
+		client_address=	10.10.3.32       \
+				10.216.222.0/27
+
 The following items currently have to be unique:
 
-	id, minimum and maximum values
+	id, minimum and maximum values, rblcount and rhsblcount
+
+Any item can be negated by preceeding '!!' to it, e.g.:
+
+	id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please
+
+To avoid confusion with regexps or simply for better visibility you can use '!!(...)':
+
+	id=USER01 ;  sasl_username=!!( (bob|alice) )  ;  action=REJECT who is that?
+
+Request attributes can be compared by preceeding '$$' characters, e.g.:
+
+	id=R-003 ;  client_name = !! $$helo_name      ;  action=REJECT helo does not match DNS
+	# or
+	id=R-003 ;  client_name = !!($$(helo_name))   ;  action=REJECT helo does not match DNS
+
+This is only valid for PCRE values (see list above). The comparison will be performed as case insensitive exact match.
+Use the '-vv' option to debug.
 
 
 =head2 ACTIONS
@@ -1168,6 +1266,9 @@ Macros can contain macros, too:
 	&&GOAWAY { &&RBLS; &&DYNAMIC; };
 	# rules
 	&&GOAWAY ; action=REJECT dynamic client and listed on RBL
+
+Basically macros are simple text substitutions - see the L<#PARSER> section for more information.
+
 
 =head2 COMMAND LINE
 
@@ -1259,13 +1360,16 @@ These parameters influence the way postfwd is working. Any of them can be combin
 
 	Example:
 	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Counters: 213000 seconds uptime, 39 rules
-	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
 	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Requests: 71643 overall, 49 last interval, 62.88% cache hits
 	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Averages: 20.18 overall, 4.90 last interval, 557.30 top
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
 	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-001   matched: 2704 times
 	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-002   matched: 9351 times
 	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
 	...
+
+	-L, --stdoutlog
+	Redirects all syslog messages to stdout for debugging. Never use this with postfix!
 
 	-t, --test
 	In test mode postfwd always returns "dunno", but logs according
@@ -1419,6 +1523,112 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=MAINTENANCE ;  &&MAINTENANCE       ;  action=DEFER maintenance time - please try again later
 
 
+=head2 PARSER
+
+I<Configuration>
+
+The postfwd ruleset can be specified at the commandline (-r option) or be read from files (-f). The order of your arguments will be kept. You should
+check the parser with the -C | --showconfig switch at the command line before applying a new config. The following call:
+
+	postfwd --showconfig \
+		-r "id=TEST; recipient_count=100; action=WARN mail with 100+ recipients" \
+		-f /etc/postfwd.cf \
+		-r "id=DEFAULT; action=dunno";
+
+will produce the following output:
+
+	Rule   0: id->"TEST" action->"WARN mail with 100+ recipients"; recipient_count->"100"
+	...
+	... <content of /etc/postfwd.cf> ...
+	...
+	Rule <n>: id->"DEFAULT" action->"dunno"
+
+Multiple items of the same type will be added to lists (see the L<#ITEMS> section for more info):
+
+	postfwd --showconfig \
+		-r "client_address=192.168.1.0/24; client_address=172.16.26.32; action=dunno"
+
+will result in:
+
+	Rule   0: id->"R-0"; action->"dunno"; client_address->"192.168.1.0/24, 172.16.26.32"
+
+Macros are evaluated at configuration stage, which means that
+
+	postfwd --showconfig \
+		-r "&&RBLS { rbl=bl.spamcop.net; client_name=^unknown$; };" \
+		-r "id=RBL001; &&RBLS; action=REJECT listed on spamcop and bad rdns";
+
+will result in:
+
+	Rule   0: id->"RBL001"; action->"REJECT listed on spamcop and bad rdns"; rbl->"bl.spamcop.net"; client_name->"^unknown$"
+
+I<Request processing>
+
+When a policy delegation request arrives it will be compared against postfwd`s ruleset. To inspect the processing in detail you should increase
+verbority using use the "-v" or "-vv" switch. "-L" redirects log messages to stdout.
+
+Keeping the order of the ruleset in general, items will be compared in random order, which basically means that
+
+	id=R001; action=dunno; client_address=192.168.1.1; sender=bob@alice.local
+
+equals to
+
+	id=R001; sender=bob@alice.local; client_address=192.168.1.1; action=dunno
+
+Lists will be evaluated in the specified order. This allows to place faster expressions at first:
+
+	postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.small
+
+produces the following
+
+	[LOGS info]: compare rbl: "remotehost.remote.net[68.10.1.7]"  ->  "localrbl.local"
+	[LOGS info]: count1 rbl:  "2"  ->  "0"
+	[LOGS info]: query rbl:   localrbl.local 7.1.10.68 (7.1.10.68.localrbl.local)
+	[LOGS info]: count2 rbl:  "2"  ->  "0"
+	[LOGS info]: match rbl:   FALSE
+	[LOGS info]: compare rbl: "remotehost.remote.net[68.10.1.7]"  ->  "zen.spamhaus.org"
+	[LOGS info]: count1 rbl:  "2"  ->  "0"
+	[LOGS info]: query rbl:   zen.spamhaus.org 7.1.10.68 (7.1.10.68.zen.spamhaus.org)
+	[LOGS info]: count2 rbl:  "2"  ->  "0"
+	[LOGS info]: match rbl:   FALSE
+	[LOGS info]: Action: dunno
+
+The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
+
+	postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.small
+
+will give
+
+	[LOGS info]: compare client_name:     "unknown"  ->  "!!($$helo_name)"
+	[LOGS info]: negate client_name:      "unknown"  ->  "$$helo_name"
+	[LOGS info]: substitute client_name:  "unknown"  ->  "english-breakfast.cloud8.net"
+	[LOGS info]: match client_name:  TRUE
+	[LOGS info]: Action: REJECT
+
+
+I<Ruleset evaluation>
+
+A rule hits when all items (or at least one element of a list for each item) have matched. As soon as one item (or all elements of a list) fails
+to compare against the request attribute the parser will jump to the next rule in the postfwd ruleset.
+
+If a rule matches, there are two options:
+
+* Rule returns postfix action (dunno, reject, ...)
+The parser stops rule processing and returns the action to postfix. Other rules will not be evaluated.
+
+* Rule returns postfwd action (jump(), note(), ...)
+The parser evaluates the given action and continues with the next rule (except for the jump() or quit() actions - please see the L<ACTIONS> section
+for more information). Nothing will be sent to postfix.
+
+If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
+simply place a last `catch-all´ rule to change that behaviour:
+
+	... <your rules> ...
+	id=DEFAULT ;  action=dunno
+
+will log any request that passes the ruleset without having hit a prior rule.
+
+
 =head2 INTEGRATION
 
 I<Integration via daemon mode>
@@ -1429,7 +1639,9 @@ it`s internal caching in that case. Start postfwd with the following parameters:
 
 	postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S
 
-Check your syslogs (default facility "mail") for a line like:
+For efficient caching you should check if you can use the options --cache-rdomain-only and --cache-no-size.
+
+Now check your syslogs (default facility "mail") for a line like:
 
 	Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input
 
@@ -1540,14 +1752,15 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-        * Redistributions of source code must retain the above copyright notice,
-          this list of conditions and the following disclaimer.
-        * Redistributions in binary form must reproduce the above copyright notice,
-          this list of conditions and the following disclaimer in the documentation
-          and/or other materials provided with the distribution.
-        * Neither the name of the authors nor the names of his contributors may be
-          used to endorse or promote products derived from this software without
-          specific prior written permission.
+ * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in
+   the documentation and/or other materials provided with the
+   distribution.
+ * Neither the name of the authors nor the names of his contributors
+   may be used to endorse or promote products derived from this
+   software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY ME ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
 INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS

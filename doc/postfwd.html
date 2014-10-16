@@ -25,6 +25,7 @@
 		<li><a href="#command_line">COMMAND LINE</a></li>
 		<li><a href="#refresh">REFRESH</a></li>
 		<li><a href="#examples">EXAMPLES</a></li>
+		<li><a href="#parser">PARSER</a></li>
 		<li><a href="#integration">INTEGRATION</a></li>
 		<li><a href="#testing">TESTING</a></li>
 		<li><a href="#see_also">SEE ALSO</a></li>
@@ -69,6 +70,7 @@
             --cache-no-size       ignores size attribute for caching
             --cache-rdomain-only  ignores localpart of recipient address in cache
         -S, --summary &lt;int&gt;       show some usage statistics every &lt;int&gt; seconds
+        -L, --stdoutlog           redirect syslog messages to stdout
         -t, --test                testing, always returns &quot;dunno&quot;
         -n, --nodns               disable dns
         -I, --instantcfg          re-reads rulefiles for every new request</pre>
@@ -94,10 +96,11 @@ has been accepted (please visit <a href="http://www.postfix.org/SMTPD_POLICY_REA
 which should allow straightforward and easy-to-read configurations.</p>
 <p><em>Features:</em></p>
 <p>* Complex combinations of smtp parameters</p>
-<p>* Macros/ACLs, Groups</p>
 <p>* Combined RBL/RHSBL lookups with arbitrary actions depending on results</p>
 <p>* Scoring system</p>
 <p>* Date/time based rules</p>
+<p>* Macros/ACLs, Groups, Negation</p>
+<p>* Compare request attributes (e.g. client_name and helo_name)</p>
 <p>* Internal caching for requests and dns lookups</p>
 <p>* Built in statistics for rule efficiency analysis</p>
 <p>
@@ -136,7 +139,8 @@ arguments. Please see the COMMAND LINE section below for more information on thi
         date, time              - a time or date range within the specified rule shall hit</pre>
 <pre>
         score                   - when the specified score is hit (see ACTIONS section)
-                                  the specified action will be returned to postfix</pre>
+                                  the specified action will be returned to postfix
+                                  scores are set global until redefined!</pre>
 <pre>
         rbl, rhsbl              - query the specified RBLs/RHSBLs, possible values are:
                                   &lt;name&gt;[/&lt;reply&gt;/&lt;maxcache&gt;, &lt;name&gt;/&lt;reply&gt;/&lt;maxcache&gt;]</pre>
@@ -156,7 +160,7 @@ for details:</p>
         time=08:30:00-17:00:00                  mask = time (HH:MM:SS-HH:MM:SS)
         score=5.0                               mask = maximum floating point value
         rbl=zen.spamhaus.org                    mask = &lt;name&gt;/&lt;reply&gt;/&lt;maxcache&gt;[,...]
-        rblcount=2                              mask = maximum integer value
+        rblcount=2                              mask = numeric, will match if rbl hits &gt;= 2
         # ------------------------------
         # Postfix version 2.1 and later:
         # ------------------------------
@@ -166,14 +170,14 @@ for details:</p>
         helo_name=some.domain.tld               mask = PCRE
         sender=foo@bar.tld                      mask = PCRE
         recipient=bar@foo.tld                   mask = PCRE
-        recipient_count=0                       mask = maximum integer value
+        recipient_count=5                       mask = numeric, will match if recipients &gt;= 5
         # ------------------------------
         # Postfix version 2.2 and later:
         # ------------------------------
         sasl_method=plain                       mask = PCRE
         sasl_username=you                       mask = PCRE
         sasl_sender=                            mask = PCRE
-        size=12345                              mask = maximum integer value
+        size=12345                              mask = numeric, will match if size &gt;= 12345
         ccert_subject=blackhole.nowhere.local   mask = PCRE (only if tls verified)
         ccert_issuer=John+20Doe                 mask = PCRE (only if tls verified)
         ccert_fingerprint=AA:BB:CC:DD:EE:...    mask = PCRE (do NOT use &quot;...&quot; here)
@@ -182,9 +186,11 @@ for details:</p>
         # ------------------------------
         encryption_protocol=TLSv1/SSLv3         mask = PCRE
         encryption_cipher=DHE-RSA-AES256-SHA    mask = PCRE
-        encryption_keysize=256                  mask = minimum integer value
+        encryption_keysize=256                  mask = numeric, will match if keysize &gt;= 256
         ...</pre>
-<p>the current list can be found at <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a>. Pattern matching is performed case insensitive.</p>
+<p>the current list can be found at <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a>. Please read carefully about which
+attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at END_OF_DATA level).
+Pattern matching is performed case insensitive.</p>
 <p>Multiple use of the same item is allowed and will compared as logical OR, which means that this will work as expected:</p>
 <pre>
         id=TRUST001; action=OK; encryption_keysize=64;          \
@@ -192,9 +198,29 @@ for details:</p>
                 ccert_fingerprint=22:33:44:55:66:77:88:99:00;   \
                 ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \
                 sender=@domain\.local$</pre>
+<p>client_address, rbl and rhsbl items may also be specified as whitespace-or-comma-separated values:</p>
+<pre>
+        id=SKIP01; action=dunno; \
+                client_address=192.168.1.0/24, 172.16.254.23
+        id=SKIP02; action=dunno; \
+                client_address= 10.10.3.32       \
+                                10.216.222.0/27</pre>
 <p>The following items currently have to be unique:</p>
 <pre>
-        id, minimum and maximum values</pre>
+        id, minimum and maximum values, rblcount and rhsblcount</pre>
+<p>Any item can be negated by preceeding '!!' to it, e.g.:</p>
+<pre>
+        id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please</pre>
+<p>To avoid confusion with regexps or simply for better visibility you can use '!!(...)':</p>
+<pre>
+        id=USER01 ;  sasl_username=!!( (bob|alice) )  ;  action=REJECT who is that?</pre>
+<p>Request attributes can be compared by preceeding '$$' characters, e.g.:</p>
+<pre>
+        id=R-003 ;  client_name = !! $$helo_name      ;  action=REJECT helo does not match DNS
+        # or
+        id=R-003 ;  client_name = !!($$(helo_name))   ;  action=REJECT helo does not match DNS</pre>
+<p>This is only valid for PCRE values (see list above). The comparison will be performed as case insensitive exact match.
+Use the '-vv' option to debug.</p>
 <p>
 </p>
 <h2><a name="actions">ACTIONS</a></h2>
@@ -273,6 +299,7 @@ First the macros have to be defined as follows:</p>
         &amp;&amp;GOAWAY { &amp;&amp;RBLS; &amp;&amp;DYNAMIC; };
         # rules
         &amp;&amp;GOAWAY ; action=REJECT dynamic client and listed on RBL</pre>
+<p>Basically macros are simple text substitutions - see the <em>#PARSER</em> section for more information.</p>
 <p>
 </p>
 <h2><a name="command_line">COMMAND LINE</a></h2>
@@ -356,13 +383,16 @@ The following arguments will control it's behaviour in this case.</p>
 <pre>
         Example:
         Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Counters: 213000 seconds uptime, 39 rules
-        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
         Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Requests: 71643 overall, 49 last interval, 62.88% cache hits
         Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Averages: 20.18 overall, 4.90 last interval, 557.30 top
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
         Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-001   matched: 2704 times
         Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-002   matched: 9351 times
         Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
         ...</pre>
+<pre>
+        -L, --stdoutlog
+        Redirects all syslog messages to stdout for debugging. Never use this with postfix!</pre>
 <pre>
         -t, --test
         In test mode postfwd always returns &quot;dunno&quot;, but logs according
@@ -513,6 +543,89 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=MAINTENANCE ;  &amp;&amp;MAINTENANCE       ;  action=DEFER maintenance time - please try again later</pre>
 <p>
 </p>
+<h2><a name="parser">PARSER</a></h2>
+<p><em>Configuration</em></p>
+<p>The postfwd ruleset can be specified at the commandline (-r option) or be read from files (-f). The order of your arguments will be kept. You should
+check the parser with the -C | --showconfig switch at the command line before applying a new config. The following call:</p>
+<pre>
+        postfwd --showconfig \
+                -r &quot;id=TEST; recipient_count=100; action=WARN mail with 100+ recipients&quot; \
+                -f /etc/postfwd.cf \
+                -r &quot;id=DEFAULT; action=dunno&quot;;</pre>
+<p>will produce the following output:</p>
+<pre>
+        Rule   0: id-&gt;&quot;TEST&quot; action-&gt;&quot;WARN mail with 100+ recipients&quot;; recipient_count-&gt;&quot;100&quot;
+        ...
+        ... &lt;content of /etc/postfwd.cf&gt; ...
+        ...
+        Rule &lt;n&gt;: id-&gt;&quot;DEFAULT&quot; action-&gt;&quot;dunno&quot;</pre>
+<p>Multiple items of the same type will be added to lists (see the <em>#ITEMS</em> section for more info):</p>
+<pre>
+        postfwd --showconfig \
+                -r &quot;client_address=192.168.1.0/24; client_address=172.16.26.32; action=dunno&quot;</pre>
+<p>will result in:</p>
+<pre>
+        Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;dunno&quot;; client_address-&gt;&quot;192.168.1.0/24, 172.16.26.32&quot;</pre>
+<p>Macros are evaluated at configuration stage, which means that</p>
+<pre>
+        postfwd --showconfig \
+                -r &quot;&amp;&amp;RBLS { rbl=bl.spamcop.net; client_name=^unknown$; };&quot; \
+                -r &quot;id=RBL001; &amp;&amp;RBLS; action=REJECT listed on spamcop and bad rdns&quot;;</pre>
+<p>will result in:</p>
+<pre>
+        Rule   0: id-&gt;&quot;RBL001&quot;; action-&gt;&quot;REJECT listed on spamcop and bad rdns&quot;; rbl-&gt;&quot;bl.spamcop.net&quot;; client_name-&gt;&quot;^unknown$&quot;</pre>
+<p><em>Request processing</em></p>
+<p>When a policy delegation request arrives it will be compared against postfwd`s ruleset. To inspect the processing in detail you should increase
+verbority using use the ``-v'' or ``-vv'' switch. ``-L'' redirects log messages to stdout.</p>
+<p>Keeping the order of the ruleset in general, items will be compared in random order, which basically means that</p>
+<pre>
+        id=R001; action=dunno; client_address=192.168.1.1; sender=bob@alice.local</pre>
+<p>equals to</p>
+<pre>
+        id=R001; sender=bob@alice.local; client_address=192.168.1.1; action=dunno</pre>
+<p>Lists will be evaluated in the specified order. This allows to place faster expressions at first:</p>
+<pre>
+        postfwd -vv -L -r &quot;id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT&quot; /root/request.small</pre>
+<p>produces the following</p>
+<pre>
+        [LOGS info]: compare rbl: &quot;remotehost.remote.net[68.10.1.7]&quot;  -&gt;  &quot;localrbl.local&quot;
+        [LOGS info]: count1 rbl:  &quot;2&quot;  -&gt;  &quot;0&quot;
+        [LOGS info]: query rbl:   localrbl.local 7.1.10.68 (7.1.10.68.localrbl.local)
+        [LOGS info]: count2 rbl:  &quot;2&quot;  -&gt;  &quot;0&quot;
+        [LOGS info]: match rbl:   FALSE
+        [LOGS info]: compare rbl: &quot;remotehost.remote.net[68.10.1.7]&quot;  -&gt;  &quot;zen.spamhaus.org&quot;
+        [LOGS info]: count1 rbl:  &quot;2&quot;  -&gt;  &quot;0&quot;
+        [LOGS info]: query rbl:   zen.spamhaus.org 7.1.10.68 (7.1.10.68.zen.spamhaus.org)
+        [LOGS info]: count2 rbl:  &quot;2&quot;  -&gt;  &quot;0&quot;
+        [LOGS info]: match rbl:   FALSE
+        [LOGS info]: Action: dunno</pre>
+<p>The negation operator !!(&lt;value&gt;) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:</p>
+<pre>
+        postfwd -vv -L -r &quot;id=TEST; action=REJECT; client_name=!!($$heloname)&quot; /root/request.small</pre>
+<p>will give</p>
+<pre>
+        [LOGS info]: compare client_name:     &quot;unknown&quot;  -&gt;  &quot;!!($$helo_name)&quot;
+        [LOGS info]: negate client_name:      &quot;unknown&quot;  -&gt;  &quot;$$helo_name&quot;
+        [LOGS info]: substitute client_name:  &quot;unknown&quot;  -&gt;  &quot;english-breakfast.cloud8.net&quot;
+        [LOGS info]: match client_name:  TRUE
+        [LOGS info]: Action: REJECT</pre>
+<p><em>Ruleset evaluation</em></p>
+<p>A rule hits when all items (or at least one element of a list for each item) have matched. As soon as one item (or all elements of a list) fails
+to compare against the request attribute the parser will jump to the next rule in the postfwd ruleset.</p>
+<p>If a rule matches, there are two options:</p>
+<p>* Rule returns postfix action (dunno, reject, ...)
+The parser stops rule processing and returns the action to postfix. Other rules will not be evaluated.</p>
+<p>* Rule returns postfwd action (jump(), note(), ...)
+The parser evaluates the given action and continues with the next rule (except for the <code>jump()</code> or <code>quit()</code> actions - please see the <em>ACTIONS</em> section
+for more information). Nothing will be sent to postfix.</p>
+<p>If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
+simply place a last `catch-all´ rule to change that behaviour:</p>
+<pre>
+        ... &lt;your rules&gt; ...
+        id=DEFAULT ;  action=dunno</pre>
+<p>will log any request that passes the ruleset without having hit a prior rule.</p>
+<p>
+</p>
 <h2><a name="integration">INTEGRATION</a></h2>
 <p><em>Integration via daemon mode</em></p>
 <p>The common way to use postfwd is to start it as daemon, listening at a specified tcp port.
@@ -520,7 +633,8 @@ As postfwd will run in a single instance (multiplexing mode), it will take most 
 it`s internal caching in that case. Start postfwd with the following parameters:</p>
 <pre>
         postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S</pre>
-<p>Check your syslogs (default facility ``mail'') for a line like:</p>
+<p>For efficient caching you should check if you can use the options --cache-rdomain-only and --cache-no-size.</p>
+<p>Now check your syslogs (default facility ``mail'') for a line like:</p>
 <pre>
         Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input</pre>
 <p>and use `netstat -an|grep 10040` to check for something like</p>
@@ -612,14 +726,15 @@ All rights reserved.</p>
 <p>Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:</p>
 <pre>
-        * Redistributions of source code must retain the above copyright notice,
-          this list of conditions and the following disclaimer.
-        * Redistributions in binary form must reproduce the above copyright notice,
-          this list of conditions and the following disclaimer in the documentation
-          and/or other materials provided with the distribution.
-        * Neither the name of the authors nor the names of his contributors may be
-          used to endorse or promote products derived from this software without
-          specific prior written permission.</pre>
+ * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in
+   the documentation and/or other materials provided with the
+   distribution.
+ * Neither the name of the authors nor the names of his contributors
+   may be used to endorse or promote products derived from this
+   software without specific prior written permission.</pre>
 <p>THIS SOFTWARE IS PROVIDED BY ME ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
 INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
 FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL BE LIABLE FOR ANY DIRECT,

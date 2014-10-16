@@ -27,6 +27,7 @@ SYNOPSIS
                 --cache-no-size       ignores size attribute for caching
                 --cache-rdomain-only  ignores localpart of recipient address in cache
             -S, --summary <int>       show some usage statistics every <int> seconds
+            -L, --stdoutlog           redirect syslog messages to stdout
             -t, --test                testing, always returns "dunno"
             -n, --nodns               disable dns
             -I, --instantcfg          re-reads rulefiles for every new request
@@ -56,13 +57,15 @@ DESCRIPTION
 
     * Complex combinations of smtp parameters
 
-    * Macros/ACLs, Groups
-
     * Combined RBL/RHSBL lookups with arbitrary actions depending on results
 
     * Scoring system
 
     * Date/time based rules
+
+    * Macros/ACLs, Groups, Negation
+
+    * Compare request attributes (e.g. client_name and helo_name)
 
     * Internal caching for requests and dns lookups
 
@@ -112,6 +115,7 @@ DESCRIPTION
 
             score                   - when the specified score is hit (see ACTIONS section)
                                       the specified action will be returned to postfix
+                                      scores are set global until redefined!
 
             rbl, rhsbl              - query the specified RBLs/RHSBLs, possible values are:
                                       <name>[/<reply>/<maxcache>, <name>/<reply>/<maxcache>]
@@ -134,7 +138,7 @@ DESCRIPTION
             time=08:30:00-17:00:00                  mask = time (HH:MM:SS-HH:MM:SS)
             score=5.0                               mask = maximum floating point value
             rbl=zen.spamhaus.org                    mask = <name>/<reply>/<maxcache>[,...]
-            rblcount=2                              mask = maximum integer value
+            rblcount=2                              mask = numeric, will match if rbl hits >= 2
             # ------------------------------
             # Postfix version 2.1 and later:
             # ------------------------------
@@ -144,14 +148,14 @@ DESCRIPTION
             helo_name=some.domain.tld               mask = PCRE
             sender=foo@bar.tld                      mask = PCRE
             recipient=bar@foo.tld                   mask = PCRE
-            recipient_count=0                       mask = maximum integer value
+            recipient_count=5                       mask = numeric, will match if recipients >= 5
             # ------------------------------
             # Postfix version 2.2 and later:
             # ------------------------------
             sasl_method=plain                       mask = PCRE
             sasl_username=you                       mask = PCRE
             sasl_sender=                            mask = PCRE
-            size=12345                              mask = maximum integer value
+            size=12345                              mask = numeric, will match if size >= 12345
             ccert_subject=blackhole.nowhere.local   mask = PCRE (only if tls verified)
             ccert_issuer=John+20Doe                 mask = PCRE (only if tls verified)
             ccert_fingerprint=AA:BB:CC:DD:EE:...    mask = PCRE (do NOT use "..." here)
@@ -160,12 +164,14 @@ DESCRIPTION
             # ------------------------------
             encryption_protocol=TLSv1/SSLv3         mask = PCRE
             encryption_cipher=DHE-RSA-AES256-SHA    mask = PCRE
-            encryption_keysize=256                  mask = minimum integer value
+            encryption_keysize=256                  mask = numeric, will match if keysize >= 256
             ...
 
     the current list can be found at
-    <http://www.postfix.org/SMTPD_POLICY_README.html>. Pattern matching is
-    performed case insensitive.
+    <http://www.postfix.org/SMTPD_POLICY_README.html>. Please read carefully
+    about which attribute can be used at which level of the smtp transaction
+    (e.g. size will only work reliably at END_OF_DATA level). Pattern
+    matching is performed case insensitive.
 
     Multiple use of the same item is allowed and will compared as logical
     OR, which means that this will work as expected:
@@ -176,9 +182,37 @@ DESCRIPTION
                     ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \
                     sender=@domain\.local$
 
+    client_address, rbl and rhsbl items may also be specified as
+    whitespace-or-comma-separated values:
+
+            id=SKIP01; action=dunno; \
+                    client_address=192.168.1.0/24, 172.16.254.23
+            id=SKIP02; action=dunno; \
+                    client_address= 10.10.3.32       \
+                                    10.216.222.0/27
+
     The following items currently have to be unique:
 
-            id, minimum and maximum values
+            id, minimum and maximum values, rblcount and rhsblcount
+
+    Any item can be negated by preceeding '!!' to it, e.g.:
+
+            id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please
+
+    To avoid confusion with regexps or simply for better visibility you can
+    use '!!(...)':
+
+            id=USER01 ;  sasl_username=!!( (bob|alice) )  ;  action=REJECT who is that?
+
+    Request attributes can be compared by preceeding '$$' characters, e.g.:
+
+            id=R-003 ;  client_name = !! $$helo_name      ;  action=REJECT helo does not match DNS
+            # or
+            id=R-003 ;  client_name = !!($$(helo_name))   ;  action=REJECT helo does not match DNS
+
+    This is only valid for PCRE values (see list above). The comparison will
+    be performed as case insensitive exact match. Use the '-vv' option to
+    debug.
 
   ACTIONS
     *postfix actions*
@@ -267,6 +301,9 @@ DESCRIPTION
             &&GOAWAY { &&RBLS; &&DYNAMIC; };
             # rules
             &&GOAWAY ; action=REJECT dynamic client and listed on RBL
+
+    Basically macros are simple text substitutions - see the #PARSER section
+    for more information.
 
   COMMAND LINE
     *Ruleset*
@@ -360,13 +397,16 @@ DESCRIPTION
 
             Example:
             Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Counters: 213000 seconds uptime, 39 rules
-            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
             Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Requests: 71643 overall, 49 last interval, 62.88% cache hits
             Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Averages: 20.18 overall, 4.90 last interval, 557.30 top
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
             Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-001   matched: 2704 times
             Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-002   matched: 9351 times
             Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
             ...
+
+            -L, --stdoutlog
+            Redirects all syslog messages to stdout for debugging. Never use this with postfix!
 
             -t, --test
             In test mode postfwd always returns "dunno", but logs according
@@ -517,6 +557,123 @@ DESCRIPTION
             id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
             id=MAINTENANCE ;  &&MAINTENANCE       ;  action=DEFER maintenance time - please try again later
 
+  PARSER
+    *Configuration*
+
+    The postfwd ruleset can be specified at the commandline (-r option) or
+    be read from files (-f). The order of your arguments will be kept. You
+    should check the parser with the -C | --showconfig switch at the command
+    line before applying a new config. The following call:
+
+            postfwd --showconfig \
+                    -r "id=TEST; recipient_count=100; action=WARN mail with 100+ recipients" \
+                    -f /etc/postfwd.cf \
+                    -r "id=DEFAULT; action=dunno";
+
+    will produce the following output:
+
+            Rule   0: id->"TEST" action->"WARN mail with 100+ recipients"; recipient_count->"100"
+            ...
+            ... <content of /etc/postfwd.cf> ...
+            ...
+            Rule <n>: id->"DEFAULT" action->"dunno"
+
+    Multiple items of the same type will be added to lists (see the #ITEMS
+    section for more info):
+
+            postfwd --showconfig \
+                    -r "client_address=192.168.1.0/24; client_address=172.16.26.32; action=dunno"
+
+    will result in:
+
+            Rule   0: id->"R-0"; action->"dunno"; client_address->"192.168.1.0/24, 172.16.26.32"
+
+    Macros are evaluated at configuration stage, which means that
+
+            postfwd --showconfig \
+                    -r "&&RBLS { rbl=bl.spamcop.net; client_name=^unknown$; };" \
+                    -r "id=RBL001; &&RBLS; action=REJECT listed on spamcop and bad rdns";
+
+    will result in:
+
+            Rule   0: id->"RBL001"; action->"REJECT listed on spamcop and bad rdns"; rbl->"bl.spamcop.net"; client_name->"^unknown$"
+
+    *Request processing*
+
+    When a policy delegation request arrives it will be compared against
+    postfwd`s ruleset. To inspect the processing in detail you should
+    increase verbority using use the "-v" or "-vv" switch. "-L" redirects
+    log messages to stdout.
+
+    Keeping the order of the ruleset in general, items will be compared in
+    random order, which basically means that
+
+            id=R001; action=dunno; client_address=192.168.1.1; sender=bob@alice.local
+
+    equals to
+
+            id=R001; sender=bob@alice.local; client_address=192.168.1.1; action=dunno
+
+    Lists will be evaluated in the specified order. This allows to place
+    faster expressions at first:
+
+            postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /root/request.small
+
+    produces the following
+
+            [LOGS info]: compare rbl: "remotehost.remote.net[68.10.1.7]"  ->  "localrbl.local"
+            [LOGS info]: count1 rbl:  "2"  ->  "0"
+            [LOGS info]: query rbl:   localrbl.local 7.1.10.68 (7.1.10.68.localrbl.local)
+            [LOGS info]: count2 rbl:  "2"  ->  "0"
+            [LOGS info]: match rbl:   FALSE
+            [LOGS info]: compare rbl: "remotehost.remote.net[68.10.1.7]"  ->  "zen.spamhaus.org"
+            [LOGS info]: count1 rbl:  "2"  ->  "0"
+            [LOGS info]: query rbl:   zen.spamhaus.org 7.1.10.68 (7.1.10.68.zen.spamhaus.org)
+            [LOGS info]: count2 rbl:  "2"  ->  "0"
+            [LOGS info]: match rbl:   FALSE
+            [LOGS info]: Action: dunno
+
+    The negation operator !!(<value>) has the highest priority and therefore
+    will be evaluated first. Then variable substitutions are performed:
+
+            postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /root/request.small
+
+    will give
+
+            [LOGS info]: compare client_name:     "unknown"  ->  "!!($$helo_name)"
+            [LOGS info]: negate client_name:      "unknown"  ->  "$$helo_name"
+            [LOGS info]: substitute client_name:  "unknown"  ->  "english-breakfast.cloud8.net"
+            [LOGS info]: match client_name:  TRUE
+            [LOGS info]: Action: REJECT
+
+    *Ruleset evaluation*
+
+    A rule hits when all items (or at least one element of a list for each
+    item) have matched. As soon as one item (or all elements of a list)
+    fails to compare against the request attribute the parser will jump to
+    the next rule in the postfwd ruleset.
+
+    If a rule matches, there are two options:
+
+    * Rule returns postfix action (dunno, reject, ...) The parser stops rule
+    processing and returns the action to postfix. Other rules will not be
+    evaluated.
+
+    * Rule returns postfwd action (jump(), note(), ...) The parser evaluates
+    the given action and continues with the next rule (except for the jump()
+    or quit() actions - please see the ACTIONS section for more
+    information). Nothing will be sent to postfix.
+
+    If no rule has matched and the end of the ruleset is reached postfwd
+    will return dunno without logging anything unless in verbose mode. You
+    may simply place a last `catch-all´ rule to change that behaviour:
+
+            ... <your rules> ...
+            id=DEFAULT ;  action=dunno
+
+    will log any request that passes the ruleset without having hit a prior
+    rule.
+
   INTEGRATION
     *Integration via daemon mode*
 
@@ -527,7 +684,10 @@ DESCRIPTION
 
             postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S
 
-    Check your syslogs (default facility "mail") for a line like:
+    For efficient caching you should check if you can use the options
+    --cache-rdomain-only and --cache-no-size.
+
+    Now check your syslogs (default facility "mail") for a line like:
 
             Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn ready for input
 
@@ -640,14 +800,15 @@ LICENSE
     modification, are permitted provided that the following conditions are
     met:
 
-            * Redistributions of source code must retain the above copyright notice,
-              this list of conditions and the following disclaimer.
-            * Redistributions in binary form must reproduce the above copyright notice,
-              this list of conditions and the following disclaimer in the documentation
-              and/or other materials provided with the distribution.
-            * Neither the name of the authors nor the names of his contributors may be
-              used to endorse or promote products derived from this software without
-              specific prior written permission.
+     * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+     * Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in
+       the documentation and/or other materials provided with the
+       distribution.
+     * Neither the name of the authors nor the names of his contributors
+       may be used to endorse or promote products derived from this
+       software without specific prior written permission.
 
     THIS SOFTWARE IS PROVIDED BY ME ``AS IS'' AND ANY EXPRESS OR IMPLIED
     WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF

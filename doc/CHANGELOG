@@ -1,6 +1,26 @@
+1.03
+====
+- feature: request attributes can now be compared (e.g. to compare client_name and helo_name)
+- feature: rule items can now be negated (e.g. to compare if client_name does not match helo_name)
+- feature: extra verbose mode '-vv' now displays much more debug information
+- feature: -L switch to redirect log output to stdout
+- feature: new manual section about the parser, other updates
+- bugfix:  caching did not work at end_of_data level because of different queue ids, corrected
+- bugfix:  all numeric items will now match if the request attribute exceeds the corresponding
+           rule item. the negation operator will lead to the opposite effect:
+  =============================================================================
+   ITEM=VALUE                            TYPE
+  =============================================================================
+   rblcount=2                            matches if rbl hits   >= 2
+   recipient_count=10                    matches if recipients >= 10
+   size=12345                            matches if size       >= 12345
+   encryption_keysize=256                matches if keysize    >= 256
+   encryption_keysize=!!256              matches if keysize    <  256
+  =============================================================================
+
 1.02
 ====
-- bugfix: rblcount and rhsblcount did not work correctly since V1.01, corrected
+- bugfix:  rblcount and rhsblcount did not work correctly since V1.01, corrected
 
 1.01
 ====
