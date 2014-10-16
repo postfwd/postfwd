@@ -24,7 +24,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.10pre8a';
+our($VERSION)			= '1.10pre8b';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -1203,7 +1203,7 @@ sub compare_rule {
     if ($hasdns) {
 
 	map { $timed .= (($timed) ? ", $_" : $_) if $Timeouts{$_} > $MAX_DNSBL_TIMEOUTS } (keys %Timeouts);
-	mylogs "notice", "[DNSQUERY] skipping rbls: $timed - too much timeouts" if ($timed or ($opt_verbose  > 1));
+	mylogs "notice", "[DNSQUERY] skipping rbls: $timed - too much timeouts" if $timed;
 
 	push @queries, rbl_prepare_lookups ( $COMP_RBL_KEY, $request{reverse_address}, @{$Rules[$index]{$COMP_RBL_KEY}} )
 		if ( exists($Rules[$index]{$COMP_RBL_KEY}) );
@@ -1222,7 +1222,7 @@ sub compare_rule {
 	if ( @queries ) {
 		@queries = uniq(@queries);
 		foreach my $query (@queries) {
-			mylogs $syslog_priority, "[SENDDNS] sending query \'$_\'"
+			mylogs $syslog_priority, "[SENDDNS] sending query \'$query\'"
 				if ($opt_verbose  > 1);
 			# send A query
 			$bgsock = $ownres->bgsend($query, 'A');
