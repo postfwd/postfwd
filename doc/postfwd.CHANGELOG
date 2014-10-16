@@ -1,3 +1,7 @@
+1.30-devel2
+===========
+- feature: Time::HiRes is used if available
+
 1.30-devel1
 ===========
 - feature: new plugin interface (BETA)

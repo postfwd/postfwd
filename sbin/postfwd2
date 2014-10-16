@@ -23,7 +23,7 @@ our @EXPORT_OK = qw(
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.30-devel1";
+our $VERSION	= "1.30-devel2";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -360,9 +360,24 @@ use strict;
 use base 'Net::Server::Multiplex';
 import postfwd2::basic qw(:DEFAULT &wantsdebug &hash_to_list &str_to_hash &hash_to_str);
 use vars qw( %Cache %Cleanup %Count %Interval %Top $Reload_Conf $Summary $StartTime );
+our($THRS);
+BEGIN {
+    eval { require Time::HiRes };
+    if ($@) {
+        warn "$@";
+        warn "Failed to include optional module Time::HiRes.";
+        $THRS = '%d';
+    } else {
+        Time::HiRes->import( qw(time) );
+        $THRS = '%.2f';
+    };
+};
 
 
 ## SUBS
+
+# prints formatted timestamp
+sub ts { return sprintf ("$THRS", $_[0]) };
 
 # prepare stats
 sub list_stats {
@@ -448,12 +463,12 @@ sub set_cache {
 	return (join '; ', @answer);
 };
 
-# get a whole rate item
+# get rate item
 sub get_rate {
 	my ($self,$now,$type,$item) = @_;
 	my @answer = (); my $rindex = '';
 	($item, $rindex) = split $postfwd_settings{seplim}, $item;
-	return '<undef>' unless ( $item and $rindex and defined $Cache{$type}{$item}{$rindex}{'until'} and ($now <= $Cache{$type}{$item}{$rindex}{'until'}[0]));
+	return '<undef>' unless ( $item and $rindex and defined $Cache{$type}{$item} and defined $Cache{$type}{$item}{$rindex} and defined $Cache{$type}{$item}{$rindex}{'until'} and ($now <= $Cache{$type}{$item}{$rindex}{'until'}[0]));
 	$Count{$type."_hits"}++;
 	map { push @answer, "$_=".(join $postfwd_settings{seplst}, @{$Cache{$type}{$item}{$rindex}{$_}}) } (keys %{$Cache{$type}{$item}{$rindex}});
 	return (join $postfwd_settings{sepreq}, @answer);
@@ -461,9 +476,10 @@ sub get_rate {
 
 # set rate to cache
 sub set_rate {
-	my ($self,$type,$item,$vals) = @_;
+	my ($self,$now,$type,$item,$vals) = @_;
 	my @answer = (); my $rindex = '';
 	($item, $rindex) = split $postfwd_settings{seplim}, $item;
+	return '<undef>' if ( defined $Cache{$type}{$item} and defined $Cache{$type}{$item}{$rindex} and defined $Cache{$type}{$item}{$rindex}{'until'} and $now <= @{$Cache{$type}{$item}{$rindex}{'until'}}[0] );
 	push @{$Cache{$type}{$item}{'list'}}, $rindex;
 	@{$Cache{$type}{$item}{'list'}} = uniq(@{$Cache{$type}{$item}{'list'}});
 	delete $Cache{$type}{$item}{$rindex} if defined $Cache{$type}{$item}{$rindex};
@@ -483,15 +499,16 @@ sub check_rate {
 	return '<undef>' unless ($type and $item);
 	$size ||= 0; $rcpt ||= 0; my $answer = '';
 	RATES: foreach my $arg (split ($postfwd_settings{seplst}, $item)) {
-		next RATES unless ($arg and defined $Cache{$type}{$arg} and defined $Cache{$type}{$arg}{'list'});
+		next RATES unless (defined $Cache{$type}{$arg} and defined $Cache{$type}{$arg}{'list'});
 
 		RINDEX: foreach my $rindex (@{$Cache{$type}{$arg}{'list'}}) {
-			next RINDEX unless (defined $Cache{$type}{$arg}{$rindex}{'until'} and defined $Cache{$type}{$arg}{$rindex}{type});
+			next RINDEX unless (defined $Cache{$type}{$arg}{$rindex} and defined $Cache{$type}{$arg}{$rindex}{'until'} and defined $Cache{$type}{$arg}{$rindex}{type});
 
 			# renew rate
 			if ( $now > @{$Cache{$type}{$arg}{$rindex}{'until'}}[0] ) {
 				@{$Cache{$type}{$arg}{$rindex}{count}}[0] = ( (@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'size') ? $size :
 				  ((@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'rcpt') ? $rcpt : 1 ) );
+				@{$Cache{$type}{$arg}{$rindex}{'time'}}[0] = $now;
 				@{$Cache{$type}{$arg}{$rindex}{'until'}}[0] = $now + @{$Cache{$type}{$arg}{$rindex}{ttl}}[0];
 				log_info ("[RATES] renewing rate limit object '".$arg."'"
 				  ." [type: ".@{$Cache{$type}{$arg}{$rindex}{type}}[0]
@@ -524,56 +541,58 @@ sub check_rate {
 # clean up cache
 sub cleanup_cache {
 	my($type,$now) = @_;
-	my $start = time();
-	log_info ("[CLEANUP] checking $type cache...") if wantsdebug (qw[ all cleanup ]);
+	my $start = $Cleanup{$type} = time();
+	log_info ("[CLEANUP] checking $type cache...") if wantsdebug (qw[ all cleanup parentcleanup ]);
 	return unless defined $Cache{$type} and my $count = scalar keys %{$Cache{$type}};
 	CLEANUP: foreach my $checkitem (keys %{$Cache{$type}}) {
 		next CLEANUP unless (defined $Cache{$type}{$checkitem});
 		unless ( defined $Cache{$type}{$checkitem}{'list'} ) {
-			# remove inclomplete objects
+			# remove incomplete objects
 			if ( !defined($Cache{$type}{$checkitem}{'until'}) or !defined($Cache{$type}{$checkitem}{ttl}) ) {
-				log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'")
-					if wantsdebug (qw[ all cleanup ]);
+				if ( wantsdebug (qw[ all cleanup parentcleanup ]) ) {
+					log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'");
+					map { log_info ("[CLEANUP]  $_") } ( hash_to_list(%{$Cache{$type}{$checkitem}}) );
+				};
 				delete $Cache{$type}{$checkitem};
 			# remove timed out objects
 			} elsif ( $now > $Cache{$type}{$checkitem}{'until'}[0] ) {
-				log_info ("[CLEANUP] removing $type cache for item '$checkitem' after timeout: ".$Cache{$type}{$checkitem}{ttl}[0]."s)")
-					if wantsdebug (qw[ all cleanup ]);
+				log_info ("[CLEANUP] removing $type cache item '$checkitem' after ttl ".$Cache{$type}{$checkitem}{ttl}[0]."s")
+					if wantsdebug (qw[ all cleanup parentcleanup ]);
 				delete $Cache{$type}{$checkitem};
 			};
 		} else {
 			my @i = ();
 			foreach my $crate (@{$Cache{$type}{$checkitem}{'list'}}) {
 				if ( !(defined $Cache{$type}{$checkitem}{$crate}{'until'}) or !(defined $Cache{$type}{$checkitem}{$crate}{ttl}) ) {
-					log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'->'$crate'")
-						if wantsdebug (qw[ all cleanup ]);
+					if ( wantsdebug (qw[ all cleanup parentcleanup ]) ) {
+						log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'->'$crate'");
+						map { log_info ("[CLEANUP]  $_") } ( hash_to_list(%{$Cache{$type}{$checkitem}{$crate}}) );
+					};
 					delete $Cache{$type}{$checkitem}{$crate};
 				} elsif ( $now > $Cache{$type}{$checkitem}{$crate}{'until'}[0] ) {
-					log_info ("[CLEANUP] removing $type cache for item '$checkitem'->'$crate' after timeout: ".$Cache{$type}{$checkitem}{$crate}{ttl}[0]."s)")
-						if wantsdebug (qw[ all cleanup ]);
+					log_info ("[CLEANUP] removing $type cache item '$checkitem'->'$crate' after ttl ".$Cache{$type}{$checkitem}{$crate}{ttl}[0]."s")
+						if wantsdebug (qw[ all cleanup parentcleanup ]);
 					delete $Cache{$type}{$checkitem}{$crate};
 				} else {
 					push @i, $crate;
 				};
 			};
-			if ($#i < 0) {
+			unless ($i[0]) {
 				log_info ("[CLEANUP] removing $type cache complete item '$checkitem'")
-					if wantsdebug (qw[ all cleanup ]);
+					if wantsdebug (qw[ all cleanup parentcleanup ]);
 				delete $Cache{$type}{$checkitem};
 			} else {
 				log_info ("[CLEANUP] new $type cache limits for item '$checkitem': ".(join ', ', @i))
-					if wantsdebug (qw[ all cleanup ]);
+					if wantsdebug (qw[ all cleanup parentcleanup ]);
 				@{$Cache{$type}{$checkitem}{'list'}} = @i;
 			};
 		};
 	};
 	my $end = time();
-	log_info ("[CLEANUP]  needed ".($end - $start)
-		." seconds for request cleanup of "
+	log_info ("[CLEANUP] cleaning $type cache needed ".ts($end - $start)." seconds for "
 		.($count - scalar keys %{$Cache{$type}})." out of ".$count
-		." cached items after ".($now - $Cleanup{$type})
-		." seconds (min ".$postfwd_settings{$type}{cleanup}."s)") if ( wantsdebug (qw[ all verbose cleanup ]) or (($end - $start) > 0) );
-	$Cleanup{$type} = $start;
+		." cached items after cleanup time ".$postfwd_settings{$type}{cleanup}."s")
+		if ( wantsdebug (qw[ all verbose cleanup parentcleanup ]) or (($end - $start) >= 1) );
 };
 
 
@@ -653,7 +672,7 @@ sub mux_input {
 			log_info ("[SETRATEITEM] request: '$request'") if wantsdebug (qw[ all cache setcache ]);
 			$Count{cache_queries}++; $Interval{cache_queries}++;
 			$Count{$type."_set"}++; $Interval{$type."_set"}++;
-			$action = $self->set_rate($type,$item,$vals);
+			$action = $self->set_rate($now,$type,$item,$vals);
 			log_info ("[SETRATEITEM] answer: '$action'") if wantsdebug (qw[ all cache setcache ]);
 		} elsif ($request =~ m/$postfwd_patterns{dumpstats}/) {
 			$action = join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, list_stats();
@@ -684,6 +703,18 @@ use Exporter qw(import);
 our @EXPORT_OK = qw(
 	&read_config &show_config &process_input
 );
+our($THRS);
+BEGIN {
+    eval { require Time::HiRes };
+    if ($@) {
+        warn "$@";
+        warn "Failed to include optional module Time::HiRes.";
+        $THRS = '%d';
+    } else {
+        Time::HiRes->import( qw(time) );
+        $THRS = '%.2f';
+    };
+};
 
 
 # these items have to be compared as...
@@ -809,6 +840,9 @@ use vars qw(
 
 ## SUBS
 
+# prints formatted timestamp
+sub ts { return sprintf ("$THRS", $_[0]) };
+
 # cache query
 sub cache_query { return ( &{$postfwd_settings{cache}{check}}('cache',@_) || '<undef>' ) };
 
@@ -867,12 +901,12 @@ sub cleanup_dns_cache {
 		# remove inclomplete objects (dns timeouts)
 		if ( !defined($DNS_Cache{$checkitem}{'until'}) or !defined($DNS_Cache{$checkitem}{ttl}) ) {
 			log_info ("[CLEANUP] deleting incomplete dns-cache item '$checkitem'")
-				if wantsdebug (qw[ all cleanup ]);
+				if wantsdebug (qw[ all cleanup childcleanup ]);
 			delete $DNS_Cache{$checkitem};
 		# remove timed out objects
 		} elsif ( $now > $DNS_Cache{$checkitem}{'until'} ) {
-			log_info ("[CLEANUP] removing dns-cache item '$checkitem' after timeout: ".$DNS_Cache{$checkitem}{ttl}."s")
-				if wantsdebug (qw[ all cleanup ]);
+			log_info ("[CLEANUP] removing dns-cache item '$checkitem' after ttl ".$DNS_Cache{$checkitem}{ttl}."s")
+				if wantsdebug (qw[ all cleanup childcleanup ]);
 			delete $DNS_Cache{$checkitem};
 		};
 	};
@@ -885,11 +919,11 @@ sub cleanup_request_cache {
 		next RITEM unless defined $Request_Cache{$checkitem}{'until'};
 		if ( !defined($Request_Cache{$checkitem}{'until'}) or !defined($Request_Cache{$checkitem}{ttl}) ) {
 			log_info ("[CLEANUP] deleting incomplete request-cache item '$checkitem'")
-				if wantsdebug (qw[ all cleanup ]);
+				if wantsdebug (qw[ all cleanup childcleanup ]);
 			delete $Request_Cache{$checkitem};
 		} elsif ( $now > $Request_Cache{$checkitem}{'until'} ) {
-			log_info ("[CLEANUP] removing request-cache item '$checkitem' after timeout: ".$Request_Cache{$checkitem}{ttl}."s")
-				if wantsdebug (qw[ all cleanup ]);
+			log_info ("[CLEANUP] removing request-cache item '$checkitem' after ttl ".$Request_Cache{$checkitem}{ttl}."s")
+				if wantsdebug (qw[ all cleanup childcleanup ]);
 			delete $Request_Cache{$checkitem};
 		};
 	};
@@ -901,30 +935,30 @@ sub cleanup_rate_cache {
 	foreach my $checkitem (keys %Rate_Cache) {
 		unless (defined $Rate_Cache{$checkitem}{'list'}) {
 			log_info ("[CLEANUP] deleting incomplete rate-cache item '$checkitem'")
-				if wantsdebug (qw[ all cleanup ]);
+				if wantsdebug (qw[ all cleanup childcleanup ]);
 			delete $Rate_Cache{$checkitem};
 		} else {
 			my @i = ();
 			foreach my $crate (@{$Rate_Cache{$checkitem}{'list'}}) {
 				if ( not(defined $Rate_Cache{$checkitem}{$crate}{'until'}) or not(defined $Rate_Cache{$checkitem}{$crate}{'ttl'}) ) {
 					log_info ("[CLEANUP] deleting incomplete rate-cache item '$checkitem'->'$crate'")
-						if wantsdebug (qw[ all cleanup ]);
+						if wantsdebug (qw[ all cleanup childcleanup ]);
 					delete $Rate_Cache{$checkitem}{$crate};
 				} elsif ( $now > $Rate_Cache{$checkitem}{$crate}{'until'} ) {
-					log_info ("[CLEANUP] removing rate-cache item '$checkitem'->'$crate' after timeout: "
-						.$Rate_Cache{$checkitem}{$crate}{ttl}."s") if wantsdebug (qw[ all cleanup ]);
+					log_info ("[CLEANUP] removing rate-cache item '$checkitem'->'$crate' after ttl ".$Rate_Cache{$checkitem}{$crate}{ttl}."s")
+						if wantsdebug (qw[ all cleanup childcleanup ]);
 					delete $Rate_Cache{$checkitem}{$crate};
 				} else {
 					push @i, $crate;
 				};
 			};
-			if ($#i < 0) {
+			unless ($i[0]) {
 				log_info ("[CLEANUP] removing complete rate-cache item '$checkitem'")
-					if wantsdebug (qw[ all cleanup ]);
+					if wantsdebug (qw[ all cleanup childcleanup ]);
 				delete $Rate_Cache{$checkitem};
 			} else {
 				log_info ("[CLEANUP] new limits for rate-cache item '$checkitem': ".(join ', ', @i))
-					if wantsdebug (qw[ all cleanup ]);
+					if wantsdebug (qw[ all cleanup childcleanup ]);
 				@{$Rate_Cache{$checkitem}{'list'}} = @i;
 			};
 		};
@@ -993,7 +1027,7 @@ sub prepare_file {
 		push @result, prepare_item($forced_reload, $cmp, $_);
 	}; close ($fh);
         # update Config_Cache
-        $Config_Cache{$file}{lastread}   = time;
+        $Config_Cache{$file}{lastread}   = time();
         @{$Config_Cache{$file}{content}} = @result;
 	log_info ("read ".($#result + 1)." items from $type:$file") if wantsdebug (qw[ all config ]);
 	return @result;
@@ -1348,7 +1382,7 @@ sub rbl_check {
 		or ($myresult and not($postfwd_settings{dns}{nolog}) and defined $DNS_Cache{$myquery}{'log'}) ) {
 		log_info ("[DNSBL] ".( ($mytype eq $COMP_RBL_KEY) ? join('.', reverse(split(/\./,$myval))) : $myval )." listed on "
 			.lc(($DNS_Cache{$myquery}{type} || $mytype)).":$myrbl (answer: ".(join ", ", @{$DNS_Cache{$myquery}{A}})
-			.", time: ".$DNS_Cache{$myquery}{delay}."s, ttl: ".$DNS_Cache{$myquery}{ttl}."s, '".($DNS_Cache{$myquery}{TXT} || '')."')");
+			.", time: ".ts($DNS_Cache{$myquery}{delay})."s, ttl: ".$DNS_Cache{$myquery}{ttl}."s, '".($DNS_Cache{$myquery}{TXT} || '')."')");
 		delete $DNS_Cache{$myquery}{'log'} if defined $DNS_Cache{$myquery}{'log'};
 	};
     };
@@ -1434,7 +1468,7 @@ sub dns_query_net_dns {
 		cache_query ( "CMD=".$postfwd_commands{setcacheitem}.";TYPE=dns;ITEM=$item".hash_to_str(%{$DNS_Cache{$item}}) )
 		    unless ($postfwd_settings{dns}{noparent});
 		$DNS_Cache{$item}{'log'} = 1;
-		log_info ("[DNS] dnsanswers: item=$item, type=$type -> $rname=".((@{$DNS_Cache{$item}{$type}}) ? join ',', @{$DNS_Cache{$item}{$type}} : '')." (delay: ".$DNS_Cache{$item}{delay}.", ttl: $ttl)")
+		log_info ("[DNS] dnsanswers: item=$item, type=$type -> $rname=".((@{$DNS_Cache{$item}{$type}}) ? join ',', @{$DNS_Cache{$item}{$type}} : '')." (delay: ".ts($DNS_Cache{$item}{delay}).", ttl: $ttl)")
 		    if ($postfwd_settings{dns}{anylog} or wantsdebug (qw[ all verbose dns setdns devel ]));
 		delete $ownsock{$sock};
 	    } else {
@@ -1849,6 +1883,7 @@ sub postfwd_items {
 					type 		=> $mycmd,
 					maxcount	=> $ratecount,
 					ttl		=> $ratetime,
+					time		=> $now,
 					'until'		=> $now + $ratetime,
 					count		=> ( ($mycmd eq 'size') ? $request{size} : (($mycmd eq 'rcpt') ? $request{recipient_count} : 1 ) ),
 					rule		=> $Rules[$index]{$COMP_ID},
@@ -1931,7 +1966,7 @@ sub postfwd_items {
 						$stop = $myaction = $sendstr;
 					};
 				} else {
-					mylogs ('notice', "rule: $index got invalid answer '$sendstr' from $myarg");
+					log_note ("rule: $index got invalid answer '$sendstr' from $myarg");
 				};
 		} else {
 			log_note ("Could not open socket to '$myarg' - $!");
@@ -2174,7 +2209,7 @@ sub compare_rule {
 				? $Timeouts{$DNS_Cache{$_}{name}} + 1
 				: 1
 				if ( $postfwd_settings{dns}{max_timeout} > 0 );
-			log_note ("[DNSBL] warning: timeout (".$Timeouts{$DNS_Cache{$_}{name}}."/".$postfwd_settings{dns}{max_timeout}.") for ".$DNS_Cache{$_}{name}." after ".$DNS_Cache{$_}{'delay'}." seconds");
+			log_note ("[DNSBL] warning: timeout (".$Timeouts{$DNS_Cache{$_}{name}}."/".$postfwd_settings{dns}{max_timeout}.") for ".$DNS_Cache{$_}{name}." after ".ts($DNS_Cache{$_}{'delay'})." seconds");
 		};
 	};
 
@@ -2314,7 +2349,7 @@ sub smtpd_access_policy {
     # clear dnsbl timeout counters
     if ( $Cleanup_Timeouts and ($postfwd_settings{dns}{max_interval} > 0) and (($now - $Cleanup_Timeouts) > $postfwd_settings{dns}{max_interval}) ) {
 	undef %Timeouts;
-	log_info ("[CLEANUP]  clearing dnsbl timeout counters") if wantsdebug (qw[ all verbose ]);
+	log_info ("[CLEANUP] clearing dnsbl timeout counters") if wantsdebug (qw[ all verbose ]);
 	$Cleanup_Timeouts = $now;
     };
 
@@ -2324,11 +2359,11 @@ sub smtpd_access_policy {
 	$t3 = scalar keys %Rate_Cache;
 	cleanup_rate_cache($now);
 	$t2 = time();
-	log_info ("[CLEANUP]  needed ".($t2 - $t1)
+	log_info ("[CLEANUP] cleaning rate-cache needed ".ts($t2 - $t1)
 		." seconds for rate cleanup of "
 		.($t3 - scalar keys %Rate_Cache)." out of ".$t3
-		." cached items after ".($now - $Cleanup_Rates)
-		." seconds (min ".$postfwd_settings{rate}{cleanup}."s)") if ( wantsdebug (qw[ all verbose rates cleanup ]) or (($t2 - $t1) > 0) );
+		." cached items after cleanup time ".$postfwd_settings{rate}{cleanup}."s")
+		if ( wantsdebug (qw[ all verbose rates cleanup childcleanup ]) or (($t2 - $t1) >= 1) );
 	$Cleanup_Rates = $t1;
     };
 
@@ -2381,11 +2416,11 @@ sub smtpd_access_policy {
 		$t3 = scalar keys %Request_Cache;
 		cleanup_request_cache($now);
 		$t2 = time();
-		log_info ("[CLEANUP]  needed ".($t2 - $t1)
+		log_info ("[CLEANUP] cleaning request-cache needed ".ts($t2 - $t1)
 			." seconds for request cleanup of "
 			.($t3 - scalar keys %Request_Cache)." out of ".$t3
-			." cached items after ".($now - $Cleanup_Requests)
-			." seconds (min ".$postfwd_settings{request}{cleanup}."s)") if ( wantsdebug (qw[ all verbose cleanup ]) or (($t2 - $t1) > 0) );
+			." cached items after cleanup time ".$postfwd_settings{request}{cleanup}."s")
+			if ( wantsdebug (qw[ all verbose cleanup childcleanup ]) or (($t2 - $t1) >= 1) );
 		$Cleanup_Requests = $t1;
 	};
     };
@@ -2407,11 +2442,11 @@ sub smtpd_access_policy {
 		. ", helo=<".$request{helo_name}.">"
 		. ", proto=".$request{protocol_name}
 		. ", state=".$request{protocol_state}
-		. ", delay=".(time() - $now)."s"
+		. ", delay=".ts(time() - $now)."s"
 		. ", action=".$myaction." (item: '".$ratehit."'"
 		. ", type: ".$Rate_Cache{$ratehit}{$rateindex}{type}
 		. ", count: ".$Rate_Cache{$ratehit}{$rateindex}{count}."/".$Rate_Cache{$ratehit}{$rateindex}{maxcount}
-		. ", ttl: ".$Rate_Cache{$ratehit}{$rateindex}{ttl}."s"
+		. ", time: ".ts($now - $Rate_Cache{$ratehit}{$rateindex}{"time"})."/".$Rate_Cache{$ratehit}{$rateindex}{ttl}."s)"
 		) unless $postfwd_settings{request}{nolog};
 
     # check own cache
@@ -2431,7 +2466,7 @@ sub smtpd_access_policy {
 			. ", helo=<".$request{helo_name}.">"
 			. ", proto=".$request{protocol_name}
 			. ", state=".$request{protocol_state}
-			. ", delay=".(time() - $now)."s"
+			. ", delay=".ts(time() - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
 			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
 			) unless $postfwd_settings{request}{nolog};
@@ -2456,7 +2491,7 @@ sub smtpd_access_policy {
 			. ", helo=<".$request{helo_name}.">"
 			. ", proto=".$request{protocol_name}
 			. ", state=".$request{protocol_state}
-			. ", delay=".(time() - $now)."s"
+			. ", delay=".ts(time() - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
 			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
 			) unless $postfwd_settings{request}{nolog};
@@ -2479,11 +2514,11 @@ sub smtpd_access_policy {
 			$t3 = scalar keys %DNS_Cache;
 			cleanup_dns_cache($now);
 			$t2 = time();
-			log_info ("[CLEANUP]  needed ".($t2 - $t1)
+			log_info ("[CLEANUP] cleaning dns-cache needed ".ts($t2 - $t1)
 				." seconds for rbl cleanup of "
 				.($t3 - scalar keys %DNS_Cache)." out of ".$t3
-				." cached items after ".($now - $Cleanup_RBLs)
-				." seconds (min ".$postfwd_settings{dns}{cleanup}."s)") if ( wantsdebug (qw[ all verbose cleanup ]) or (($t2 - $t1) > 0) );
+				." cached items after cleanup time ".$postfwd_settings{dns}{cleanup}."s")
+				if ( wantsdebug (qw[ all verbose cleanup childcleanup ]) or (($t2 - $t1) >= 1) );
 			$Cleanup_RBLs = $t1;
 		};
 
@@ -2539,7 +2574,7 @@ sub smtpd_access_policy {
 				# normal rule. returns $action.
 				} else { $stop = 1; };
 				if ($stop) {
-					$myline .= ", delay=".(time() - $now)."s, hits=".$request{$COMP_HITS}.", action=".$myaction;
+					$myline .= ", delay=".ts(time() - $now)."s, hits=".$request{$COMP_HITS}.", action=".$myaction;
     					log_info ("[RULES] ".$myline) unless $postfwd_settings{request}{nolog};
 					$counters .= $postfwd_settings{sepreq}."ruleset=1";
 					# update cache

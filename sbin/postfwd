@@ -21,11 +21,23 @@ use Net::DNS;
 use Net::Server::Multiplex;
 use vars qw(@ISA);
 @ISA = qw(Net::Server::Multiplex);
+our($THRS);
+BEGIN {
+    eval { require Time::HiRes };
+    if ($@) {
+        warn "$@";
+        warn "Failed to include optional module Time::HiRes.";
+	$THRS = '%d';
+    } else {
+        Time::HiRes->import( qw(time) );
+	$THRS = '%.2f';
+    };
+};
 
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.30-devel1';
+our($VERSION)			= '1.30-devel2';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -279,11 +291,17 @@ sub myprintf {
     printf STDOUT $msg, @_
 	unless $opt_perfmon;
 };
+#
 # tests debug levels
+#
 sub wantsdebug {
     return unless %DEBUG;
     foreach (@_) { return 1 if $DEBUG{$_} };
 };
+#
+# prints formatted timestamp
+#
+sub ts { return sprintf ("$THRS", $_[0]) };
 #
 # Log an error and abort.
 #
@@ -413,15 +431,11 @@ sub cleanup_dns_cache {
     foreach my $checkitem (keys %DNS_Cache) {
 	# remove inclomplete objects (dns timeouts)
 	if ( !defined($DNS_Cache{$checkitem}{"time"}) or !defined($DNS_Cache{$checkitem}{ttl}) ) {
-		mylogs $syslog_priority, "[CLEANUP] deleting incomplete dns-cache item $checkitem after "
-			.((defined $DNS_Cache{$checkitem}{"time"}) ? ($now - $DNS_Cache{$checkitem}{"time"}) : '<undef>')
-			." seconds (timeout: ".((defined $DNS_Cache{$checkitem}{ttl}) ? $DNS_Cache{$checkitem}{ttl} : '<undef>')."s)"
-			if ($opt_verbose > 1);
+		mylogs $syslog_priority, "[CLEANUP] deleting incomplete dns-cache item '$checkitem'" if ($opt_verbose > 1);
 		delete $DNS_Cache{$checkitem};
 	# remove timed out objects
 	} elsif ( ($now - $DNS_Cache{$checkitem}{"time"}) > $DNS_Cache{$checkitem}{ttl} ) {
-		mylogs $syslog_priority, "[CLEANUP] removing rbl-cache for $checkitem after "
-			.($now - $DNS_Cache{$checkitem}{"time"})." seconds (timeout: ".$DNS_Cache{$checkitem}{ttl}."s)"
+		mylogs $syslog_priority, "[CLEANUP] removing dns-cache item '$checkitem' after ttl ".$DNS_Cache{$checkitem}{ttl}."s"
 			if ($opt_verbose > 1);
 		delete $DNS_Cache{$checkitem};
 	};
@@ -434,10 +448,10 @@ sub cleanup_request_cache {
     my($now) = $_[0];
     foreach my $checkitem (keys %Request_Cache) {
 	if ( not(defined $Request_Cache{$checkitem}{'until'}) ) {
+		mylogs $syslog_priority, "[CLEANUP] deleting incomplete request-cache item '$checkitem'" if ($opt_verbose > 1);
 		delete $Request_Cache{$checkitem};
 	} elsif ( $now > $Request_Cache{$checkitem}{'until'} ) {
-		mylogs $syslog_priority, "[CLEANUP] removing request-cache $checkitem after "
-			.($now - $Request_Cache{$checkitem}{"time"})." seconds (timeout: ".$REQUEST_MAX_CACHE."s)"
+		mylogs $syslog_priority, "[CLEANUP] removing request-cache item '$checkitem' after ttl ".$REQUEST_MAX_CACHE."s"
 			if ($opt_verbose > 1);
 		delete $Request_Cache{$checkitem};
 	};
@@ -455,19 +469,21 @@ sub cleanup_rate_cache {
 		my @i = ();
 		foreach my $crate (@{$Rates{$checkitem}{'list'}}) {
 			if ( not(defined $Rates{$checkitem}{$crate}{'until'}) ) {
+				mylogs $syslog_priority, "[CLEANUP] deleting incomplete rate-cache item '$checkitem'->'$crate'" if ($opt_verbose > 1);
 				delete $Rates{$checkitem}{$crate};
 			} elsif ( $now > $Rates{$checkitem}{$crate}{'until'} ) {
-				mylogs $syslog_priority, "[CLEANUP] removing rate-cache for ".$checkitem."/".$crate." after "
-					.($now - $Rates{$checkitem}{$crate}{"time"})." seconds (timeout: ".$Rates{$checkitem}{$crate}{ttl}."s)"
+				mylogs $syslog_priority, "[CLEANUP] removing rate-cache item '$checkitem'->'$crate' after ttl ".$Rates{$checkitem}{$crate}{ttl}."s"
 					if ($opt_verbose > 1);
 				delete $Rates{$checkitem}{$crate};
 			} else {
 				push @i, $crate;
 			};
 		};
-		if ($#i < 0) {
+		unless ($i[0]) {
+			mylogs $syslog_priority, "[CLEANUP] deleting complete rate-cache item '$checkitem'" if ($opt_verbose > 1);
 			delete $Rates{$checkitem};
 		} else {
+			mylogs $syslog_priority, "[CLEANUP] new index list for rate-cache item '$checkitem': ".(join ', ', @i) if ($opt_verbose > 1);
 			@{$Rates{$checkitem}{'list'}} = @i;
 		};
 	};
@@ -645,7 +661,7 @@ sub prepare_file {
 		push @result, prepare_item($forced_reload, $cmp, $_);
 	}; close ($fh);
 	# update Config_Cache
-	$Config_Cache{$file}{lastread}   = time;
+	$Config_Cache{$file}{lastread}   = time();
 	@{$Config_Cache{$file}{content}} = @result;
 	mylogs $syslog_priority, "read ".($#result + 1)." items from $type:$file" if ($opt_verbose > 1);
 	return @result;
@@ -793,7 +809,7 @@ sub read_config {
 			@myruleset = read_config_file ($forced_reload, ($#Rules+1), $myitem);
 			if (@myruleset) {
 				push ( @Rules, @myruleset );
-				$Config_Cache{$myitem}{lastread} = time;
+				$Config_Cache{$myitem}{lastread} = time();
 				@{$Config_Cache{$myitem}{ruleset}} = @myruleset;
 			};
 		};
@@ -852,7 +868,7 @@ sub rbl_timeout {
 #
 sub rbl_read_dns {
     my($myresult)		= shift;
-    my($now)			= time;
+    my($now)			= time();
     my($que,$ttl,$res,$typ)	= undef;
     my(@addrs)			= ();
 
@@ -884,7 +900,7 @@ sub rbl_read_dns {
 							: $DNS_Cache{$que}{value} )
 						." listed on ".$DNS_Cache{$que}{type}.":".$DNS_Cache{$que}{name}
 						." (answer: ".(join ", ", @addrs)
-						.", time: ".($now - $DNS_Cache{$que}{starttime})."s"
+						.", time: ".ts($now - $DNS_Cache{$que}{starttime})."s"
 						.", ttl: ".$ttl."s)"
 						if ( @addrs and not($opt_nodnslog) );
 					@{$DNS_Cache{$que}{A}}		= @addrs;
@@ -905,7 +921,7 @@ sub rbl_read_dns {
 		};
 	};
     } else {
-	syslog "notice", "[DNSBL] dns timeout";
+	mylogs "notice", "[DNSBL] dns timeout";
     };
     return $que if (@addrs || $res);
 };
@@ -967,7 +983,7 @@ sub rbl_check {
     my($mytype,$myrbl,$myval) = @_;
     my($myanswer,$myrblans,$myrbltime,$myresult,$mystart,$myend);
     my($m1,$m2,$myrbltype,$m4,$myrbltxt,$myquery);
-    my($now) = time;
+    my($now) = time();
 
     # separate rbl-name and answer
     ($myrbl, $myrblans, $myrbltime) = split /\//, $myrbl; 
@@ -984,7 +1000,7 @@ sub rbl_check {
 		if ( $myresult = ( ($_) and ($_ =~ /$myrblans/)) ) {
 			mylogs $syslog_priority, "[DNSBL] query $myval listed on "
 				.uc($mytype).":$myrbl (answer: ".(join ", ", @{$DNS_Cache{$myquery}{A}})
-				.", cached: ".($now - $DNS_Cache{$myquery}{"time"})."s ago)"
+				.", cached: ".ts($now - $DNS_Cache{$myquery}{"time"})."s ago)"
 				if $opt_verbose;
 			push @DNSBL_Text, $DNS_Cache{$myquery}{type}.':'.$DNS_Cache{$myquery}{name}.':<'.($DNS_Cache{$myquery}{TXT} || '').'>'
 				if (defined $DNS_Cache{$myquery}{type} and defined $DNS_Cache{$myquery}{name});
@@ -1440,14 +1456,14 @@ sub postfwd_items {
 			unless ( defined $Rates{$ratetype}{$crate} ) {
 				push @{$Rates{$ratetype}{'list'}}, $crate;
 				$Rates{$ratetype}{$crate} = {
-					type 		=> $mycmd,
-					maxcount	=> $ratecount,
-					ttl		=> $ratetime,
-					count		=> ( ($mycmd eq 'size') ? $request{size} : (($mycmd eq 'rcpt') ? $request{recipient_count} : 1 ) ),
-					time		=> $now,
+					'type' 		=> $mycmd,
+					'maxcount'	=> $ratecount,
+					'ttl'		=> $ratetime,
+					'count'		=> ( ($mycmd eq 'size') ? $request{size} : (($mycmd eq 'rcpt') ? $request{recipient_count} : 1 ) ),
+					'time'		=> $now,
 					'until'		=> $now + $ratetime,
-					rule		=> $Rules[$index]{$COMP_ID},
-					action		=> $ratecmd,
+					'rule'		=> $Rules[$index]{$COMP_ID},
+					'action'	=> $ratecmd,
 				};
 				mylogs $syslog_priority, "[RULES] ".$myline
 					.", creating rate object ".$ratetype
@@ -1750,7 +1766,7 @@ sub compare_rule {
 			? $Timeouts{$DNS_Cache{$_}{name}} + 1
 			: 1
 			if ( $MAX_DNSBL_TIMEOUTS > 0 );
-		mylogs ('notice', "[DNSBL] warning: timeout (".$Timeouts{$DNS_Cache{$_}{name}}."/".$MAX_DNSBL_TIMEOUTS.") for ".$DNS_Cache{$_}{name}." after ".(time() - $ownstart)." seconds");
+		mylogs ('notice', "[DNSBL] warning: timeout (".$Timeouts{$DNS_Cache{$_}{name}}."/".$MAX_DNSBL_TIMEOUTS.") for ".$DNS_Cache{$_}{name}." after ".ts(time() - $ownstart)." seconds");
 	};
 
 	# perform outstanding TXT queries unless --dns_async_txt is set
@@ -1901,7 +1917,7 @@ sub smtpd_access_policy {
     my(%request)			      		= @_;
     my($myaction)			      		= $default_action;
     my($index)				      		= 1;
-    my($now)				      		= time;
+    my($now)				      		= time();
     my($date)				      		= join(',', localtime($now));
     my($matched,$rblcnt,$rhlcnt,$t1,$t2,$t3,$stop)      = 0;
     my($mykey,$cacheid,$myline,$checkreq,$var,$ratehit,$rateitem) = "";
@@ -1928,21 +1944,21 @@ sub smtpd_access_policy {
     # clear dnsbl timeout counters
     if ( ($MAX_DNSBL_INTERVAL > 0) and (($now - $Cleanup_Timeouts) > $MAX_DNSBL_INTERVAL) ) {
 	undef %Timeouts;
-	mylogs $syslog_priority, "[CLEANUP]  clearing dnsbl timeout counters" if $opt_verbose;
+	mylogs $syslog_priority, "[CLEANUP] clearing dnsbl timeout counters" if $opt_verbose;
 	$Cleanup_Timeouts = $now;
     };
 
     # wipe out old cache items
     if ( ($CLEANUP_RATE_CACHE > 0) and (scalar keys %Rates > 0) and (($now - $Cleanup_Rates) > $CLEANUP_RATE_CACHE) ) {
-	$t1 = time;
+	$t1 = time();
 	$t3 = scalar keys %Rates;
 	cleanup_rate_cache($now);
-	$t2 = time;
-	mylogs $syslog_priority, "[CLEANUP]  needed ".($t2 - $t1)
+	$t2 = time();
+	mylogs $syslog_priority, "[CLEANUP] needed ".ts($t2 - $t1)
 		." seconds for rate cleanup of "
 		.($t3 - scalar keys %Rates)." out of ".$t3
-		." cached items after ".($now - $Cleanup_Rates)
-		." seconds (min ".$CLEANUP_RATE_CACHE."s)" if ( $opt_verbose or (($t2 - $t1) > 0) );
+		." cached items after cleanup time ".$CLEANUP_RATE_CACHE."s"
+		if ( $opt_verbose or (($t2 - $t1) >= 1) );
 	$Cleanup_Rates = $t1;
     };
 
@@ -1959,7 +1975,7 @@ sub smtpd_access_policy {
 				(($Rates{$checkval}{$crate}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
 			$Rates{$checkval}{$crate}{"time"} = $now;
 			$Rates{$checkval}{$crate}{'until'} = $now + $Rates{$checkval}{$crate}{ttl};
-			mylogs $syslog_priority, "[RATE] renewing rate object '".$checkval."/".$crate."'"
+			mylogs $syslog_priority, "[RATES] renewing rate object '".$checkval."/".$crate."'"
 				." [type: ".$Rates{$checkval}{$crate}{type}
 				.", max: ".$Rates{$checkval}{$crate}{maxcount}
 				.", time: ".$Rates{$checkval}{$crate}{ttl}."s]"
@@ -1968,7 +1984,7 @@ sub smtpd_access_policy {
 			# increase rate
 			$Rates{$checkval}{$crate}{count} += ( ($Rates{$checkval}{$crate}{type} eq 'size') ? $request{size} :
 				(($Rates{$checkval}{$crate}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
-			mylogs $syslog_priority, "[RATE] increasing rate object '".$checkval."/".$crate."'"
+			mylogs $syslog_priority, "[RATES] increasing rate object '".$checkval."/".$crate."'"
 				." to ".$Rates{$checkval}{$crate}{count}
 				." [type: ".$Rates{$checkval}{$crate}{type}
 				.", max: ".$Rates{$checkval}{$crate}{maxcount}
@@ -2009,15 +2025,15 @@ sub smtpd_access_policy {
 
     	# wipe out old cache entries
 	if ( (scalar keys %Request_Cache > 0) and (($now - $Cleanup_Requests) > $CLEANUP_REQUEST_CACHE) ) {
-		$t1 = time;
+		$t1 = time();
 		$t3 = scalar keys %Request_Cache;
 		cleanup_request_cache($now);
-		$t2 = time;
-		mylogs $syslog_priority, "[CLEANUP]  needed ".($t2 - $t1)
+		$t2 = time();
+		mylogs $syslog_priority, "[CLEANUP] needed ".ts($t2 - $t1)
 			." seconds for request cleanup of "
 			.($t3 - scalar keys %Request_Cache)." out of ".$t3
-			." cached items after ".($now - $Cleanup_Requests)
-			." seconds (min ".$CLEANUP_REQUEST_CACHE."s)" if ( $opt_verbose or (($t2 - $t1) > 0) );
+			." cached items after cleanup time ".$CLEANUP_REQUEST_CACHE."s"
+			if ( $opt_verbose or (($t2 - $t1) >= 1) );
 		$Cleanup_Requests = $t1;
 	};
     };
@@ -2030,7 +2046,7 @@ sub smtpd_access_policy {
 	$myaction = $Rates{$ratehit}{$rateitem}{action};
 	# substitute check for $$vars in action
 	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
-	mylogs $syslog_priority, "[RATE] rule=".$Rule_by_ID{$Rates{$ratehit}{$rateitem}{rule}}
+	mylogs $syslog_priority, "[RATES] rule=".$Rule_by_ID{$Rates{$ratehit}{$rateitem}{rule}}
 		. ", id=".$Rates{$ratehit}{$rateitem}{rule}
 		. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 		. ", client=".$request{client_name}."[".$request{client_address}."]"
@@ -2039,11 +2055,11 @@ sub smtpd_access_policy {
 		. ", helo=<".$request{helo_name}.">"
 		. ", proto=".$request{protocol_name}
 		. ", state=".$request{protocol_state}
-		. ", delay=".(time - $now)."s"
+		. ", delay=".ts(time() - $now)."s"
 		. ", action=".$myaction." (item: '".$ratehit."'"
 		. ", type: ".$Rates{$ratehit}{$rateitem}{type}
 		. ", count: ".$Rates{$ratehit}{$rateitem}{count}."/".$Rates{$ratehit}{$rateitem}{maxcount}
-		. ", time: ".($now - $Rates{$ratehit}{$rateitem}{"time"})."/".$Rates{$ratehit}{$rateitem}{ttl}."s)"
+		. ", time: ".ts($now - $Rates{$ratehit}{$rateitem}{"time"})."/".$Rates{$ratehit}{$rateitem}{ttl}."s)"
 		unless $opt_norulelog;
 
     # check cache
@@ -2064,7 +2080,7 @@ sub smtpd_access_policy {
 			. ", helo=<".$request{helo_name}.">"
 			. ", proto=".$request{protocol_name}
 			. ", state=".$request{protocol_state}
-			. ", delay=".(time - $now)."s"
+			. ", delay=".ts(time() - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
 			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
 			unless $opt_norulelog;
@@ -2083,15 +2099,15 @@ sub smtpd_access_policy {
 
 		# clean up rbl cache
 		if ( not($opt_nodns) and (scalar keys %DNS_Cache > 0) and (($now - $Cleanup_RBLs) > $CLEANUP_RBL_CACHE) ) {
-			$t1 = time;
+			$t1 = time();
 			$t3 = scalar keys %DNS_Cache;
 			cleanup_dns_cache($now);
-			$t2 = time;
-			mylogs $syslog_priority, "[CLEANUP]  needed ".($t2 - $t1)
+			$t2 = time();
+			mylogs $syslog_priority, "[CLEANUP] needed ".ts($t2 - $t1)
 				." seconds for rbl cleanup of "
 				.($t3 - scalar keys %DNS_Cache)." out of ".$t3
-				." cached items after ".($now - $Cleanup_RBLs)
-				." seconds (min ".$CLEANUP_RBL_CACHE."s)" if ( $opt_verbose or (($t2 - $t1) > 0) );
+				." cached items after cleanup time ".$CLEANUP_RBL_CACHE."s"
+				if ( $opt_verbose or (($t2 - $t1) >= 1) );
 			$Cleanup_RBLs = $t1;
 		};
 
@@ -2144,7 +2160,7 @@ sub smtpd_access_policy {
 				# normal rule. returns $action.
 				} else { $stop = 1; };
 				if ($stop) {
-					$myline .= ", delay=".(time - $now)."s, hits=".$request{$COMP_HITS}.", action=".$myaction;
+					$myline .= ", delay=".ts(time() - $now)."s, hits=".$request{$COMP_HITS}.", action=".$myaction;
     					mylogs $syslog_priority, "[RULES] ".$myline unless $opt_norulelog;
 					last RULE;
 				};
@@ -2379,7 +2395,7 @@ map ( modify_score (each %opt_scores), (keys %opt_scores) );
  
 # get summary interval time, set next display time
 $Stat_Interval_Time = $opt_summary if $opt_summary;
-$Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = $Starttime = time;
+$Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = $Starttime = time();
 mylogs $syslog_priority, "Overriding cacheid itemlist with: ".(join ",", @CacheID) if ( @CacheID );
 
 # load plugin-items
