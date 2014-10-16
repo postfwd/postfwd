@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.15';
+our($VERSION)			= '1.16';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -1010,7 +1010,7 @@ sub postfwd_items {
 		my($myresult) = undef;
 		mylogs $syslog_priority, "type numeric :  \"$myitem\"  \"$cmp\"  \"$val\"" if ($opt_verbose > 1);
 		$myitem ||= "0"; $val ||= "0";
-		if ( ($cmp eq '==') or ($cmp eq '=') ) {
+		if ($cmp eq '==') {
 			$myresult = ($myitem == $val);
 		} elsif ($cmp eq '=<') {
 			$myresult = ($myitem <= $val);

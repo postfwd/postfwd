@@ -1,3 +1,12 @@
+1.16
+=====
+- bugfix:  this is a bugfix release for 1.15. anyone affected is encouraged to upgrade.
+	   detail: the default behavior for the '=' operator with numeric items
+	   (size, recipient_count, ...) changed with version 1.15 to '==' (equals to).
+	   now these items are compared '>=' (greater than) again.
+	   note: if you are using 1.15 and you are not able upgrade for some reason,
+	   please change '=' to '>=' in your ruleset where you mean 'greater than'.
+
 1.15
 =====
 - feature: items may now be retrieved from files using "item=file:/some/where"
