@@ -1,10 +1,8 @@
-<?xml version="1.0" ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <title>postfwd - postfix firewall daemon</title>
-<meta http-equiv="content-type" content="text/html; charset=utf-8" />
-<link rev="made" href="mailto:feedback@suse.de" />
+<link rev="made" href="mailto:root@localhost" />
 </head>
 
 <body style="background-color: white">
@@ -22,6 +20,7 @@
 		<li><a href="#introduction">INTRODUCTION</a></li>
 		<li><a href="#configuration">CONFIGURATION</a></li>
 		<li><a href="#items">ITEMS</a></li>
+		<li><a href="#files">FILES</a></li>
 		<li><a href="#actions">ACTIONS</a></li>
 		<li><a href="#macros_acls">MACROS/ACLS</a></li>
 		<li><a href="#plugins">PLUGINS</a></li>
@@ -97,7 +96,8 @@
             --dns_timeout_interval  interval in seconds for dns timeout maximum counter
             --dns_max_ns_lookups    max names to look up with sender_ns_addrs
             --dns_max_mx_lookups    max names to look up with sender_mx_addrs
-        -I, --instantcfg            re-reads rulefiles for every new request</pre>
+        -I, --instantcfg            re-reads rulefiles for every new request
+            --config_timeout &lt;i&gt;        parser timeout in seconds</pre>
 <pre>
         Informational (use only at command-line!):
         -C, --showconfig            shows ruleset summary, -v for verbose
@@ -148,11 +148,15 @@ is not important. So the following would lead to the same result as the previous
 <p>The way how request items are compared to the ruleset can be influenced in the following way:</p>
 <pre>
         ====================================================================
-         ITEM==VALUE                  true if ITEM equals VALUE
-         ITEM&gt;=VALUE                  true if ITEM &gt;= VALUE
-         ITEM&lt;=VALUE                  true if ITEM &lt;= VALUE
-         ITEM~=VALUE                  true if ITEM ~= /^VALUE$/i
-         ITEM=VALUE                   default behaviour (see ITEMS section)
+         ITEM == VALUE                true if ITEM equals VALUE
+         ITEM =&gt; VALUE                true if ITEM &gt;= VALUE
+         ITEM =&lt; VALUE                true if ITEM &lt;= VALUE
+         ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
+         ITEM != VALUE                false if ITEM equals VALUE
+         ITEM !&gt; VALUE                false if ITEM &gt;= VALUE
+         ITEM !&lt; VALUE                false if ITEM &lt;= VALUE
+         ITEM !~ VALUE                false if ITEM ~= /^VALUE$/i
+         ITEM =  VALUE                default behaviour (see ITEMS section)
         ====================================================================</pre>
 <p>To identify single rules in your log files, you may add an unique identifier for each of it:</p>
 <pre>
@@ -213,13 +217,19 @@ arguments. Please see the COMMAND LINE section below for more information on thi
         recipient_domain</pre>
 <pre>
         helo_address            - postfwd tries to look up the helo_name. use
-                                  helo_address=!!(0.0.0.0/0) to check for unknown.</pre>
+                                  helo_address=!!(0.0.0.0/0) to check for unknown.
+                                  Please do not use this for positive access control
+                                  (whitelisting), as it might be forged.</pre>
 <pre>
         sender_ns_names,        - postfwd tries to look up the names/ip addresses
-        sender_ns_addrs           of the nameservers for the sender domain part.</pre>
+        sender_ns_addrs           of the nameservers for the sender domain part.
+                                  Please do not use this for positive access control
+                                  (whitelisting), as it might be forged.</pre>
 <pre>
         sender_mx_names,        - postfwd tries to look up the names/ip addresses
-        sender_mx_addrs           of the mx records for the sender domain part.</pre>
+        sender_mx_addrs           of the mx records for the sender domain part.
+                                  Please do not use this for positive access control
+                                  (whitelisting), as it might be forged.</pre>
 <pre>
         version                 - postfwd version, contains &quot;postfwd n.nn&quot;
                                   this enables version based checks in your rulesets
@@ -298,6 +308,9 @@ Pattern matching is performed case insensitive.</p>
 <p>Any item can be negated by preceeding '!!' to it, e.g.:</p>
 <pre>
         id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please</pre>
+<p>or using the right compare operator:</p>
+<pre>
+        id=USER01 ;  sasl_username !~ /^(bob|alice)$/ ;  action=REJECT who is that?</pre>
 <p>To avoid confusion with regexps or simply for better visibility you can use '!!(...)':</p>
 <pre>
         id=USER01 ;  sasl_username=!!( (bob|alice) )  ;  action=REJECT who is that?</pre>
@@ -308,6 +321,78 @@ Pattern matching is performed case insensitive.</p>
         id=R-003 ;  client_name = !!($$(helo_name))   ;  action=WARN helo does not match DNS</pre>
 <p>This is only valid for PCRE values (see list above). The comparison will be performed as case insensitive exact match.
 Use the '-vv' option to debug.</p>
+<p>
+</p>
+<h2><a name="files">FILES</a></h2>
+<p>Since postfwd1 v1.15 and postfwd2 v0.18 long item lists can be stored in separate files:</p>
+<pre>
+        id=R001 ;  ccert_fingerprint==<a href="file:/etc/postfwd/wl_ccerts">file:/etc/postfwd/wl_ccerts</a> ;  action=DUNNO</pre>
+<p>postfwd will read a list of items (one item per line) from /etc/postfwd/wl_ccerts. comments are allowed:</p>
+<pre>
+        # client1
+        11:22:33:44:55:66:77:88:99
+        # client2
+        22:33:44:55:66:77:88:99:00
+        # client3
+        33:44:55:66:77:88:99:00:11</pre>
+<p>To use existing tables in key=value format, you can use:</p>
+<pre>
+        id=R001 ;  ccert_fingerprint==table:/etc/postfwd/wl_ccerts ;  action=DUNNO</pre>
+<p>This will ignore the right-hand value. Items can be mixed:</p>
+<pre>
+        id=R002 ;  action=REJECT \
+                client_name==unknown; \
+                client_name==<a href="file:/etc/postfwd/blacklisted">file:/etc/postfwd/blacklisted</a></pre>
+<p>and for non pcre (comma separated) items:</p>
+<pre>
+        id=R003 ;  action=REJECT \
+                client_address==10.1.1.1, <a href="file:/etc/postfwd/blacklisted">file:/etc/postfwd/blacklisted</a></pre>
+<pre>
+        id=R004 ;  action=REJECT \
+                rbl=myrbl.home.local, zen.spamhaus.org, <a href="file:/etc/postfwd/rbls_changing">file:/etc/postfwd/rbls_changing</a></pre>
+<p>You can check your configuration with the --show_config option at the command line:</p>
+<pre>
+        # postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, <a href="file:/etc/postfwd/wl_clients">file:/etc/postfwd/wl_clients</a>, 192.168.2.1'</pre>
+<p>should give something like:</p>
+<pre>
+        Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;DUNNO&quot;; client_address-&gt;&quot;=;10.1.0.0/16, =;194.123.86.10, =;186.4.6.12, =;192.168.2.1&quot;</pre>
+<p>If a file can not be read, it will be ignored:</p>
+<pre>
+        # postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, <a href="file:/etc/postfwd/wl_clients">file:/etc/postfwd/wl_clients</a>, 192.168.2.1'
+        [LOG warning]: error: file /etc/postfwd/wl_clients not found - file will be ignored ?
+        Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;DUNNO&quot;; client_address-&gt;&quot;=;10.1.0.0/16, =;192.168.2.1&quot;</pre>
+<p>File items are evaluated at configuration stage. Therefore postfwd needs to be reloaded if a file has changed.</p>
+<p>If you want to specify a file, that will be reloaded for each request, you can use lfile: and ltable:</p>
+<pre>
+        id=R001; client_address=lfile:/etc/postfwd/client_whitelist; action=dunno</pre>
+<p>This will check the modification time of /etc/postfwd/client_whitelist every time the rule is evaluated and reload it as
+necessary. Of course this might increase the system load, so please use it with care.</p>
+<p>The --showconfig option illustrates the difference:</p>
+<pre>
+        ## evaluated at configuration stage
+        # postfwd2 --nodaemon -L --rule='client_address=table:/etc/postfwd/clients; action=dunno' -C
+        Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;dunno&quot;; client_address-&gt;&quot;=;1.1.1.1, =;1.1.1.2, =;1.1.1.3&quot;</pre>
+<pre>
+        ## evaluated for any rulehit
+        # postfwd2 --nodaemon -L --rule='client_address=ltable:/etc/postfwd/clients; action=dunno' -C
+        Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;dunno&quot;; client_address-&gt;&quot;=;ltable:/etc/postfwd/clients&quot;</pre>
+<p>Files can refer to other files. The following is valid.</p>
+<pre>
+        -- FILE /etc/postfwd/rules.cf --
+        id=R001; client_address=<a href="file:/etc/postfwd/clients_master.cf">file:/etc/postfwd/clients_master.cf</a>; action=DUNNO</pre>
+<pre>
+        -- FILE /etc/postfwd/clients_master.cf --
+        192.168.1.0/24
+        <a href="file:/etc/postfwd/clients_east.cf">file:/etc/postfwd/clients_east.cf</a>
+        <a href="file:/etc/postfwd/clients_west.cf">file:/etc/postfwd/clients_west.cf</a></pre>
+<pre>
+        -- FILE /etc/postfwd/clients_east.cf --
+        192.168.2.0/24</pre>
+<pre>
+        -- FILE /etc/postfwd/clients_west.cf --
+        192.168.3.0/24</pre>
+<p>Remind that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
+with postfwd1 v1.15 and postfwd2 v0.18 and higher.</p>
 <p>
 </p>
 <h2><a name="actions">ACTIONS</a></h2>
@@ -371,15 +456,24 @@ rule containing only an action statement:</p>
            id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
               action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)</pre>
 <pre>
+        rcpt (&lt;item&gt;/&lt;max&gt;/&lt;time&gt;/&lt;action&gt;)
+        this command works similar to the rate() command with the difference, that the rate counter is
+        increased by the request's recipient_count attribute. to do this reliably you should call postfwd
+        from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
+        check it within the ruleset:
+           # recipient count limit 3 per hour per client
+           id=RCPT01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
+              action==rcpt($$client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)</pre>
+<pre>
         ask (&lt;addr&gt;:&lt;port&gt;[:&lt;ignore&gt;])
         allows to delegate the policy decision to another policy service (e.g. postgrey). the first
         and the second argument (address and port) are mandatory. a third optional argument may be
         specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
            # example1: query postgrey and return it's answer to postfix
-           id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031)
+           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
            # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
            # and continue parsing postfwd's ruleset
-           id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031:^dunno$)</pre>
+           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)</pre>
 <pre>
         wait (&lt;delay&gt;)
         pauses the program execution for &lt;delay&gt; seconds. use this for
@@ -650,6 +744,10 @@ The following arguments will control it's behaviour in this case.</p>
         without restarting. Though files will be read only if necessary
         (which means their access times changed since last read) this might
         significantly increase system load.</pre>
+<pre>
+        --config_timeout    (default=3)
+        timeout in seconds to parse a single configuration line. if exceeded, the rule will
+        be skipped. this is used to prevent problems due to large files or loops.</pre>
 <p><em>Informational arguments</em></p>
 <p>These arguments are for command line usage only. Never ever use them with postfix spawn!</p>
 <pre>

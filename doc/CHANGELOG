@@ -1,3 +1,19 @@
+1.15
+=====
+- feature: items may now be retrieved from files using "item=file:/some/where"
+	   more information in the postfwd manual (FILES section)
+- feature: helo_address, and sender_(ns|mx)_addrs can now be csv items
+- feature: new rcpt() command counts recipients for rate limits (thanks to Sahil Tandon)
+- code:    redirect syslog to stdout for --kill, --reload and --showconfig
+- code:    option --reload (HUP signal) now reloads config, if the file is unchanged
+- code:	   configuration parser improvements:
+	   * rules without defined action will be skipped at configuration stage
+	   * undefined ACLs will now be detected and skipped at configuration stage
+	   * parser timeout skips loading a rule after 4s, to prevent problems with
+	     large files or loops. use --config_timeout to override
+- bugfix:  documentation fixed (missing "action=" in ask() examples)
+
+
 1.14
 =====
 - feature: new compare operators *

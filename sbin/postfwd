@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.14';
+our($VERSION)			= '1.15';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -38,6 +38,7 @@ our($def_net_group)		= "nobody";
 our($def_dns_queuesize)		= "300";
 our($def_dns_retries)		= "3";
 our($def_dns_timeout)		= "14";
+our($def_config_timeout)	= "3";
 our($reply_maxlen)		= "512";
 
 # change this, to match your POD requirements
@@ -49,7 +50,7 @@ our($cmd_pager)			= "more";
 
 # default action, do not change
 # unless you really know why
-our($default_action)		= "dunno";
+our($default_action)		= "DUNNO";
 
 # default maximum values for the score() command
 # if exceeded, the specified action will be returned
@@ -113,6 +114,14 @@ our($COMP_RHSBL_KEY_CLIENT)	= "rhsbl_client";
 our($COMP_RHSBL_KEY_SENDER)	= "rhsbl_sender";
 our($COMP_RHSBL_KEY_RCLIENT)	= "rhsbl_reverse_client";
 our($COMP_RHSBL_KEY_HELO)	= "rhsbl_helo";
+# file items
+our($COMP_CONF_FILE)            = 'cfile|file';
+our($COMP_CONF_TABLE)           = 'ctable|table';
+our($COMP_LIVE_FILE)            = 'lfile';
+our($COMP_LIVE_TABLE)           = 'ltable';
+our($COMP_TABLES)               = qr/^($COMP_CONF_TABLE|$COMP_LIVE_TABLE)$/i;
+our($COMP_CONF_FILE_TABLE)      = qr/^($COMP_CONF_FILE|$COMP_CONF_TABLE):(.+)$/i;
+our($COMP_LIVE_FILE_TABLE)      = qr/^($COMP_LIVE_FILE|$COMP_LIVE_TABLE):(.+)$/i;
 # date checks
 our($COMP_DATE)			= "date";
 our($COMP_TIME)			= "time";
@@ -136,7 +145,7 @@ our($COMP_VAR)			= "[\$][\$]";
 # date calculations
 our($COMP_DATECALC)		= "($COMP_DATE|$COMP_TIME|$COMP_DAYS|$COMP_MONTHS)";
 # these items allow whitespace-or-comma-separated values
-our($COMP_CSV)			= "($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY|$COMP_RHSBL_KEY_CLIENT|$COMP_RHSBL_KEY_HELO|$COMP_RHSBL_KEY_SENDER|$COMP_RHSBL_KEY_RCLIENT|$COMP_DATECALC)";
+our($COMP_CSV)                  = "($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY|$COMP_RHSBL_KEY_CLIENT|$COMP_RHSBL_KEY_HELO|$COMP_RHSBL_KEY_SENDER|$COMP_RHSBL_KEY_RCLIENT|$COMP_DATECALC|$COMP_HELO_ADDR|$COMP_NS_ADDR|$COMP_MX_ADDR)";
 # dont treat these as lists
 our($COMP_SINGLE)		= "($COMP_ID|$COMP_ACTION|$COMP_SCORES|$COMP_RBL_CNT|$COMP_RHSBL_CNT)";
 
@@ -148,6 +157,7 @@ our($syslog_options)		= "pid";
 our($syslog_socktype)	 	= 'unix';
 our($syslog_maxlen)	 	= 0;
 our($syslog_safe)	 	= 0;
+our($syslog_unsafe_charset)	= qr/[^\x20-\x7E]/;
 if ( defined $Sys::Syslog::VERSION and $Sys::Syslog::VERSION ge '0.15' ) {
 	# use 'native' when Sys::Syslog >= 0.15
 	$syslog_socktype	=  'native';
@@ -203,7 +213,7 @@ use vars qw(
 	$opt_norulelog $opt_summary $net_interface $net_port
 	$net_user $net_group $net_chroot $net_pid $net_proto
 	$opt_perfmon $opt_test $opt_verbose $opt_noidlestats
-	$opt_cache_rdomain_only $opt_cache_no_size
+	$opt_cache_rdomain_only $opt_cache_no_size $config_timeout
 	$opt_cache_no_sender $opt_no_rulestats $opt_kill $opt_hup
 	$opt_showconfig $opt_stdoutlog $opt_shortlog $dns_async_txt
 	$DNS $Reload_Conf $dns_queuesize $dns_retries $dns_timeout
@@ -239,7 +249,7 @@ sub mylog {
 sub mylogs {
     my($prio) = shift(@_);
     my($msg)  = shift(@_);
-    $msg =~ s/\%/%%/g;
+    $msg =~ s/\%/%%/g; $msg =~ s/$syslog_unsafe_charset/?/g;
     mylog $prio, $msg;
 };
 #
@@ -486,96 +496,160 @@ sub devar_item {
 # preparses configuration line for ACL syntax
 #
 sub acl_parser {
-    my($myline) = @_;
-    if ( $myline =~ /^\s*($COMP_ACL[\-\w]+)\s*{\s*(.*?)\s*;\s*}[\s;]*$/ ) {
-	$ACLs{$1} = $2; $myline = "";
-    } else {
-	while ( $myline =~ /($COMP_ACL[\-\w]+)/) {
-		my($acl)  = $1; $myline =~ s/\s*$acl\s*/$ACLs{$acl}/g if exists($ACLs{$acl});
+	my($file,$num,$myline) = @_;
+	if ( $myline =~ /^\s*($COMP_ACL[\-\w]+)\s*{\s*(.*?)\s*;\s*}[\s;]*$/ ) {
+		$ACLs{$1} = $2; $myline = "";
+	} else {
+		while ( $myline =~ /($COMP_ACL[\-\w]+)/) {
+			my($acl)  = $1;
+			if ( $acl and defined $ACLs{$acl} ) {
+				$myline =~ s/\s*$acl\s*/$ACLs{$acl}/g;
+			} else {
+				#return "action=note(undefined macro '$acl')";
+				mylogs 'warning', "file $file, ignoring line $num: undefined macro '$acl'";
+				return "";
+			};
+		};
 	};
-    };
-    return $myline;
-}
+	return $myline;
+};
+#
+# prepares pcre item
+#
+sub prepare_pcre {
+	my($item) = shift; undef my $neg;
+	# temporarily remove negation
+	$item = $neg if ($neg = deneg_item($item));
+	# allow // regex
+	$item =~ s/^\/?(.*?)\/?$/$1/;
+	# tested slow
+	#$item = qr/$item/i;
+	# re-enable negation
+	$item = "!!($item)" if $neg;
+	return $item;
+};
+#
+# prepares file item
+#
+sub prepare_file {
+	my($forced_reload,$type,$cmp,$file) = @_; my(@result) = (); undef my $fh;
+	my($is_table) = ($type =~ /^$COMP_TABLES$/);
+	unless (-e $file) {
+		mylogs 'warning', "error: $type:$file not found - will be ignored";
+		return @result;
+	};
+	if ( not($forced_reload) and (defined $Config_Cache{$file}{lastread}) and ($Config_Cache{$file}{lastread} > (stat $file)[9]) ) {
+		mylogs  $syslog_priority, "$type:$file unchanged - using cached content (mtime: "
+				.(stat $file)[9].", cache: $Config_Cache{$file}{lastread})"
+                                if ($opt_verbose > 1);
+		return  @{$Config_Cache{$file}{content}};
+	};
+	unless (open ($fh, "<$file")) {
+		mylogs 'warning', "error: could not open $type:$file - $! - will be ignored";
+		return @result;
+	};
+	mylogs $syslog_priority, "reading $type:$file" if ($opt_verbose > 1);
+	while (<$fh>) {
+		chomp;
+		s/#.*//g;
+		next if /^\s*$/;
+		s/\s+[^\s]+$// if $is_table;
+		s/^\s+//; s/\s+$//;
+		push @result, prepare_item($forced_reload, $cmp, $_);
+	}; close ($fh);
+	# update Config_Cache
+	$Config_Cache{$file}{lastread}   = time;
+	@{$Config_Cache{$file}{content}} = @result;
+	mylogs $syslog_priority, "read ".($#result + 1)." items from $type:$file" if ($opt_verbose > 1);
+	return @result;
+};
+#
+# prepares ruleset item
+#
+sub prepare_item {
+	my($forced_reload,$cmp,$item) = @_; my(@result) = (); undef my $type;
+	if ($item =~ /$COMP_CONF_FILE_TABLE/) {
+		return prepare_file ($forced_reload, $1, $cmp, $2);
+	} elsif ($cmp eq '=~' or $cmp eq '!~') {
+		return $cmp.";".prepare_pcre($item);
+	} else {
+		return $cmp.";".$item;
+	};
+};
 #
 # parses configuration line
 #
 sub parse_config_line {
-    my($mynum, $myindex, $myline) = @_;
-    my(%myrule) = ();
-    my($mykey, $myvalue, $mycomp, $neg);
-
-    if ( $myline = acl_parser ($myline) ) {
-	unless ( $myline =~ /^\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+(;\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+)*[;\s]*$/ ) {
-		warn "warning: ignoring invalid line ".$mynum.": \"".$myline."\"";
-	    } else {
-		# separate items
-		foreach (split ";", $myline) {
-			# remove whitespaces around
-			s/^\s*(.*?)\s*($COMP_SEPARATOR)\s*(.*?)\s*$/$1$2$3/;
-			( ($mycomp = $2) =~ /^([\<\>\~])=$/ ) and $mycomp = "=$1";
-			($mykey, $myvalue) = split /$COMP_SEPARATOR/, $_, 2;
-			if ($mykey =~ /^$COMP_CSV$/) {
-				$myvalue =~ s/\s*-\s*/-/g if ($mykey =~ /^$COMP_DATECALC$/);
-				$myvalue =~ s/\s*,\s*/,/g;
-				map { push ( @{$myrule{$mykey}}, $mycomp.";".$_ ) } ( split ",", $myvalue );
-			} elsif ($mykey =~ /^$COMP_SINGLE$/) {
-				mylogs "notice", "warning: Rule $myindex (line $mynum):"
-					." overriding $mykey=\"".$myrule{$mykey}."\""
-					." with $mykey=\"$myvalue\""
-					if (defined $myrule{$mykey});
-				$myrule{$mykey} = $myvalue;
-			} else {
-				if ( $mycomp eq '=~' or $mycomp eq '!~') {
-					# temporarily remove negation
-					$myvalue = $neg if ($neg = deneg_item($myvalue));
-					# allow // regex
-					$myvalue =~ s/^\/?(.*?)\/?$/$1/;
-					# tested, slower
-					#$myvalue = qr/$myvalue/i;
-					# re-enable negation
-					$myvalue = "!!($myvalue)" if $neg;
+	my($forced_reload, $myfile, $mynum, $myindex, $myline) = @_;
+	my(%myrule) = ();
+	my($mykey, $myvalue, $mycomp);
+	eval {
+	    local $SIG{'__DIE__'};
+	    local $SIG{'ALRM'}  = sub { $myline =~ s/[ \t][ \t]*/ /g; mylogs 'warning', "timeout after ".$config_timeout."s at parsing Rule $myindex ($myfile line $mynum): \"$myline\""; %myrule = (); die };
+	    my $prevalert = alarm($config_timeout) if $config_timeout;
+	    if ( $myline = acl_parser ($myfile, $mynum, $myline) ) {
+		unless ( $myline =~ /^\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+(;\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+)*[;\s]*$/ ) {
+			mylogs 'warning', "ignoring invalid $myfile line ".$mynum.": \"".$myline."\"";
+		} else {
+			# separate items
+			foreach (split ";", $myline) {
+				# remove whitespaces around
+				s/^\s*(.*?)\s*($COMP_SEPARATOR)\s*(.*?)\s*$/$1$2$3/;
+				( ($mycomp = $2) =~ /^([\<\>\~])=$/ ) and $mycomp = "=$1";
+				($mykey, $myvalue) = split /$COMP_SEPARATOR/, $_, 2;
+				if ($mykey =~ /^$COMP_SINGLE$/) {
+					mylogs 'notice', "notice: Rule $myindex ($myfile line $mynum):"
+						." overriding $mykey=\"".$myrule{$mykey}."\""
+						." with $mykey=\"$myvalue\""
+						if (defined $myrule{$mykey});
+					$myrule{$mykey} = $myvalue;
+				} elsif ($mykey =~ /^$COMP_CSV$/) {
+					$myvalue =~ s/\s*,\s*/,/g;
+					map { push @{$myrule{$mykey}}, prepare_item ($forced_reload, $mycomp, $_) } ( split /\s*,\s*/, $myvalue );
+				} else {
+					push @{$myrule{$mykey}}, prepare_item ($forced_reload, $mycomp, $myvalue);
 				};
-				push ( @{$myrule{$mykey}}, $mycomp.";".$myvalue );
 			};
+			unless (exists($myrule{$COMP_ACTION})) {
+				mylogs 'warning', "Rule ".$myindex." ($myfile line ".$mynum."): contains no action and will be ignored";
+				return (%myrule = ());
+			};
+			unless (exists($myrule{$COMP_ID})) {
+				$myrule{$COMP_ID} = "R-".$myindex;
+				 mylogs 'notice', "notice: Rule $myindex ($myfile line $mynum): contains no rule identifier - will use \"$myrule{id}\"" if $opt_verbose;
+			};
+			mylogs $syslog_priority, "loaded: Rule $myindex ($myfile line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"" if $opt_verbose;
 		};
-		unless (exists($myrule{$COMP_ACTION})) {
-			$myrule{$COMP_ACTION} = "WARN rule found but no action was defined";
-			mylogs "notice", "warning: Rule ".$myindex." (line ".$mynum."): contains no action - default will be used";
-		};
-		unless (exists($myrule{$COMP_ID})) {
-			$myrule{$COMP_ID} = "R-".$myindex;
-			mylogs "notice", "notice: Rule $myindex (line $mynum): contains no rule identifier - will use \"$myrule{id}\"" if $opt_verbose;
-		};
-		mylogs $syslog_priority, "loaded: Rule $myindex (line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"" if $opt_verbose;
+	    };
+	    alarm($prevalert) if $config_timeout;
 	};
-    };
-    return %myrule;
-}
+	return %myrule;
+};
 #
 # parses configuration file
 #
 sub read_config_file {
-    my($myindex, $myfile) = @_;
+    my($forced_reload, $myindex, $myfile) = @_;
     my(%myrule, @myruleset) = ();
-    my($mybuffer) = "";
+    my($mybuffer) = ""; undef my $fh;
 
     unless (-e $myfile) {
 	warn "error: file ".$myfile." not found - file will be ignored";
     } else {
-	unless (open (IN, "<$myfile")) {
-		warn "error: could not open ".$myfile." - file will be ignored";
+	unless (open ($fh, "<$myfile")) {
+		warn "error: could not open ".$myfile." - $! - file will be ignored";
 	} else {
 		mylogs $syslog_priority, "reading file $myfile" if $opt_verbose;
-		while (<IN>) {
+		while (<$fh>) {
 			chomp;
 			s/(\"|#.*)//g;
 			next if /^\s*$/;
 			if (/(.*)\\\s*$/) { $mybuffer = $mybuffer.$1; next; };
-			%myrule = parse_config_line ($., ($#myruleset+$myindex+1), $mybuffer.$_);
+			%myrule = parse_config_line ($forced_reload, $myfile, $., ($#myruleset+$myindex+1), $mybuffer.$_);
 			push ( @myruleset, { %myrule } ) if (%myrule);
 			$mybuffer = "";
 		};
-		close (IN);
+		close ($fh);
 		mylogs $syslog_priority, "loaded: Rules $myindex - ".($myindex + $#myruleset)." from file \"$myfile\"" if $opt_verbose;
 	};
     };
@@ -585,6 +659,7 @@ sub read_config_file {
 # reads all configuration items
 #
 sub read_config {
+    my($forced_reload) = shift;
     my(%myrule, @myruleset) = ();
     my($mytype,$myitem,$config);
 
@@ -595,17 +670,17 @@ sub read_config {
     for $config (@Configs) {
 	($mytype,$myitem) = split '::', $config;
 	if ($mytype eq "r" or $mytype eq "rule") {
-		%myrule = parse_config_line (0, ($#Rules + 1), $myitem);
+		%myrule = parse_config_line ($forced_reload, 'RULE', 0, ($#Rules + 1), $myitem);
 		push ( @Rules, { %myrule } ) if (%myrule);
 	} elsif	($mytype eq "f" or $mytype eq "file") {
-		if ( (defined $Config_Cache{$myitem}{lastread}) and ($Config_Cache{$myitem}{lastread} > (stat $myitem)[9]) ) {
+		if ( not($forced_reload) and (defined $Config_Cache{$myitem}{lastread}) and ($Config_Cache{$myitem}{lastread} > (stat $myitem)[9]) ) {
 			mylogs	$syslog_priority,
 				"file \"$myitem\" unchanged - using cached ruleset (mtime: ".(stat $myitem)[9].",
 				cache: $Config_Cache{$myitem}{lastread})"
 				if $opt_verbose;
 			push ( @Rules, @{$Config_Cache{$myitem}{ruleset}} );
 		} else {
-			@myruleset = read_config_file (($#Rules+1), $myitem);
+			@myruleset = read_config_file ($forced_reload, ($#Rules+1), $myitem);
 			if (@myruleset) {
 				push ( @Rules, @myruleset );
 				$Config_Cache{$myitem}{lastread} = time;
@@ -614,8 +689,12 @@ sub read_config {
 		};
 	};
     };
-    # update Rule by ID hash
-    map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
+    if ($#Rules < 0) {
+	mylogs 'warning', "critical: no rules found - i feel useless (have you set -f or -r?)";
+    } else {
+	# update Rule by ID hash
+	map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
+    };
 }
 #
 # displays configuration
@@ -968,7 +1047,7 @@ sub postfwd_items {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = undef;
 		my($imon) = (split (',', $myitem))[4]; $imon ||= 0;
-		my($rmin,$rmax) = split ('-', $val);
+		my($rmin,$rmax) = split (/\s*-\s*/, $val);
 		$rmin = ($rmin) ? (($rmin =~ /^\d$/) ? $rmin : $months{$rmin}) : $imon;
 		$rmax = ($rmax) ? (($rmax =~ /^\d$/) ? $rmax : $months{$rmax}) : (($val =~ /-/) ? $imon : $rmin);
 		mylogs $syslog_priority, "type months :  \"$imon\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
@@ -981,7 +1060,7 @@ sub postfwd_items {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = undef;
 		my($iday) = (split (',', $myitem))[6]; $iday ||= 0;
-		my($rmin,$rmax) = split ('-', $val);
+		my($rmin,$rmax) = split (/\s*-\s*/, $val);
 		$rmin = ($rmin) ? (($rmin =~ /^\d$/) ? $rmin : $weekdays{$rmin}) : $iday;
 		$rmax = ($rmax) ? (($rmax =~ /^\d$/) ? $rmax : $weekdays{$rmax}) : (($val =~ /-/) ? $iday : $rmin);
 		mylogs $syslog_priority, "type days :  \"$iday\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
@@ -994,7 +1073,7 @@ sub postfwd_items {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = undef;
 		my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
-		my($rmin,$rmax) = split ('-', $val);
+		my($rmin,$rmax) = split (/\s*-\s*/, $val);
 		my($idat) = ($iyear + 1900) . ((($imon+1) < 10) ? '0'.($imon+1) : ($imon+1)) . (($iday < 10) ? '0'.$iday : $iday);
 		$rmin = ($rmin) ? join ('', reverse split ('\.', $rmin)) : $idat;
 		$rmax = ($rmax) ? join ('', reverse split ('\.', $rmax)) : (($val =~ /-/) ? $idat : $rmin);
@@ -1008,7 +1087,7 @@ sub postfwd_items {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = undef;
 		my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
-		my($rmin,$rmax) = split ('-', $val);
+		my($rmin,$rmax) = split (/\s*-\s*/, $val);
 		my($idat) = (($ihour < 10) ? '0'.$ihour : $ihour) . (($imin < 10) ? '0'.$imin : $imin) . (($isec < 10) ? '0'.$isec : $isec);
 		$rmin = ($rmin) ? join ('', split ('\:', $rmin)) : $idat;
 		$rmax = ($rmax) ? join ('', split ('\:', $rmax)) : (($val =~ /-/) ? $idat : $rmin);
@@ -1229,7 +1308,7 @@ sub postfwd_items {
 					type 		=> $mycmd,
 					maxcount	=> $ratecount,
 					ttl		=> $ratetime,
-					count		=> ( ($mycmd eq 'size') ? $request{size} : 1 ),
+					count		=> ( ($mycmd eq 'size') ? $request{size} : (($mycmd eq 'rcpt') ? $request{recipient_count} : 1 ) ),
 					time		=> $now,
 					rule		=> $Rules[$index]{$COMP_ID},
 					action		=> $ratecmd,
@@ -1246,6 +1325,8 @@ sub postfwd_items {
 	},
 	# size() command
 	"size"	=> sub { return &{$postfwd_actions{rate}}(@_); },
+	# rcpt() command
+	"rcpt"	=> sub { return &{$postfwd_actions{rate}}(@_); },
 	# wait() command
 	"wait"	=> sub {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
@@ -1309,7 +1390,7 @@ sub postfwd_items {
 					mylogs ('notice', "rule: $index got invalid answer '$sendstr' from $myarg");
 				};
 		} else {
-			mylogs ('notice', "Could not open socket to '$myarg'");
+			mylogs ('notice', "Could not open socket to '$myarg' - $!");
 		};
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -1356,19 +1437,24 @@ sub get_plugins {
 # use: compare_item ( $TYPE, $RULEITEM, $MINIMUMHITS, $REQUESTITEM, %REQUEST, %REQUESTINFO );
 #
 sub compare_item {
-    my($mykey,$mymask,$mymin,$myitem, %request) = @_;
+    my($mykey,$mymask,$mymin,$myitem,%request) = @_;
     my($val,$var,$cmp,$neg,$myresult,$postfwd_compare_proc);
     my($rcount) = 0;
     $mymin ||= 1;
 
-    #
     # determine the right compare function
     $postfwd_compare_proc = (defined $postfwd_compare{$mykey}) ? $mykey : "default";
-    #
+    # save list due to possible modification
+    my @items = @{$mymask};
     # now compare request to every single item
-    ITEM: foreach (@{$mymask}) {
+    ITEM: foreach (@items) {
 	($cmp, $val) = split ";";
 	next ITEM unless ($cmp and $val and $mykey);
+	# prepare_file
+	if ($val =~ /$COMP_LIVE_FILE_TABLE/) {
+		push @items, prepare_file (0, $1, $cmp, $2);
+		next ITEM;
+	};
 	mylogs $syslog_priority, "compare $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if ($opt_verbose > 1);
 	$val = $neg if ($neg = deneg_item($val));
 	mylogs $syslog_priority, "deneg $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if ($neg and ($opt_verbose > 1));
@@ -1695,7 +1781,7 @@ sub smtpd_access_policy {
     if ( $Reload_Conf ) {
 	undef $Reload_Conf;
 	show_stats;
-	read_config;
+	read_config(1);
     };
 
     # clear dnsbl timeout counters
@@ -1724,7 +1810,8 @@ sub smtpd_access_policy {
 	next RATES unless ( $request{$checkreq} and (defined $Rates{$request{$checkreq}}) );
 	if ( ($now - $Rates{$request{$checkreq}}{"time"}) > $Rates{$request{$checkreq}}{ttl} ) {
 		# renew rate
-		$Rates{$request{$checkreq}}{count} = ( ($Rates{$request{$checkreq}}{type} eq 'size') ? $request{size} : 1 );
+		$Rates{$request{$checkreq}}{count} = ( ($Rates{$request{$checkreq}}{type} eq 'size') ? $request{size} :
+			(($Rates{$request{$checkreq}}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
 		$Rates{$request{$checkreq}}{"time"} = $now;
 		mylogs $syslog_priority, "[RATE] renewing rate object ".$request{$checkreq}
 			." [type: ".$Rates{$request{$checkreq}}{type}
@@ -1733,7 +1820,8 @@ sub smtpd_access_policy {
 			if ($opt_verbose > 1);
 	} else {
 		# increase rate
-		$Rates{$request{$checkreq}}{count} += ( ($Rates{$request{$checkreq}}{type} eq 'size') ? $request{size} : 1 );
+		$Rates{$request{$checkreq}}{count} += ( ($Rates{$request{$checkreq}}{type} eq 'size') ? $request{size} :
+			(($Rates{$request{$checkreq}}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
 		mylogs $syslog_priority, "[RATE] increasing rate object ".$request{$checkreq}
 			." to ".$Rates{$request{$checkreq}}{count}
 			." [type: ".$Rates{$request{$checkreq}}{type}
@@ -1829,10 +1917,10 @@ sub smtpd_access_policy {
     } else {
 
 	# refresh config if '-I' was set
-	read_config if $opt_instantconfig;
+	read_config(0) if $opt_instantconfig;
 
 	if ($#Rules < 0) {
-		warn "critical: no rules found - i feel useless (have you set -f or -r?)";
+		mylogs 'warning', "critical: no rules found - i feel useless (have you set -f or -r?)";
 
 	} else {
 
@@ -1918,6 +2006,33 @@ sub smtpd_access_policy {
     return $myaction;
 };
 
+# process delegation protocol input
+sub process_input {
+        my($client,$msg,$attr) = @_;
+        # remember argument=value
+        if ( $msg =~ /^([^=]{1,512})=(.{0,512})/ ) {
+                $$attr{$1} = $2;
+        # evaluate request
+        } elsif ( $msg eq '' ) {
+                map { mylogs $syslog_priority, "Attribute: $_=$$attr{$_}" } (keys %$attr) if ($opt_verbose > 1);
+                unless ( (defined $$attr{request}) and ($$attr{request} eq "smtpd_access_policy") ) {
+                        mylogs 'warning', "Ignoring unrecognized request type: '".((defined $$attr{request}) ? substr($$attr{request},0,100) : '')."'";
+                } else {
+                        my $action = smtpd_access_policy(%$attr) || $default_action;
+                        mylogs $syslog_priority, "Action: $action" if ($opt_verbose > 1);
+                        if ($client) {
+                                print $client ("action=$action\n\n");
+                        } else {
+                                print STDOUT ("action=$action\n\n");
+                        };
+                        %$attr = ();
+                };
+        # unknown command
+        } else {
+                mylogs 'warning', "Ignoring garbage '".substr($msg, 0, 100)."'";
+        };
+};
+
 
 ####  MAIN  ####
 
@@ -1970,6 +2085,7 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 		'noidlestats'		 => \$opt_noidlestats,
 		'no-idlestats'		 => \$opt_noidlestats,
 		's|scores=s'		 => \%opt_scores,
+		'config_timeout=i'	 => \$config_timeout,
 		'f|file=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'r|rule=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'plugins=s'	 	=> \@Plugins,
@@ -1983,6 +2099,7 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 ) or pod2usage (-msg => "\nPlease see \"".$NAME." -m\" for detailed instructions.\n", -verbose => 1);
 
 $opt_verbose = 0 unless $opt_verbose;
+$opt_stdoutlog = 1 if ($opt_kill or $opt_hup or $opt_showconfig);
 
 # terminate at -k or --kill
 if ($opt_kill) {
@@ -2002,7 +2119,7 @@ openlog $syslog_name, $syslog_options, $syslog_facility;
 mylogs "notice", $NAME." ".$VERSION." starting" if $opt_daemon;
 
 # read configuration
-read_config;
+read_config(1);
 if ($opt_showconfig) {
 	show_config;
 	exit 1;
@@ -2041,6 +2158,7 @@ $net_pid	||= $def_net_pid;
 $dns_queuesize	||= $def_dns_queuesize;
 $dns_retries	||= $def_dns_retries;
 $dns_timeout	||= $def_dns_timeout;
+$config_timeout ||= $def_config_timeout;
 $syslog_name	||= $NAME;
 $net_interface	= ( $net_interface	=~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/ )	? $1 : $def_net_interface;
 $net_port 	= ( $net_port		=~ /^(\d+|[-\|\@\/\w. ]+)$/ )			? $1 : $def_net_port;
@@ -2053,6 +2171,7 @@ $dns_queuesize	= ( $dns_queuesize	=~ /^(\d+)$/ )					? $1 : $dns_queuesize;
 $dns_retries	= ( $dns_retries	=~ /^(\d+)$/ )					? $1 : $dns_retries;
 $dns_timeout	= ( $dns_timeout	=~ /^(\d+)$/ )					? $1 : $dns_timeout;
 $syslog_name	= ( $syslog_name	=~ /^(.+)$/ )					? $1 : $NAME;
+$config_timeout	= ( $config_timeout	=~ /^(\d+)$/ )					? $1 : $def_config_timeout;
 
 # Unbuffer standard output.
 select((select(STDOUT), $| = 1)[0]);
@@ -2144,26 +2263,7 @@ if ($opt_daemon) {
 			# check request line and print output
 			next unless defined $1;
 			$request = $1;
-			if ($request =~ /([^=]+)=(.*)/) {
-				$myattr{substr($1, 0, 512)} = substr($2, 0, 512);
-			} elsif ($request eq '') {
-				if ($opt_verbose > 1) {
-				    for (keys %myattr) {
-					mylogs $syslog_priority, "Client: $client  Attribute: $_=$myattr{$_}";
-				    };
-				};
-				unless ( (defined $myattr{request}) and ($myattr{request} eq "smtpd_access_policy") ) {
-					warn "ignoring unrecognized request type: '".($myattr{request} || '')."'";
-				} else {
-					my($action) = substr ( smtpd_access_policy(%myattr), 0, $reply_maxlen ) if $reply_maxlen;
-					mylogs $syslog_priority, "Client: $client  Action: $action" if $opt_verbose;
-					print $client "action=$action\n\n";
-					$Counter_Requests++; $Counter_Interval++;
-				};
-			} else {
-				chop $request if $request;
-				warn "error: ignoring garbage".( ($opt_verbose) ? " from $client" : "")." \"".$request."\"";
-			};
+			process_input ($client, $request, \%myattr);
 		};
 	};
 
@@ -2178,26 +2278,7 @@ if ($opt_daemon) {
 		s/^([^\r\n]*)\r?\n//;
 		next unless defined $1;
 		$request = $1;
-		if ($request =~ /([^=]+)=(.*)/) {
-			$myattr{substr($1, 0, 512)} = substr($2, 0, 512);
-		} elsif ($request eq '') {
-			if ($opt_verbose > 1) {
-				for (keys %myattr) {
-					mylogs $syslog_priority, "Attribute: $_=$myattr{$_}";
-				};
-			};
-			unless ( (defined $myattr{request}) and ($myattr{request} eq "smtpd_access_policy") ) {
-				warn "ignoring unrecognized request type: '".($myattr{request} || '')."'";
-			} else {
-				my($action) = substr ( smtpd_access_policy(%myattr), 0, $reply_maxlen ) if $reply_maxlen;
-				mylogs $syslog_priority, "Action: $action" if $opt_verbose;
-				myprint "action=$action\n\n";
-				$Counter_Requests++; $Counter_Interval++;
-			};
-		} else {
-			chop $request if $request;
-			warn "error: ignoring garbage \"".$request."\"";
-		};
+		process_input (undef, $request, \%myattr);
 	};
 
 	# finishing
@@ -2264,6 +2345,7 @@ postfwd [OPTIONS] [SOURCE1, SOURCE2, ...]
 	    --dns_max_ns_lookups    max names to look up with sender_ns_addrs
 	    --dns_max_mx_lookups    max names to look up with sender_mx_addrs
 	-I, --instantcfg            re-reads rulefiles for every new request
+	    --config_timeout <i>	parser timeout in seconds
 
 	Informational (use only at command-line!):
 	-C, --showconfig            shows ruleset summary, -v for verbose
@@ -2402,12 +2484,18 @@ Rules can span multiple lines by adding a trailing backslash "\" character:
 
 	helo_address		- postfwd tries to look up the helo_name. use
 				  helo_address=!!(0.0.0.0/0) to check for unknown.
+				  Please do not use this for positive access control
+				  (whitelisting), as it might be forged.
 
 	sender_ns_names,	- postfwd tries to look up the names/ip addresses
 	sender_ns_addrs		  of the nameservers for the sender domain part.
+				  Please do not use this for positive access control
+				  (whitelisting), as it might be forged.
 
 	sender_mx_names,	- postfwd tries to look up the names/ip addresses
 	sender_mx_addrs		  of the mx records for the sender domain part.
+				  Please do not use this for positive access control
+				  (whitelisting), as it might be forged.
 
 	version			- postfwd version, contains "postfwd n.nn"
 				  this enables version based checks in your rulesets
@@ -2494,6 +2582,10 @@ Any item can be negated by preceeding '!!' to it, e.g.:
 
 	id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please
 
+or using the right compare operator:
+
+	id=USER01 ;  sasl_username !~ /^(bob|alice)$/ ;  action=REJECT who is that?
+
 To avoid confusion with regexps or simply for better visibility you can use '!!(...)':
 
 	id=USER01 ;  sasl_username=!!( (bob|alice) )  ;  action=REJECT who is that?
@@ -2506,6 +2598,92 @@ Request attributes can be compared by preceeding '$$' characters, e.g.:
 
 This is only valid for PCRE values (see list above). The comparison will be performed as case insensitive exact match.
 Use the '-vv' option to debug.
+
+
+=head2 FILES
+
+Since postfwd1 v1.15 and postfwd2 v0.18 long item lists can be stored in separate files:
+
+	id=R001 ;  ccert_fingerprint==file:/etc/postfwd/wl_ccerts ;  action=DUNNO
+
+postfwd will read a list of items (one item per line) from /etc/postfwd/wl_ccerts. comments are allowed:
+
+	# client1
+	11:22:33:44:55:66:77:88:99
+	# client2
+	22:33:44:55:66:77:88:99:00
+	# client3
+	33:44:55:66:77:88:99:00:11
+
+To use existing tables in key=value format, you can use:
+
+	id=R001 ;  ccert_fingerprint==table:/etc/postfwd/wl_ccerts ;  action=DUNNO
+
+This will ignore the right-hand value. Items can be mixed:
+
+	id=R002 ;  action=REJECT \
+		client_name==unknown; \
+		client_name==file:/etc/postfwd/blacklisted
+
+and for non pcre (comma separated) items:
+
+	id=R003 ;  action=REJECT \
+		client_address==10.1.1.1, file:/etc/postfwd/blacklisted
+
+	id=R004 ;  action=REJECT \
+		rbl=myrbl.home.local, zen.spamhaus.org, file:/etc/postfwd/rbls_changing
+
+You can check your configuration with the --show_config option at the command line:
+
+	# postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
+
+should give something like:
+
+	Rule   0: id->"R-0"; action->"DUNNO"; client_address->"=;10.1.0.0/16, =;194.123.86.10, =;186.4.6.12, =;192.168.2.1"
+
+If a file can not be read, it will be ignored:
+
+	# postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
+	[LOG warning]: error: file /etc/postfwd/wl_clients not found - file will be ignored ?
+	Rule   0: id->"R-0"; action->"DUNNO"; client_address->"=;10.1.0.0/16, =;192.168.2.1"
+
+File items are evaluated at configuration stage. Therefore postfwd needs to be reloaded if a file has changed.
+
+If you want to specify a file, that will be reloaded for each request, you can use lfile: and ltable:
+
+	id=R001; client_address=lfile:/etc/postfwd/client_whitelist; action=dunno
+
+This will check the modification time of /etc/postfwd/client_whitelist every time the rule is evaluated and reload it as
+necessary. Of course this might increase the system load, so please use it with care.
+
+The --showconfig option illustrates the difference:
+
+	## evaluated at configuration stage
+	# postfwd2 --nodaemon -L --rule='client_address=table:/etc/postfwd/clients; action=dunno' -C
+	Rule   0: id->"R-0"; action->"dunno"; client_address->"=;1.1.1.1, =;1.1.1.2, =;1.1.1.3"
+
+	## evaluated for any rulehit
+	# postfwd2 --nodaemon -L --rule='client_address=ltable:/etc/postfwd/clients; action=dunno' -C
+	Rule   0: id->"R-0"; action->"dunno"; client_address->"=;ltable:/etc/postfwd/clients"
+
+Files can refer to other files. The following is valid.
+
+	-- FILE /etc/postfwd/rules.cf --
+	id=R001; client_address=file:/etc/postfwd/clients_master.cf; action=DUNNO
+
+	-- FILE /etc/postfwd/clients_master.cf --
+	192.168.1.0/24
+	file:/etc/postfwd/clients_east.cf
+	file:/etc/postfwd/clients_west.cf
+
+	-- FILE /etc/postfwd/clients_east.cf --
+	192.168.2.0/24
+
+	-- FILE /etc/postfwd/clients_west.cf --
+	192.168.3.0/24
+
+Remind that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
+with postfwd1 v1.15 and postfwd2 v0.18 and higher.
 
 
 =head2 ACTIONS
@@ -2576,15 +2754,24 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	   id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
 	      action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 
+	rcpt (<item>/<max>/<time>/<action>)
+	this command works similar to the rate() command with the difference, that the rate counter is
+	increased by the request's recipient_count attribute. to do this reliably you should call postfwd
+	from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
+	check it within the ruleset:
+	   # recipient count limit 3 per hour per client
+	   id=RCPT01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
+	      action==rcpt($$client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
+
 	ask (<addr>:<port>[:<ignore>])
 	allows to delegate the policy decision to another policy service (e.g. postgrey). the first
 	and the second argument (address and port) are mandatory. a third optional argument may be
 	specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
 	   # example1: query postgrey and return it's answer to postfix
-	   id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031)
+	   id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
 	   # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
 	   # and continue parsing postfwd's ruleset
-	   id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031:^dunno$)
+	   id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 
 	wait (<delay>)
 	pauses the program execution for <delay> seconds. use this for
@@ -2875,6 +3062,11 @@ These parameters influence the way postfwd is working. Any of them can be combin
 	without restarting. Though files will be read only if necessary
 	(which means their access times changed since last read) this might
 	significantly increase system load.
+
+	--config_timeout    (default=3)
+	timeout in seconds to parse a single configuration line. if exceeded, the rule will
+	be skipped. this is used to prevent problems due to large files or loops.
+	
 
 I<Informational arguments>
 

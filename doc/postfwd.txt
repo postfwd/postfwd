@@ -51,6 +51,7 @@ SYNOPSIS
                 --dns_max_ns_lookups    max names to look up with sender_ns_addrs
                 --dns_max_mx_lookups    max names to look up with sender_mx_addrs
             -I, --instantcfg            re-reads rulefiles for every new request
+                --config_timeout <i>        parser timeout in seconds
 
             Informational (use only at command-line!):
             -C, --showconfig            shows ruleset summary, -v for verbose
@@ -115,11 +116,15 @@ DESCRIPTION
     in the following way:
 
             ====================================================================
-             ITEM==VALUE                  true if ITEM equals VALUE
-             ITEM>=VALUE                  true if ITEM >= VALUE
-             ITEM<=VALUE                  true if ITEM <= VALUE
-             ITEM~=VALUE                  true if ITEM ~= /^VALUE$/i
-             ITEM=VALUE                   default behaviour (see ITEMS section)
+             ITEM == VALUE                true if ITEM equals VALUE
+             ITEM => VALUE                true if ITEM >= VALUE
+             ITEM =< VALUE                true if ITEM <= VALUE
+             ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
+             ITEM != VALUE                false if ITEM equals VALUE
+             ITEM !> VALUE                false if ITEM >= VALUE
+             ITEM !< VALUE                false if ITEM <= VALUE
+             ITEM !~ VALUE                false if ITEM ~= /^VALUE$/i
+             ITEM =  VALUE                default behaviour (see ITEMS section)
             ====================================================================
 
     To identify single rules in your log files, you may add an unique
@@ -187,12 +192,18 @@ DESCRIPTION
 
             helo_address            - postfwd tries to look up the helo_name. use
                                       helo_address=!!(0.0.0.0/0) to check for unknown.
+                                      Please do not use this for positive access control
+                                      (whitelisting), as it might be forged.
 
             sender_ns_names,        - postfwd tries to look up the names/ip addresses
             sender_ns_addrs           of the nameservers for the sender domain part.
+                                      Please do not use this for positive access control
+                                      (whitelisting), as it might be forged.
 
             sender_mx_names,        - postfwd tries to look up the names/ip addresses
             sender_mx_addrs           of the mx records for the sender domain part.
+                                      Please do not use this for positive access control
+                                      (whitelisting), as it might be forged.
 
             version                 - postfwd version, contains "postfwd n.nn"
                                       this enables version based checks in your rulesets
@@ -284,6 +295,10 @@ DESCRIPTION
 
             id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please
 
+    or using the right compare operator:
+
+            id=USER01 ;  sasl_username !~ /^(bob|alice)$/ ;  action=REJECT who is that?
+
     To avoid confusion with regexps or simply for better visibility you can
     use '!!(...)':
 
@@ -298,6 +313,97 @@ DESCRIPTION
     This is only valid for PCRE values (see list above). The comparison will
     be performed as case insensitive exact match. Use the '-vv' option to
     debug.
+
+  FILES
+    Since postfwd1 v1.15 and postfwd2 v0.18 long item lists can be stored in
+    separate files:
+
+            id=R001 ;  ccert_fingerprint==file:/etc/postfwd/wl_ccerts ;  action=DUNNO
+
+    postfwd will read a list of items (one item per line) from
+    /etc/postfwd/wl_ccerts. comments are allowed:
+
+            # client1
+            11:22:33:44:55:66:77:88:99
+            # client2
+            22:33:44:55:66:77:88:99:00
+            # client3
+            33:44:55:66:77:88:99:00:11
+
+    To use existing tables in key=value format, you can use:
+
+            id=R001 ;  ccert_fingerprint==table:/etc/postfwd/wl_ccerts ;  action=DUNNO
+
+    This will ignore the right-hand value. Items can be mixed:
+
+            id=R002 ;  action=REJECT \
+                    client_name==unknown; \
+                    client_name==file:/etc/postfwd/blacklisted
+
+    and for non pcre (comma separated) items:
+
+            id=R003 ;  action=REJECT \
+                    client_address==10.1.1.1, file:/etc/postfwd/blacklisted
+
+            id=R004 ;  action=REJECT \
+                    rbl=myrbl.home.local, zen.spamhaus.org, file:/etc/postfwd/rbls_changing
+
+    You can check your configuration with the --show_config option at the
+    command line:
+
+            # postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
+
+    should give something like:
+
+            Rule   0: id->"R-0"; action->"DUNNO"; client_address->"=;10.1.0.0/16, =;194.123.86.10, =;186.4.6.12, =;192.168.2.1"
+
+    If a file can not be read, it will be ignored:
+
+            # postfwd --showconfig --rule='action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1'
+            [LOG warning]: error: file /etc/postfwd/wl_clients not found - file will be ignored ?
+            Rule   0: id->"R-0"; action->"DUNNO"; client_address->"=;10.1.0.0/16, =;192.168.2.1"
+
+    File items are evaluated at configuration stage. Therefore postfwd needs
+    to be reloaded if a file has changed.
+
+    If you want to specify a file, that will be reloaded for each request,
+    you can use lfile: and ltable:
+
+            id=R001; client_address=lfile:/etc/postfwd/client_whitelist; action=dunno
+
+    This will check the modification time of /etc/postfwd/client_whitelist
+    every time the rule is evaluated and reload it as necessary. Of course
+    this might increase the system load, so please use it with care.
+
+    The --showconfig option illustrates the difference:
+
+            ## evaluated at configuration stage
+            # postfwd2 --nodaemon -L --rule='client_address=table:/etc/postfwd/clients; action=dunno' -C
+            Rule   0: id->"R-0"; action->"dunno"; client_address->"=;1.1.1.1, =;1.1.1.2, =;1.1.1.3"
+
+            ## evaluated for any rulehit
+            # postfwd2 --nodaemon -L --rule='client_address=ltable:/etc/postfwd/clients; action=dunno' -C
+            Rule   0: id->"R-0"; action->"dunno"; client_address->"=;ltable:/etc/postfwd/clients"
+
+    Files can refer to other files. The following is valid.
+
+            -- FILE /etc/postfwd/rules.cf --
+            id=R001; client_address=file:/etc/postfwd/clients_master.cf; action=DUNNO
+
+            -- FILE /etc/postfwd/clients_master.cf --
+            192.168.1.0/24
+            file:/etc/postfwd/clients_east.cf
+            file:/etc/postfwd/clients_west.cf
+
+            -- FILE /etc/postfwd/clients_east.cf --
+            192.168.2.0/24
+
+            -- FILE /etc/postfwd/clients_west.cf --
+            192.168.3.0/24
+
+    Remind that there is currently no loop detection (/a/file calls /a/file)
+    and that this feature is only available with postfwd1 v1.15 and postfwd2
+    v0.18 and higher.
 
   ACTIONS
     *General*
@@ -371,15 +477,24 @@ DESCRIPTION
                id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
                   action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 
+            rcpt (<item>/<max>/<time>/<action>)
+            this command works similar to the rate() command with the difference, that the rate counter is
+            increased by the request's recipient_count attribute. to do this reliably you should call postfwd
+            from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
+            check it within the ruleset:
+               # recipient count limit 3 per hour per client
+               id=RCPT01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
+                  action==rcpt($$client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
+
             ask (<addr>:<port>[:<ignore>])
             allows to delegate the policy decision to another policy service (e.g. postgrey). the first
             and the second argument (address and port) are mandatory. a third optional argument may be
             specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
                # example1: query postgrey and return it's answer to postfix
-               id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031)
+               id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
                # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
                # and continue parsing postfwd's ruleset
-               id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031:^dunno$)
+               id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 
             wait (<delay>)
             pauses the program execution for <delay> seconds. use this for
@@ -671,6 +786,10 @@ DESCRIPTION
             (which means their access times changed since last read) this might
             significantly increase system load.
 
+            --config_timeout    (default=3)
+            timeout in seconds to parse a single configuration line. if exceeded, the rule will
+            be skipped. this is used to prevent problems due to large files or loops.
+        
     *Informational arguments*
 
     These arguments are for command line usage only. Never ever use them
