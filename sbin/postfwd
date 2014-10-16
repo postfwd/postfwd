@@ -26,7 +26,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '0.99o';
+our($VERSION)			= '0.99p';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -448,11 +448,11 @@ sub compare_item {
 	undef($myref);
     #
     # maximum values (size, ...)
-    } elsif ( $mykey =~ /^$COMP_NUMERIC_ITEMS_MAX$/ ) {
+    } elsif ( $mykey =~ /^$COMP_NUMERIC_ITEMS_MIN$/ ) {
 	$myresult = ( $myitem <= $mymask );
     #
     # minimum values (tls key length, ...)
-    } elsif ( $mykey =~ /^$COMP_NUMERIC_ITEMS_MIN$/ ) {
+    } elsif ( $mykey =~ /^$COMP_NUMERIC_ITEMS_MAX$/ ) {
 	$myitem ||= "0"; $mymask ||= "0";
 	$myresult = ( $myitem >= $mymask );
     #
