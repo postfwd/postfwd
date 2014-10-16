@@ -23,7 +23,6 @@
 		<li><a href="#files">FILES</a></li>
 		<li><a href="#actions">ACTIONS</a></li>
 		<li><a href="#macros_acls">MACROS/ACLS</a></li>
-		<li><a href="#plugins">PLUGINS</a></li>
 		<li><a href="#command_line">COMMAND LINE</a></li>
 		<li><a href="#refresh">REFRESH</a></li>
 		<li><a href="#examples">EXAMPLES</a></li>
@@ -31,6 +30,7 @@
 		<li><a href="#integration">INTEGRATION</a></li>
 		<li><a href="#testing">TESTING</a></li>
 		<li><a href="#performance">PERFORMANCE</a></li>
+		<li><a href="#plugins">PLUGINS</a></li>
 		<li><a href="#see_also">SEE ALSO</a></li>
 	</ul>
 
@@ -67,6 +67,8 @@
             --umask &lt;mask&gt;          set umask for file permissions
         -R, --chroot &lt;path&gt;         chroot the daemon to &lt;path&gt;
             --pidfile &lt;path&gt;        create pidfile under &lt;path&gt;
+            --facility &lt;f&gt;          syslog facility
+            --socktype &lt;s&gt;          syslog socktype
         -l, --logname &lt;label&gt;       label for syslog messages
             --loglen &lt;int&gt;          truncates syslogs after &lt;int&gt; chars</pre>
 <pre>
@@ -107,9 +109,6 @@
         -V, --version               shows program version
         -h, --help                  shows usage
         -m, --manual                shows program manual</pre>
-<pre>
-        Plugins:
-            --plugins &lt;file&gt;        loads plugins from &lt;file&gt;</pre>
 <p>
 </p>
 <hr />
@@ -138,7 +137,7 @@ which should allow straightforward and easy-to-read configurations.</p>
 <p>A configuration line consists of optional item=value pairs, separated by semicolons
 (`;`) and the appropriate desired action:</p>
 <pre>
-        [ &lt;item1&gt;[=&gt;&lt;~]=&lt;value&gt;; &lt;item2&gt;[=&gt;&lt;~]=&lt;value&gt;; ... ] action=&lt;result&gt;</pre>
+        [ &lt;item1&gt;=&lt;value&gt;; &lt;item2&gt;=&lt;value&gt;; ... ] action=&lt;result&gt;</pre>
 <p><em>Example:</em></p>
 <pre>
         client_address=192.168.1.1 ; sender==no@bad.local ; action=REJECT</pre>
@@ -236,7 +235,8 @@ arguments. Please see the COMMAND LINE section below for more information on thi
                                   this enables version based checks in your rulesets
                                   (e.g. for migration). works with old versions too,
                                   because a non-existing item always returns false:
-                                  id=R01; version~=1.10; sender_domain==some.org \
+                                  # version &gt;= 1.10
+                                  id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
                                         ; action=REJECT sorry no access</pre>
 <p>Besides these you can specify any attribute of the postfix policy delegation protocol.  
 Feel free to combine them the way you need it (have a look at the EXAMPLES section below).</p>
@@ -287,7 +287,7 @@ for details:</p>
         encryption_keysize=256                  mask = numeric, will match if keysize &gt;= 256
         ...</pre>
 <p>the current list can be found at <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a>. Please read carefully about which
-attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at END_OF_DATA level).
+attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at END-OF-MESSAGE level).
 Pattern matching is performed case insensitive.</p>
 <p>Multiple use of the same item is allowed and will compared as logical OR, which means that this will work as expected:</p>
 <pre>
@@ -448,15 +448,24 @@ rule containing only an action statement:</p>
             # no more than 3 requests per 5 minutes
             # from the same &quot;unknown&quot; client
             id=RATE01 ;  client_name==unknown ; \
-               action==rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)</pre>
+               action=rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
+        Please note also that the order of rate limits in your ruleset is important, which means
+        that this:
+                # works as expected
+                id=R001; action=rcpt(sender/500/3600/REJECT limit of 500 recipients per hour for sender $$sender exceeded)
+                id=R002; action=rcpt(sender/200/3600/WARN state YELLOW for sender $$sender)
+        leads to different results than this:
+                # rule R002 never gets executed
+                id=R001; action=rcpt(sender/200/3600/WARN state YELLOW for sender $$sender)
+                id=R002; action=rcpt(sender/500/3600/REJECT limit of 500 recipients per hour for sender $$sender exceeded)</pre>
 <pre>
         size (&lt;item&gt;/&lt;max&gt;/&lt;time&gt;/&lt;action&gt;)
         this command works similar to the rate() command with the difference, that the rate counter is
         increased by the request's size attribute. to do this reliably you should call postfwd from
         smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
            # size limit 1.5mb per hour per client
-           id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
-              action==size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)</pre>
+           id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address!=10.1.1.1; \
+              action=size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)</pre>
 <pre>
         rcpt (&lt;item&gt;/&lt;max&gt;/&lt;time&gt;/&lt;action&gt;)
         this command works similar to the rate() command with the difference, that the rate counter is
@@ -464,8 +473,8 @@ rule containing only an action statement:</p>
         from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
         check it within the ruleset:
            # recipient count limit 3 per hour per client
-           id=RCPT01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
-              action==rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)</pre>
+           id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address!=10.1.1.1; \
+              action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)</pre>
 <pre>
         ask (&lt;addr&gt;:&lt;port&gt;[:&lt;ignore&gt;])
         allows to delegate the policy decision to another policy service (e.g. postgrey). the first
@@ -473,7 +482,7 @@ rule containing only an action statement:</p>
         specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
            # example1: query postgrey and return it's answer to postfix
            id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
-           # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
+           # example2: query postgrey but ignore the answer, if it matches 'DUNNO'
            # and continue parsing postfwd's ruleset
            id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)</pre>
 <pre>
@@ -483,7 +492,7 @@ rule containing only an action statement:</p>
 <pre>
         note (&lt;string&gt;)
         just logs the given string and continues parsing the ruleset.
-        if the string is empty, nothing will be logged.</pre>
+        if the string is empty, nothing will be logged (noop).</pre>
 <pre>
         quit (&lt;code&gt;)
         terminates the program with the given exit-code. postfix doesn`t
@@ -555,10 +564,6 @@ First the macros have to be defined as follows:</p>
 <p>Basically macros are simple text substitutions - see the <a href="#parser">PARSER</a> section for more information.</p>
 <p>
 </p>
-<h2><a name="plugins">PLUGINS</a></h2>
-<p>Please visit <a href="http://www.postfwd.org/postfwd.plugins">http://www.postfwd.org/postfwd.plugins</a></p>
-<p>
-</p>
 <h2><a name="command_line">COMMAND LINE</a></h2>
 <p><em>Ruleset</em></p>
 <p>The following arguments are used to specify the source of the postfwd ruleset. This means
@@ -571,18 +576,13 @@ that at least one of the following is required for postfwd to work.</p>
         -r, --rule &lt;rule&gt;
         Adds &lt;rule&gt; to ruleset. Remember that you might have to quote
         strings that contain whitespaces or shell characters.</pre>
-<p><em>Plugins</em></p>
-<pre>
-        --plugins
-        A file containing plugin routines for postfwd. Please see the
-        PLUGINS section for more information.</pre>
 <p><em>Scoring</em></p>
 <pre>
         -s, --scores &lt;val&gt;=&lt;action&gt;
         Returns &lt;action&gt; to postfix, when the request's score exceeds &lt;val&gt;</pre>
 <p>Multiple usage is allowed. Just chain your arguments, like:</p>
 <pre>
-        postfwd -r &quot;&lt;item&gt;=&lt;value&gt;;action=&lt;result&gt;&quot; -f &lt;file&gt; -f &lt;file&gt; --plugins &lt;file&gt; ...
+        postfwd -r &quot;&lt;item&gt;=&lt;value&gt;;action=&lt;result&gt;&quot; -f &lt;file&gt; -f &lt;file&gt; ...
           or
         postfwd --scores 4.5=&quot;WARN high score&quot; --scores 5.0=&quot;REJECT postfwd score too high&quot; ...</pre>
 <p>In case of multiple scores, the highest match will count. The order of the arguments will be
@@ -623,6 +623,13 @@ The following arguments will control it's behaviour in this case.</p>
 <pre>
         --pidfile &lt;path&gt;
         The process id will be saved in the specified file.</pre>
+<pre>
+        --facility &lt;f&gt;
+        sets the syslog facility, default is 'mail'</pre>
+<pre>
+        --socktype &lt;s&gt;
+        sets the Sys::Syslog socktype to 'native', 'inet' or 'unix'.
+        Default is to auto-detect this depening on module version and os.</pre>
 <pre>
         -l, --logname &lt;label&gt;
         Labels the syslog messages. Useful when running multiple
@@ -812,18 +819,25 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         # 1. 30MB for systems in *.customer1.tld
         # 2. 20MB for SASL user joejob
         # 3. 10MB default
-        id=SZ001; state==END-OF-MESSAGE; action=DUNNO; size&lt;=30000000 ; client_name=\.customer1.tld$
-        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size&lt;=20000000 ; sasl_username==joejob
-        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size&lt;=10000000
-        id=SZ100; state==END-OF-MESSAGE; action=REJECT message too large</pre>
+        id=SZ001; protocol_state==END-OF-MESSAGE; action=DUNNO; size&lt;=30000000 ; client_name=\.customer1.tld$
+        id=SZ002; protocol_state==END-OF-MESSAGE; action=DUNNO; size&lt;=20000000 ; sasl_username==joejob
+        id=SZ002; protocol_state==END-OF-MESSAGE; action=DUNNO; size&lt;=10000000
+        id=SZ100; protocol_state==END-OF-MESSAGE; action=REJECT message too large</pre>
 <pre>
         ## Selective Greylisting
+        ##
+        ## Note that postfwd does not include greylisting. This setup requires a running postgrey service
+        ## at port 10031 and the following postfix restriction class in your main.cf:
+        ##
+        ##      smtpd_restriction_classes = check_postgrey, ...
+        ##      check_postgrey = check_policy_service inet:127.0.0.1:10031
+        #
         # 1. if listed on zen.spamhaus.org with results 127.0.0.10 or .11, dns cache timeout 1200s
         # 2. Client has no rDNS
         # 3. Client comes from several dialin domains
-        id=GR001; action=greylisting ; rbl=dul.dnsbl.sorbs.net, zen.spamhaus.org/127.0.0.1[01]/1200
-        id=GR002; action=greylisting ; client_name=^unknown$
-        id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$</pre>
+        id=GR001; action=check_postgrey ; rbl=dul.dnsbl.sorbs.net, zen.spamhaus.org/127.0.0.1[01]/1200
+        id=GR002; action=check_postgrey ; client_name=^unknown$
+        id=GR003; action=check_postgrey ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$</pre>
 <pre>
         ## Date Time
         date=24.12.2007-26.12.2007          ;  action=450 4.7.1 office closed during christmas
@@ -831,7 +845,7 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
         time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim
         months=-Apr                         ;  action=450 4.7.1 see you in may
-        days=!!Mon-Fri                      ;  action=greylist</pre>
+        days=!!Mon-Fri                      ;  action=check_postgrey</pre>
 <pre>
         ## Usage of jump
         # The following allows a message size of 30MB for different
@@ -841,8 +855,8 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=R003 ; action=jump(R100) ; ccert_fingerprint=AA:BB:CC:DD:...
         id=R004 ; action=jump(R100) ; ccert_fingerprint=AF:BE:CD:DC:...
         id=R005 ; action=jump(R100) ; ccert_fingerprint=DD:CC:BB:DD:...
-        id=R099 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 10MB); size=10000000
-        id=R100 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 30MB); size=30000000</pre>
+        id=R099 ; protocol_state==END-OF-MESSAGE; action=REJECT message too big (max. 10MB); size=10000000
+        id=R100 ; protocol_state==END-OF-MESSAGE; action=REJECT message too big (max. 30MB); size=30000000</pre>
 <pre>
         ## Usage of score
         # The following rejects a mail, if the client
@@ -850,7 +864,7 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         # - is listed in 1 RBL or 1 RHSBL and has no correct rDNS
         # - other clients without correct rDNS will be greylist-checked
         # - some whitelists are used to lower the score
-        id=S01 ; score=2.6              ; action=greylisting
+        id=S01 ; score=2.6              ; action=check_postgrey
         id=S02 ; score=5.0              ; action=REJECT postfwd score too high
         id=R00 ; action=score(-1.0)     ; rbl=exemptions.ahbl.org,list.dnswl.org,query.bondedsender.org,spf.trusted-forwarder.org
         id=R01 ; action=score(2.5)      ; rbl=bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
@@ -863,10 +877,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         # The following temporary rejects requests from &quot;unknown&quot; clients, if they
         # 1. exceeded 30 requests per hour or
         # 2. tried to send more than 1.5mb within 10 minutes
-        id=RATE01 ;  client_name==unknown ;  state==RCPT ; \
-                action==rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
-        id=SIZE01 ;  client_name==unknown ;  state==END_OF_DATA ; \
-                action==size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)</pre>
+        id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT ; \
+                action=rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
+        id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE ; \
+                action=size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)</pre>
 <pre>
         ## Macros
         # definition
@@ -1108,6 +1122,10 @@ listening on the specified network settings.</p>
         - use set() action on repeated item lists
         - use jumps and rate limits
         - use a pre-lookup rule for rbl/rhsbls with empty note() action</pre>
+<p>
+</p>
+<h2><a name="plugins">PLUGINS</a></h2>
+<p>There is a plugin interface but it still lacks documentation. Contact me if you need assistance.</p>
 <p>
 </p>
 <h2><a name="see_also">SEE ALSO</a></h2>

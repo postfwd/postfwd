@@ -1,3 +1,10 @@
+postfwd2 1.22
+=============
+- general: adapted postfwd1 versioning scheme
+- feature: queueid is logged when available
+- bugfix:  rate limits did not work correctly (thanks to Yves Blusseau)
+- docs:    documentation updates and fixes (thanks to Vincent Lefevre)
+
 postfwd2 1.00
 =============
 - code:    changed the default umask for the server socket to 0111

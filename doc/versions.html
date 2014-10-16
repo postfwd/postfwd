@@ -1,0 +1,74 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+
+<head>
+<title>postfwd - version differences</title>
+<link rel="stylesheet" type="text/css" href="http://www.jpkessler.de/css/postfwd.css">
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<meta name="description" content="postfwd version differences">
+<meta name="author" content="jpk">
+<meta name="keywords" content="postfwd, postfwd version differences, postfwd usage, postfwd manual, postfix, policy, policy delegation, firewall, postfix acl, postfix acls, pfwpolicy, postfw, restrictions, IT-Security, IT-Consulting, Jan, Peter, Kessler">
+</head>
+
+<body>
+<p>
+<h1>postfwd1 vs postfwd2</h1><br>
+As you might have noticed, there are two different versions of postfwd available - postfwd(1) and postfwd2.
+Which version fits best for you depends on your setup. Both versions use the same ruleset parser*. They also share the basic command line arguments (use both with --help for details). This allows to switch easily between them.
+<br><br>
+The following table might help you to decide which version to use. Basically you should stick with postfwd1 for the moment unless you encounter performance issues with dns based checks or very complex rulesets with thousands
+of checks. Please note that, due to implementation, rate limits are handled faster by postfwd1 at the moment.
+<br><br>
+
+</p>
+<table border=1 cellpadding="20">
+<tr>
+  <th align="right">Version
+  <th align="center">postfwd1
+  <th align="center">postfwd2
+<tr>
+  <td align="left" valign="top">
+    <ul>Specs</ul>
+  <td align="left" valign="top">
+    <ul>
+      <li>Single process (Multiplexer)
+      <li>Small memory footprint
+    </ul>
+  <td align="left" valign="top">
+    <ul>
+      <li>Multiple processes (Preforker)
+      <li>Scales with multiple cpus/cores
+      <li>Builtin watchdog function
+      <li>Debug classes
+    </ul>
+<tr>
+  <td align="left" valign="top">
+    <ul>Usage</ul>
+  <td align="left" valign="top">
+    <ul>
+      <li>Fits for most setups
+      <li>Any single core system
+      <li><i>Rate-limit-only</i> rulesets
+    </ul>
+  <td align="left" valign="top">
+    <ul>
+      <li>High throughput setups with lots of requests per second and
+      <br>
+      <ul>
+        <li>rulesets that use a lot of dnsbl lookups
+        <li>really huge rulesets containing tons of checks
+      </ul>
+    </ul>
+<tr>
+  <td align="left" valign="top">
+    <ul>*Issues</ul>
+  <td align="left" valign="top">
+  <td align="left" valign="top">
+    <ul>
+      <li>Does not support multiple rate limits for the same item (yet)
+    </ul>
+</table>
+</p>
+
+</body>
+</html>

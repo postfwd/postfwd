@@ -1,0 +1,113 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<title>postfwd - quickstart guide</title>
+<link rel="stylesheet" type="text/css" href="http://www.jpkessler.de/css/postfwd.css">
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<meta name="description" content="quickstart guid for postfwd a postfix firewall policy daemon">
+<meta name="author" content="jpk">
+<meta name="keywords" content="postfwd, postfwd usage, postfwd manual, postfwd quickstart, postfwd step-by-step, postfix, policy, policy delegation, firewall, postfix acl, postfix acls, pfwpolicy, postfw, restrictions, IT-Security, IT-Consulting, Jan, Peter, Kessler">
+</head>
+
+<body>
+	<h1>postfwd quickstart guide</h1>
+	<br>To use postfwd you have to perform the following steps:
+	<br><br>
+	<ol>
+		<li><a href="#step1">Get postfwd or postfwd2
+		<li><a href="#step2">Create your own postfwd ruleset
+		<li><a href="#step3"><i>Optional: </i>Create a dedicated user/group for postfwd
+		<li><a href="#step4">Launch postfwd
+		<li><a href="#step5">Tell postfix to use postfwd
+		<li><a href="#step6">Finished! How to go on?
+	</ol>
+
+	<br><ol>
+	<a name="step1"><li><strong>Get postfwd or postfwd2</strong></a>
+	<br>You may skip this step, if your operating system distribution contains a version of postfwd, but it is recommended to use a recent version from <a href="index.html">postfwd.org</a>. It is also recommended to use recent versions of the perl modules Net::DNS and Net::Server (see <a href="index.html#REQUIRED">required perl modules</a> for more information).
+
+	<br><br><br><a name="step2"><li><strong>Create your own postfwd ruleset</strong></a>
+	<br>postfwd is not a dedicated antispam tool (although it may be used as such). Instead of that it is basically a restriction language for postfix which allows to place complex policy expressions into a simple ruleset. For reasonable operation you have to create your own ruleset, like:
+
+	<p><pre>
+	# reject @domain.local if request comes from outside 10.0.0.0/8 network
+	id=RULE-01 ;  sender_domain=domain.local ;  client_address=!!(10.0.0.0/8) ;  action=REJECT not allowed
+
+	# reject if sender equals recipient
+	id=RULE-02 ;  sender==$$recipient ;  action=REJECT not allowed
+
+	# check some rbls and reject, if listed on >= 2 of them
+	id=RULE-03 ;  rbl=zen.spamhaus.org,bl.spamcop.net,ix.dnsbl.manitu.net ;  rblcount>=2 ;  action=REJECT not allowed </tt></pre>
+
+	Now save these rules to a file (e.g. /etc/postfwd.cf). Please note that these are just very basic examples. Please read the <a href="doc.html#configuration">documentation</a> for more information on postfwd's capabilities. To check your ruleset you should use the "-C" command line option. This displays postfwd's view of your ruleset, like:
+
+	<p><pre>
+	# postfwd -f /etc/postfwd.cf -C
+	  Rule   0: id->"RULE-01"; action->"REJECT not allowed"; sender_domain->"=;domain.local"; client_address->"=;!!(10.0.0.0/8)"
+	  Rule   1: id->"RULE-02"; action->"REJECT not allowed"; sender->"==;$$recipient"
+	  Rule   2: id->"RULE-03"; action->"REJECT not allowed"; rblcount->"2"; rbl->"=;zen.spamhaus.org, =;bl.spamcop.net, =;ix.dnsbl.manitu.net" </tt></pre>
+
+	If you just want to see that anything works a single rule like "id=DEFAULT; action=dunno" is fine, too.
+
+	<br><br><br><a name="step3"><li><strong><i>Optional: </i>Create a dedicated user/group for postfwd </strong></a>
+	<br>By default postfwd will try to use user 'nobody' and group 'nobody'. So it should be safe to skip this step in most environments. If you run a system that is exposed to dangerous networks and feel paranoid you may want to create a dedicated user and group for the postfwd process. On unix systems enter:
+
+	<p><pre>
+	# groupadd postfwd
+	# useradd -g postfwd -d /var/empty -s /bin/false -c "postfwd daemon user" postfwd
+	# passwd -l postfwd </tt></pre>
+
+	<br><a name="step4"><li><strong>Launch postfwd</strong></a>
+	<br>Start postfwd with your ruleset. Leave out the --user and --group options, if you have skipped step 3 and want to run postfwd as nobody/nobody.
+
+	<p><pre>
+	# postfwd --daemon -f /etc/postfwd.cf -u postfwd -g postfwd </tt></pre>
+
+	Now watch your logs (default facility: mail) for lines like:
+
+	<p><pre>
+	Jun  8 12:14:33 jupiter postfwd[20270]: postfwd 1.11 starting
+	Jun  8 12:14:33 jupiter postfwd[20271]: Process Backgrounded
+	Jun  8 12:14:33 jupiter postfwd[20271]: 2009/06/08-12:14:33 postfwd (type Net::Server::Multiplex) starting! pid(20271)
+	Jun  8 12:14:33 jupiter postfwd[20271]: Binding to TCP port 10040 on host 127.0.0.1
+	Jun  8 12:14:33 jupiter postfwd[20271]: Setting gid to "1003 1003"
+	Jun  8 12:14:33 jupiter postfwd[20271]: Setting uid to "1010"
+	Jun  8 12:14:33 jupiter postfwd[20271]: postfwd 1.11 ready for input </tt></pre>
+
+	To control further daemon operations the commands `postfwd --kill` and `postfwd --reload` may be used. Please see `postfwd -h` and the <a href="doc.html#command_line">documentation</a> for more information.
+
+	<br><br><br><a name="step5"><li><strong>Tell postfix to use postfwd</strong></a>
+	<br>Open your main.cf (usually located at /etc/postfix) and find or add a line starting with:
+
+	<p><pre>
+	smtpd_recipient_restrictions = ... </pre></p>
+
+	To place the postfwd check here, modify this as follows:
+
+	<p><pre>
+	# note the leading whitespaces from the 2nd line!
+	smtpd_recipient_restrictions = permit_mynetworks,	# recommended
+		...,						# optional
+		reject_unauth_destination,			# recommended
+		check_policy_service inet:127.0.0.1:10040,	# **postfwd integration**
+		...						# optional </tt></pre>
+
+	Please note that for some checks (like the 'size' attribute) postfwd has to be integrated at another level of the smtp transaction (smtpd_end_of_data_restrictions). More information on that can be found in the <a href="http://www.postfix.org/SMTPD_POLICY_README.html#protocol">postfix documentation</a>.
+
+	<br><br><br><a name="step6"><li><strong>Finished! How to go on?</strong></a>
+	<br>A good point to start is postfwd's manual. You should be able to view it using the `postfwd -m` command or visit the <a href="doc.html">documentation page</a>. There are also some configuration examples on the <a href="index.html">webpage</a>. Another very useful source of information is the <a href="http://www.postfix.org/SMTPD_POLICY_README.html">Postfix SMTP Access Policy Delegation</a> documentation.
+	<br>
+	</ol>
+
+	<p>
+	<center>
+	<table border="1" color="black" frame="hsides" rules="none" width="100%">
+	<td width="33%" align="left"><small>http://www.postfwd.org/</small>
+	<td width="34%" align="center"><small>2007 - 2009 by <a href="http://www.jpkessler.de/">Jan Peter Kessler</a></small>
+	<td width="33%" align="right"><small>info (AT) postfwd (DOT) org</small>
+	</table>
+	</center>
+	</p>
+
+</body>
+

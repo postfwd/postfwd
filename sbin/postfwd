@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.20';
+our($VERSION)			= '1.22';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -218,7 +218,7 @@ use vars qw(
 	$opt_perfmon $opt_test $opt_verbose $opt_noidlestats
 	$opt_cache_rdomain_only $opt_cache_no_size $config_timeout
 	$opt_cache_no_sender $opt_no_rulestats $opt_kill $opt_hup
-	$opt_showconfig $opt_stdoutlog $opt_shortlog $dns_async_txt
+	$opt_showconfig $opt_stdoutlog $opt_shortlog $dns_async_txt $opt_keep_rates_on_reload
 	$DNS $Reload_Conf $dns_queuesize $dns_retries $dns_timeout
 );
 
@@ -408,11 +408,27 @@ sub cleanup_request_cache {
 sub cleanup_rate_cache {
     my($now) = $_[0];
     foreach my $checkitem (keys %Rates) {
-	if ( (($now - $Rates{$checkitem}{"time"}) > $Rates{$checkitem}{ttl}) ) {
-		mylogs $syslog_priority, "[CLEANUP] removing rate-cache for $checkitem after "
-			.($now - $Rates{$checkitem}{"time"})." seconds (timeout: ".$Rates{$checkitem}{ttl}."s)"
-			if ($opt_verbose > 1);
+	unless (defined $Rates{$checkitem}{'list'}) {
 		delete $Rates{$checkitem};
+	} else {
+		my @i = ();
+		foreach my $crate (@{$Rates{$checkitem}{'list'}}) {
+			unless (defined $Rates{$checkitem}{$crate}{"time"} and defined $Rates{$checkitem}{$crate}{ttl}) {
+				delete $Rates{$checkitem}{$crate};
+			} elsif ( (($now - $Rates{$checkitem}{$crate}{"time"}) > $Rates{$checkitem}{$crate}{ttl}) ) {
+				mylogs $syslog_priority, "[CLEANUP] removing rate-cache for ".$checkitem."/".$crate." after "
+					.($now - $Rates{$checkitem}{$crate}{"time"})." seconds (timeout: ".$Rates{$checkitem}{$crate}{ttl}."s)"
+					if ($opt_verbose > 1);
+				delete $Rates{$checkitem}{$crate};
+			} else {
+				push @i, $crate;
+			};
+		};
+		if ($#i < 0) {
+			delete $Rates{$checkitem};
+		} else {
+			@{$Rates{$checkitem}{'list'}} = @i;
+		};
 	};
     };
 };
@@ -686,7 +702,8 @@ sub read_config {
     my($mytype,$myitem,$config);
 
     # init, cleanup cache and config vars
-    @Rules = %Rule_by_ID = %Request_Cache = %Rates = @Rate_Items = ();
+    @Rules = %Rule_by_ID = %Request_Cache = @Rate_Items = ();
+    %Rates = () unless $opt_keep_rates_on_reload;
 
     # parse configurations
     for $config (@Configs) {
@@ -1349,10 +1366,12 @@ sub postfwd_items {
 		my($myaction) = $default_action; my($stop) = 0;
 		my($ratetype,$ratecount,$ratetime,$ratecmd) = split "/", $myarg, 4;
 		if ($ratetype and $ratecount and $ratetime and $ratecmd) {
+		  my $crate = $Rules[$index]{$COMP_ID}.'+'.$ratecount.'_'.$ratetime;
 		  if ( defined $request{$ratetype} ) {
 			$ratetype .= "=".$request{$ratetype};
-			unless ( defined $Rates{$ratetype} ) {
-				$Rates{$ratetype} = {
+			unless ( defined $Rates{$ratetype}{$crate} ) {
+				push @{$Rates{$ratetype}{'list'}}, $crate;
+				$Rates{$ratetype}{$crate} = {
 					type 		=> $mycmd,
 					maxcount	=> $ratecount,
 					ttl		=> $ratetime,
@@ -1816,7 +1835,7 @@ sub smtpd_access_policy {
     my($now)				      		= time;
     my($date)				      		= join(',', localtime($now));
     my($matched,$rblcnt,$rhlcnt,$t1,$t2,$t3,$stop)      = 0;
-    my($mykey,$cacheid,$myline,$checkreq,$var,$ratehit) = "";
+    my($mykey,$cacheid,$myline,$checkreq,$var,$ratehit,$rateitem) = "";
 
     # save original request
     $request{orig} = hash_to_str (%request);
@@ -1863,29 +1882,35 @@ sub smtpd_access_policy {
       RATES: foreach $checkreq (@Rate_Items) {
 	next RATES unless $request{$checkreq};
 	my $checkval = $checkreq."=".$request{$checkreq};
-	next RATES unless ( defined $Rates{$checkval});
-	if ( ($now - $Rates{$checkval}{"time"}) > $Rates{$checkval}{ttl} ) {
-		# renew rate
-		$Rates{$checkval}{count} = ( ($Rates{$checkval}{type} eq 'size') ? $request{size} :
-			(($Rates{$checkval}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
-		$Rates{$checkval}{"time"} = $now;
-		mylogs $syslog_priority, "[RATE] renewing rate object '".$checkval."'"
-			." [type: ".$Rates{$checkval}{type}
-			.", max: ".$Rates{$checkval}{maxcount}
-			.", time: ".$Rates{$checkval}{ttl}."s]"
-			if ($opt_verbose > 1);
-	} else {
-		# increase rate
-		$Rates{$checkval}{count} += ( ($Rates{$checkval}{type} eq 'size') ? $request{size} :
-			(($Rates{$checkval}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
-		mylogs $syslog_priority, "[RATE] increasing rate object '".$checkval."'"
-			." to ".$Rates{$checkval}{count}
-			." [type: ".$Rates{$checkval}{type}
-			.", max: ".$Rates{$checkval}{maxcount}
-			.", time: ".$Rates{$checkval}{ttl}."s]"
-			if ($opt_verbose > 1);
+	next RATES unless ( defined $Rates{$checkval} and defined $Rates{$checkval}{'list'} );
+	CRATE: foreach my $crate (@{$Rates{$checkval}{'list'}}) {
+		if ( ($now - $Rates{$checkval}{$crate}{"time"}) > $Rates{$checkval}{$crate}{ttl} ) {
+			# renew rate
+			$Rates{$checkval}{$crate}{count} = ( ($Rates{$checkval}{$crate}{type} eq 'size') ? $request{size} :
+				(($Rates{$checkval}{$crate}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
+			$Rates{$checkval}{$crate}{"time"} = $now;
+			mylogs $syslog_priority, "[RATE] renewing rate object '".$checkval."/".$crate."'"
+				." [type: ".$Rates{$checkval}{$crate}{type}
+				.", max: ".$Rates{$checkval}{$crate}{maxcount}
+				.", time: ".$Rates{$checkval}{$crate}{ttl}."s]"
+				if ($opt_verbose > 1);
+		} else {
+			# increase rate
+			$Rates{$checkval}{$crate}{count} += ( ($Rates{$checkval}{$crate}{type} eq 'size') ? $request{size} :
+				(($Rates{$checkval}{$crate}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
+			mylogs $syslog_priority, "[RATE] increasing rate object '".$checkval."/".$crate."'"
+				." to ".$Rates{$checkval}{$crate}{count}
+				." [type: ".$Rates{$checkval}{$crate}{type}
+				.", max: ".$Rates{$checkval}{$crate}{maxcount}
+				.", time: ".$Rates{$checkval}{$crate}{ttl}."s]"
+				if ($opt_verbose > 1);
+		};
+		$ratehit = ($Rates{$checkval}{$crate}{count} > $Rates{$checkval}{$crate}{maxcount}) ? $checkval : undef;
+		if ($ratehit) {
+			$rateitem = $crate;
+			last CRATE;
+		};
 	};
-	$ratehit = ($Rates{$checkval}{count} > $Rates{$checkval}{maxcount}) ? $checkval : undef;
 	last RATES if $ratehit;
       };
     };
@@ -1930,21 +1955,22 @@ sub smtpd_access_policy {
     if ( $ratehit ) {
 
 	$Counter_Rates++;
-	$Matches{$Rates{$ratehit}{rule}}++;
-	$myaction = $Rates{$ratehit}{action};
-	mylogs $syslog_priority, "[RATE] rule=".$Rule_by_ID{$Rates{$ratehit}{rule}}
-		. ", id=".$Rates{$ratehit}{rule}
+	$Matches{$Rates{$ratehit}{$rateitem}{rule}}++;
+	$myaction = $Rates{$ratehit}{$rateitem}{action};
+	mylogs $syslog_priority, "[RATE] rule=".$Rule_by_ID{$Rates{$ratehit}{$rateitem}{rule}}
+		. ", id=".$Rates{$ratehit}{$rateitem}{rule}
+		. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 		. ", client=".$request{client_name}."[".$request{client_address}."]"
 		. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
-		. ", recipient=<".$request{recipient}.">"
+		. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
 		. ", helo=<".$request{helo_name}.">"
 		. ", proto=".$request{protocol_name}
 		. ", state=".$request{protocol_state}
 		. ", delay=".(time - $now)."s"
 		. ", action=".$myaction." (item: '".$ratehit."'"
-		. ", type: ".$Rates{$ratehit}{type}
-		. ", count: ".$Rates{$ratehit}{count}."/".$Rates{$ratehit}{maxcount}
-		. ", time: ".($now - $Rates{$ratehit}{"time"})."/".$Rates{$ratehit}{ttl}."s)"
+		. ", type: ".$Rates{$ratehit}{$rateitem}{type}
+		. ", count: ".$Rates{$ratehit}{$rateitem}{count}."/".$Rates{$ratehit}{$rateitem}{maxcount}
+		. ", time: ".($now - $Rates{$ratehit}{$rateitem}{"time"})."/".$Rates{$ratehit}{$rateitem}{ttl}."s)"
 		unless $opt_norulelog;
 
     # check cache
@@ -1953,14 +1979,15 @@ sub smtpd_access_policy {
 	and ((exists($Request_Cache{$cacheid}{$COMP_ACTION})) and (($now - $Request_Cache{$cacheid}{"time"}) <= $REQUEST_MAX_CACHE)) ) {
 	$Counter_Hits++;
 	$myaction = $Request_Cache{$cacheid}{$COMP_ACTION};
-	if ( $Request_Cache{$cacheid}{hit} ) {
+	if ( $Request_Cache{$cacheid}{hit} and $Request_Cache{$cacheid}{$COMP_ID}) {
 		$Matches{$Request_Cache{$cacheid}{$COMP_ID}}++;
 
 		mylogs $syslog_priority, "[CACHE] rule=".$Rule_by_ID{$Request_Cache{$cacheid}{$COMP_ID}}
 			. ", id=".$Request_Cache{$cacheid}{$COMP_ID}
+			. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 			. ", client=".$request{client_name}."[".$request{client_address}."]"
 			. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
-			. ", recipient=<".$request{recipient}.">"
+			. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
 			. ", helo=<".$request{helo_name}.">"
 			. ", proto=".$request{protocol_name}
 			. ", state=".$request{protocol_state}
@@ -2021,9 +2048,10 @@ sub smtpd_access_policy {
 				$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
 				$myline = "rule=".$index
 					. ", id=".$Rules[$index]{$COMP_ID}
+					. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 					. ", client=".$request{client_name}."[".$request{client_address}."]"
 					. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
-					. ", recipient=<".$request{recipient}.">"
+					. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
 					. ", helo=<".$request{helo_name}.">"
 					. ", proto=".$request{protocol_name}
 					. ", state=".$request{protocol_state};
@@ -2100,6 +2128,7 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 		'v|verbose'		 => sub { $opt_verbose++ },
 		'l|logname=s'		 => \$syslog_name,
 		'facility=s'		 => \$syslog_facility,
+		'socktype=s'		 => \$syslog_socktype,
 		'loglen=i'		 => \$syslog_maxlen,
 		'n|nodns'		 => \$opt_nodns,
 		'nodnslog'		 => \$opt_nodnslog,
@@ -2144,6 +2173,7 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 		'no-idlestats'		 => \$opt_noidlestats,
 		's|scores=s'		 => \%opt_scores,
 		'config_timeout=i'	 => \$config_timeout,
+		'keep_rates|keep_limits|keep_rates_on_reload'	 => \$opt_keep_rates_on_reload,
 		'f|file=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'r|rule=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'plugins=s'	 	=> \@Plugins,
@@ -2382,6 +2412,8 @@ postfwd [OPTIONS] [SOURCE1, SOURCE2, ...]
 	    --umask <mask>	    set umask for file permissions
 	-R, --chroot <path>         chroot the daemon to <path>
 	    --pidfile <path>        create pidfile under <path>
+	    --facility <f>          syslog facility
+	    --socktype <s>          syslog socktype
 	-l, --logname <label>       label for syslog messages
 	    --loglen <int>          truncates syslogs after <int> chars
 
@@ -2423,9 +2455,6 @@ postfwd [OPTIONS] [SOURCE1, SOURCE2, ...]
 	-h, --help                  shows usage
 	-m, --manual                shows program manual
 
-	Plugins:
-	    --plugins <file>        loads plugins from <file>
-
 
 =head1 DESCRIPTION
 
@@ -2464,7 +2493,7 @@ I<Features:>
 A configuration line consists of optional item=value pairs, separated by semicolons
 (`;`) and the appropriate desired action:
 
-	[ <item1>[=><~]=<value>; <item2>[=><~]=<value>; ... ] action=<result>
+	[ <item1>=<value>; <item2>=<value>; ... ] action=<result>
 
 I<Example:>
 
@@ -2569,7 +2598,8 @@ Rules can span multiple lines by adding a trailing backslash "\" character:
 				  this enables version based checks in your rulesets
 				  (e.g. for migration). works with old versions too,
 				  because a non-existing item always returns false:
-				  id=R01; version~=1.10; sender_domain==some.org \
+				  # version >= 1.10
+				  id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
 				  	; action=REJECT sorry no access
 
 Besides these you can specify any attribute of the postfix policy delegation protocol.  
@@ -2623,7 +2653,7 @@ for details:
 	...
 
 the current list can be found at L<http://www.postfix.org/SMTPD_POLICY_README.html>. Please read carefully about which
-attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at END_OF_DATA level).
+attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at END-OF-MESSAGE level).
 Pattern matching is performed case insensitive.
 
 Multiple use of the same item is allowed and will compared as logical OR, which means that this will work as expected:
@@ -2813,15 +2843,24 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	    # no more than 3 requests per 5 minutes
 	    # from the same "unknown" client
 	    id=RATE01 ;  client_name==unknown ; \
-	       action==rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
+	       action=rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
+	Please note also that the order of rate limits in your ruleset is important, which means
+	that this:
+		# works as expected
+		id=R001; action=rcpt(sender/500/3600/REJECT limit of 500 recipients per hour for sender $$sender exceeded)
+		id=R002; action=rcpt(sender/200/3600/WARN state YELLOW for sender $$sender)
+	leads to different results than this:
+		# rule R002 never gets executed
+		id=R001; action=rcpt(sender/200/3600/WARN state YELLOW for sender $$sender)
+		id=R002; action=rcpt(sender/500/3600/REJECT limit of 500 recipients per hour for sender $$sender exceeded)
 
 	size (<item>/<max>/<time>/<action>)
 	this command works similar to the rate() command with the difference, that the rate counter is
 	increased by the request's size attribute. to do this reliably you should call postfwd from
 	smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
 	   # size limit 1.5mb per hour per client
-	   id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
-	      action==size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
+	   id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address!=10.1.1.1; \
+	      action=size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 
 	rcpt (<item>/<max>/<time>/<action>)
 	this command works similar to the rate() command with the difference, that the rate counter is
@@ -2829,8 +2868,8 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
 	check it within the ruleset:
 	   # recipient count limit 3 per hour per client
-	   id=RCPT01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
-	      action==rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
+	   id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address!=10.1.1.1; \
+	      action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 
 	ask (<addr>:<port>[:<ignore>])
 	allows to delegate the policy decision to another policy service (e.g. postgrey). the first
@@ -2838,7 +2877,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
 	   # example1: query postgrey and return it's answer to postfix
 	   id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
-	   # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
+	   # example2: query postgrey but ignore the answer, if it matches 'DUNNO'
 	   # and continue parsing postfwd's ruleset
 	   id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 
@@ -2848,7 +2887,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 
 	note (<string>)
 	just logs the given string and continues parsing the ruleset.
-	if the string is empty, nothing will be logged.
+	if the string is empty, nothing will be logged (noop).
 
 	quit (<code>)
 	terminates the program with the given exit-code. postfix doesn`t
@@ -2929,11 +2968,6 @@ Macros can contain macros, too:
 Basically macros are simple text substitutions - see the L</PARSER> section for more information.
 
 
-=head2 PLUGINS
-
-Please visit L<http://www.postfwd.org/postfwd.plugins>
-
-
 =head2 COMMAND LINE
 
 I<Ruleset>
@@ -2949,12 +2983,6 @@ that at least one of the following is required for postfwd to work.
 	Adds <rule> to ruleset. Remember that you might have to quote
 	strings that contain whitespaces or shell characters.
 
-I<Plugins>
-
-	--plugins
-	A file containing plugin routines for postfwd. Please see the
-	PLUGINS section for more information.
-
 I<Scoring>
 
 	-s, --scores <val>=<action>
@@ -2962,7 +2990,7 @@ I<Scoring>
 
 Multiple usage is allowed. Just chain your arguments, like:
 
-	postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> --plugins <file> ...
+	postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> ...
 	  or
 	postfwd --scores 4.5="WARN high score" --scores 5.0="REJECT postfwd score too high" ...
 
@@ -3006,6 +3034,13 @@ The following arguments will control it's behaviour in this case.
 
 	--pidfile <path>
 	The process id will be saved in the specified file.
+
+	--facility <f>
+	sets the syslog facility, default is 'mail'
+
+	--socktype <s>
+	sets the Sys::Syslog socktype to 'native', 'inet' or 'unix'.
+	Default is to auto-detect this depening on module version and os.
 
 	-l, --logname <label>
 	Labels the syslog messages. Useful when running multiple
@@ -3201,18 +3236,25 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	# 1. 30MB for systems in *.customer1.tld
 	# 2. 20MB for SASL user joejob
 	# 3. 10MB default
-	id=SZ001; state==END-OF-MESSAGE; action=DUNNO; size<=30000000 ; client_name=\.customer1.tld$
-	id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=20000000 ; sasl_username==joejob
-	id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=10000000
-	id=SZ100; state==END-OF-MESSAGE; action=REJECT message too large
+	id=SZ001; protocol_state==END-OF-MESSAGE; action=DUNNO; size<=30000000 ; client_name=\.customer1.tld$
+	id=SZ002; protocol_state==END-OF-MESSAGE; action=DUNNO; size<=20000000 ; sasl_username==joejob
+	id=SZ002; protocol_state==END-OF-MESSAGE; action=DUNNO; size<=10000000
+	id=SZ100; protocol_state==END-OF-MESSAGE; action=REJECT message too large
 
 	## Selective Greylisting
+	##
+	## Note that postfwd does not include greylisting. This setup requires a running postgrey service
+	## at port 10031 and the following postfix restriction class in your main.cf:
+	##
+	## 	smtpd_restriction_classes = check_postgrey, ...
+	## 	check_postgrey = check_policy_service inet:127.0.0.1:10031
+	#
 	# 1. if listed on zen.spamhaus.org with results 127.0.0.10 or .11, dns cache timeout 1200s
 	# 2. Client has no rDNS
 	# 3. Client comes from several dialin domains
-	id=GR001; action=greylisting ; rbl=dul.dnsbl.sorbs.net, zen.spamhaus.org/127.0.0.1[01]/1200
-	id=GR002; action=greylisting ; client_name=^unknown$
-	id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$
+	id=GR001; action=check_postgrey ; rbl=dul.dnsbl.sorbs.net, zen.spamhaus.org/127.0.0.1[01]/1200
+	id=GR002; action=check_postgrey ; client_name=^unknown$
+	id=GR003; action=check_postgrey ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$
 
 	## Date Time
 	date=24.12.2007-26.12.2007          ;  action=450 4.7.1 office closed during christmas
@@ -3220,7 +3262,7 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
 	time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim
 	months=-Apr                         ;  action=450 4.7.1 see you in may
-	days=!!Mon-Fri                      ;  action=greylist
+	days=!!Mon-Fri                      ;  action=check_postgrey
 
 	## Usage of jump
 	# The following allows a message size of 30MB for different
@@ -3230,8 +3272,8 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=R003 ; action=jump(R100) ; ccert_fingerprint=AA:BB:CC:DD:...
 	id=R004 ; action=jump(R100) ; ccert_fingerprint=AF:BE:CD:DC:...
 	id=R005 ; action=jump(R100) ; ccert_fingerprint=DD:CC:BB:DD:...
-	id=R099 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 10MB); size=10000000
-	id=R100 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 30MB); size=30000000
+	id=R099 ; protocol_state==END-OF-MESSAGE; action=REJECT message too big (max. 10MB); size=10000000
+	id=R100 ; protocol_state==END-OF-MESSAGE; action=REJECT message too big (max. 30MB); size=30000000
 
 	## Usage of score
 	# The following rejects a mail, if the client
@@ -3239,7 +3281,7 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	# - is listed in 1 RBL or 1 RHSBL and has no correct rDNS
 	# - other clients without correct rDNS will be greylist-checked
 	# - some whitelists are used to lower the score
-	id=S01 ; score=2.6 		; action=greylisting
+	id=S01 ; score=2.6 		; action=check_postgrey
 	id=S02 ; score=5.0 		; action=REJECT postfwd score too high
 	id=R00 ; action=score(-1.0)	; rbl=exemptions.ahbl.org,list.dnswl.org,query.bondedsender.org,spf.trusted-forwarder.org
 	id=R01 ; action=score(2.5) 	; rbl=bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
@@ -3252,10 +3294,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	# The following temporary rejects requests from "unknown" clients, if they
 	# 1. exceeded 30 requests per hour or
 	# 2. tried to send more than 1.5mb within 10 minutes
-	id=RATE01 ;  client_name==unknown ;  state==RCPT ; \
-		action==rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
-	id=SIZE01 ;  client_name==unknown ;  state==END_OF_DATA ; \
-		action==size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
+	id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT ; \
+		action=rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
+	id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE ; \
+		action=size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
 
 	## Macros
         # definition
@@ -3541,6 +3583,11 @@ Some of these proposals might not match your environment. Please check your requ
 	- use set() action on repeated item lists
 	- use jumps and rate limits
 	- use a pre-lookup rule for rbl/rhsbls with empty note() action
+
+
+=head2 PLUGINS
+
+There is a plugin interface but it still lacks documentation. Contact me if you need assistance.
 
 
 =head2 SEE ALSO

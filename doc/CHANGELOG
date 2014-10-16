@@ -1,3 +1,26 @@
+1.22
+=====
+- feature: new option --keep_limits_on_reload
+- feature: queueid is logged when available
+- bugfix:  rate limits using the same item and the same limits
+           did not work correctly (thanks to Yves Blusseau):
+		id=INT01; INT_DOMAIN==1; \
+			action=rate(sender/100/60/450 4.7.1 too much for internal domains)
+		id=EXT01; EXT_DOMAIN==1; \
+			action=rate(sender/100/60/450 4.7.1 too much for external domains)
+- bugfix:  small fix for cleanup of old rate limits
+- docs:    documentation updates and fixes (thanks to Vincent Lefevre)
+
+1.21
+=====
+- feature: postfwd supports multiple rate limits to the same items now.
+	   this means that the following will now work as expected:
+		id=R001; recipient_count>=100; action=rate(sender/3/3600/WARN state RED)
+		id=R002; recipient_count>=100; action=rate(sender/2/3600/WARN state YELLOW)
+		id=R003; recipient_count>=100; action=rate(sender/1/3600/WARN state GREEN)
+- code:    ported command-line option --facility from postfwd2
+- docs:    documentation updates and fixes (thanks to Vincent Lefevre)
+
 1.20
 =====
 - code:    changed the default umask for the server socket to 0111

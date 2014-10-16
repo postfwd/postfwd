@@ -128,8 +128,8 @@
 .rm #[ #] #H #V #F C
 .\" ========================================================================
 .\"
-.IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2010-11-14" "perl v5.8.5" "User Contributed Perl Documentation"
+.IX Title "POSTFWD1-ALL-IN-ONE 1"
+.TH POSTFWD1-ALL-IN-ONE 1 "2011-08-14" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -147,7 +147,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&        -s, --scores <v>=<r>        returns <r> when score exceeds <v>
 .Ve
 .PP
-.Vb 12
+.Vb 14
 \&        Networking:
 \&        -d, --daemon                run postfwd as daemon
 \&        -i, --interface <dev>       listen on interface <dev>
@@ -158,6 +158,8 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --umask <mask>          set umask for file permissions
 \&        -R, --chroot <path>         chroot the daemon to <path>
 \&            --pidfile <path>        create pidfile under <path>
+\&            --facility <f>          syslog facility
+\&            --socktype <s>          syslog socktype
 \&        -l, --logname <label>       label for syslog messages
 \&            --loglen <int>          truncates syslogs after <int> chars
 .Ve
@@ -205,11 +207,6 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&        -h, --help                  shows usage
 \&        -m, --manual                shows program manual
 .Ve
-.PP
-.Vb 2
-\&        Plugins:
-\&            --plugins <file>        loads plugins from <file>
-.Ve
 .SH "DESCRIPTION"
 .IX Header "DESCRIPTION"
 .Sh "\s-1INTRODUCTION\s0"
@@ -245,7 +242,7 @@ A configuration line consists of optional item=value pairs, separated by semicol
 (`;`) and the appropriate desired action:
 .PP
 .Vb 1
-\&        [ <item1>[=><~]=<value>; <item2>[=><~]=<value>; ... ] action=<result>
+\&        [ <item1>=<value>; <item2>=<value>; ... ] action=<result>
 .Ve
 .PP
 \&\fIExample:\fR
@@ -379,12 +376,13 @@ Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" charac
 \&                                  (whitelisting), as it might be forged.
 .Ve
 .PP
-.Vb 6
+.Vb 7
 \&        version                 - postfwd version, contains "postfwd n.nn"
 \&                                  this enables version based checks in your rulesets
 \&                                  (e.g. for migration). works with old versions too,
 \&                                  because a non-existing item always returns false:
-\&                                  id=R01; version~=1.10; sender_domain==some.org \e
+\&                                  # version >= 1.10
+\&                                  id=R01; version~=1\e.[1-9][0-9]; sender_domain==some.org \e
 \&                                        ; action=REJECT sorry no access
 .Ve
 .PP
@@ -441,7 +439,7 @@ for details:
 .Ve
 .PP
 the current list can be found at <http://www.postfix.org/SMTPD_POLICY_README.html>. Please read carefully about which
-attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at \s-1END_OF_DATA\s0 level).
+attribute can be used at which level of the smtp transaction (e.g. size will only work reliably at END-OF-MESSAGE level).
 Pattern matching is performed case insensitive.
 .PP
 Multiple use of the same item is allowed and will compared as logical \s-1OR\s0, which means that this will work as expected:
@@ -675,7 +673,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        by "," characters.
 .Ve
 .PP
-.Vb 9
+.Vb 18
 \&        rate (<item>/<max>/<time>/<action>)
 \&        this command creates a counter for the given <item>, which will be increased any time a request
 \&        containing it arrives. if it exceeds <max> within <time> seconds it will return <action> to postfix.
@@ -684,7 +682,16 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&            # no more than 3 requests per 5 minutes
 \&            # from the same "unknown" client
 \&            id=RATE01 ;  client_name==unknown ; \e
-\&               action==rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
+\&               action=rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
+\&        Please note also that the order of rate limits in your ruleset is important, which means
+\&        that this:
+\&                # works as expected
+\&                id=R001; action=rcpt(sender/500/3600/REJECT limit of 500 recipients per hour for sender $$sender exceeded)
+\&                id=R002; action=rcpt(sender/200/3600/WARN state YELLOW for sender $$sender)
+\&        leads to different results than this:
+\&                # rule R002 never gets executed
+\&                id=R001; action=rcpt(sender/200/3600/WARN state YELLOW for sender $$sender)
+\&                id=R002; action=rcpt(sender/500/3600/REJECT limit of 500 recipients per hour for sender $$sender exceeded)
 .Ve
 .PP
 .Vb 7
@@ -693,8 +700,8 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        increased by the request's size attribute. to do this reliably you should call postfwd from
 \&        smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
 \&           # size limit 1.5mb per hour per client
-\&           id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \e
-\&              action==size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
+\&           id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address!=10.1.1.1; \e
+\&              action=size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 .Ve
 .PP
 .Vb 8
@@ -704,8 +711,8 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
 \&        check it within the ruleset:
 \&           # recipient count limit 3 per hour per client
-\&           id=RCPT01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \e
-\&              action==rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
+\&           id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address!=10.1.1.1; \e
+\&              action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 .Ve
 .PP
 .Vb 9
@@ -715,7 +722,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
 \&           # example1: query postgrey and return it's answer to postfix
 \&           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
-\&           # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
+\&           # example2: query postgrey but ignore the answer, if it matches 'DUNNO'
 \&           # and continue parsing postfwd's ruleset
 \&           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 .Ve
@@ -729,7 +736,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 .Vb 3
 \&        note (<string>)
 \&        just logs the given string and continues parsing the ruleset.
-\&        if the string is empty, nothing will be logged.
+\&        if the string is empty, nothing will be logged (noop).
 .Ve
 .PP
 .Vb 3
@@ -827,9 +834,6 @@ Macros can contain macros, too:
 .Ve
 .PP
 Basically macros are simple text substitutions \- see the \*(L"\s-1PARSER\s0\*(R" section for more information.
-.Sh "\s-1PLUGINS\s0"
-.IX Subsection "PLUGINS"
-Please visit <http://www.postfwd.org/postfwd.plugins>
 .Sh "\s-1COMMAND\s0 \s-1LINE\s0"
 .IX Subsection "COMMAND LINE"
 \&\fIRuleset\fR
@@ -849,14 +853,6 @@ that at least one of the following is required for postfwd to work.
 \&        strings that contain whitespaces or shell characters.
 .Ve
 .PP
-\&\fIPlugins\fR
-.PP
-.Vb 3
-\&        --plugins
-\&        A file containing plugin routines for postfwd. Please see the
-\&        PLUGINS section for more information.
-.Ve
-.PP
 \&\fIScoring\fR
 .PP
 .Vb 2
@@ -867,7 +863,7 @@ that at least one of the following is required for postfwd to work.
 Multiple usage is allowed. Just chain your arguments, like:
 .PP
 .Vb 3
-\&        postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> --plugins <file> ...
+\&        postfwd -r "<item>=<value>;action=<result>" -f <file> -f <file> ...
 \&          or
 \&        postfwd --scores 4.5="WARN high score" --scores 5.0="REJECT postfwd score too high" ...
 .Ve
@@ -929,6 +925,17 @@ The following arguments will control it's behaviour in this case.
 .Vb 2
 \&        --pidfile <path>
 \&        The process id will be saved in the specified file.
+.Ve
+.PP
+.Vb 2
+\&        --facility <f>
+\&        sets the syslog facility, default is 'mail'
+.Ve
+.PP
+.Vb 3
+\&        --socktype <s>
+\&        sets the Sys::Syslog socktype to 'native', 'inet' or 'unix'.
+\&        Default is to auto-detect this depening on module version and os.
 .Ve
 .PP
 .Vb 3
@@ -1193,20 +1200,27 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        # 1. 30MB for systems in *.customer1.tld
 \&        # 2. 20MB for SASL user joejob
 \&        # 3. 10MB default
-\&        id=SZ001; state==END-OF-MESSAGE; action=DUNNO; size<=30000000 ; client_name=\e.customer1.tld$
-\&        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=20000000 ; sasl_username==joejob
-\&        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=10000000
-\&        id=SZ100; state==END-OF-MESSAGE; action=REJECT message too large
+\&        id=SZ001; protocol_state==END-OF-MESSAGE; action=DUNNO; size<=30000000 ; client_name=\e.customer1.tld$
+\&        id=SZ002; protocol_state==END-OF-MESSAGE; action=DUNNO; size<=20000000 ; sasl_username==joejob
+\&        id=SZ002; protocol_state==END-OF-MESSAGE; action=DUNNO; size<=10000000
+\&        id=SZ100; protocol_state==END-OF-MESSAGE; action=REJECT message too large
 .Ve
 .PP
-.Vb 7
+.Vb 14
 \&        ## Selective Greylisting
+\&        ##
+\&        ## Note that postfwd does not include greylisting. This setup requires a running postgrey service
+\&        ## at port 10031 and the following postfix restriction class in your main.cf:
+\&        ##
+\&        ##      smtpd_restriction_classes = check_postgrey, ...
+\&        ##      check_postgrey = check_policy_service inet:127.0.0.1:10031
+\&        #
 \&        # 1. if listed on zen.spamhaus.org with results 127.0.0.10 or .11, dns cache timeout 1200s
 \&        # 2. Client has no rDNS
 \&        # 3. Client comes from several dialin domains
-\&        id=GR001; action=greylisting ; rbl=dul.dnsbl.sorbs.net, zen.spamhaus.org/127.0.0.1[01]/1200
-\&        id=GR002; action=greylisting ; client_name=^unknown$
-\&        id=GR003; action=greylisting ; client_name=\e.(t-ipconnect|alicedsl|ish)\e.de$
+\&        id=GR001; action=check_postgrey ; rbl=dul.dnsbl.sorbs.net, zen.spamhaus.org/127.0.0.1[01]/1200
+\&        id=GR002; action=check_postgrey ; client_name=^unknown$
+\&        id=GR003; action=check_postgrey ; client_name=\e.(t-ipconnect|alicedsl|ish)\e.de$
 .Ve
 .PP
 .Vb 7
@@ -1216,7 +1230,7 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        time=-07:00:00 ;  sasl_username=jim ;  action=450 4.7.1 to early for you, jim
 \&        time=22:00:00- ;  sasl_username=jim ;  action=450 4.7.1 to late now, jim
 \&        months=-Apr                         ;  action=450 4.7.1 see you in may
-\&        days=!!Mon-Fri                      ;  action=greylist
+\&        days=!!Mon-Fri                      ;  action=check_postgrey
 .Ve
 .PP
 .Vb 10
@@ -1228,8 +1242,8 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        id=R003 ; action=jump(R100) ; ccert_fingerprint=AA:BB:CC:DD:...
 \&        id=R004 ; action=jump(R100) ; ccert_fingerprint=AF:BE:CD:DC:...
 \&        id=R005 ; action=jump(R100) ; ccert_fingerprint=DD:CC:BB:DD:...
-\&        id=R099 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 10MB); size=10000000
-\&        id=R100 ; state==END-OF-MESSAGE; action=REJECT message too big (max. 30MB); size=30000000
+\&        id=R099 ; protocol_state==END-OF-MESSAGE; action=REJECT message too big (max. 10MB); size=10000000
+\&        id=R100 ; protocol_state==END-OF-MESSAGE; action=REJECT message too big (max. 30MB); size=30000000
 .Ve
 .PP
 .Vb 14
@@ -1239,7 +1253,7 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        # - is listed in 1 RBL or 1 RHSBL and has no correct rDNS
 \&        # - other clients without correct rDNS will be greylist-checked
 \&        # - some whitelists are used to lower the score
-\&        id=S01 ; score=2.6              ; action=greylisting
+\&        id=S01 ; score=2.6              ; action=check_postgrey
 \&        id=S02 ; score=5.0              ; action=REJECT postfwd score too high
 \&        id=R00 ; action=score(-1.0)     ; rbl=exemptions.ahbl.org,list.dnswl.org,query.bondedsender.org,spf.trusted-forwarder.org
 \&        id=R01 ; action=score(2.5)      ; rbl=bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
@@ -1254,10 +1268,10 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        # The following temporary rejects requests from "unknown" clients, if they
 \&        # 1. exceeded 30 requests per hour or
 \&        # 2. tried to send more than 1.5mb within 10 minutes
-\&        id=RATE01 ;  client_name==unknown ;  state==RCPT ; \e
-\&                action==rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
-\&        id=SIZE01 ;  client_name==unknown ;  state==END_OF_DATA ; \e
-\&                action==size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
+\&        id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT ; \e
+\&                action=rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
+\&        id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE ; \e
+\&                action=size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
 .Ve
 .PP
 .Vb 8
@@ -1599,6 +1613,9 @@ Some of these proposals might not match your environment. Please check your requ
 \&        - use jumps and rate limits
 \&        - use a pre-lookup rule for rbl/rhsbls with empty note() action
 .Ve
+.Sh "\s-1PLUGINS\s0"
+.IX Subsection "PLUGINS"
+There is a plugin interface but it still lacks documentation. Contact me if you need assistance.
 .Sh "\s-1SEE\s0 \s-1ALSO\s0"
 .IX Subsection "SEE ALSO"
 See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description
