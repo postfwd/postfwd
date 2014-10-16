@@ -444,7 +444,7 @@ necessary. Of course this might increase the system load, so please use it with 
 <pre>
         -- FILE /etc/postfwd/clients_west.cf --
         192.168.3.0/24</pre>
-<p>Remind that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
+<p>Note that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
 with postfwd1 v1.15 and postfwd2 v0.18 and higher.</p>
 <p>
 </p>
@@ -496,7 +496,7 @@ rule containing only an action statement:</p>
         this command creates a counter for the given &lt;item&gt;, which will be increased any time a request
         containing it arrives. if it exceeds &lt;max&gt; within &lt;time&gt; seconds it will return &lt;action&gt; to postfix.
         rate counters are very fast as they are executed before the ruleset is parsed.
-        please note that &lt;action&gt; is currently limited to postfix actions (no postfwd actions)!
+        please note that &lt;action&gt; was limited to postfix actions (no postfwd actions) for postfwd versions &lt;1.33!
             # no more than 3 requests per 5 minutes
             # from the same &quot;unknown&quot; client
             id=RATE01 ;  client_name==unknown
@@ -539,9 +539,15 @@ rule containing only an action statement:</p>
            id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)</pre>
 <pre>
         mail(server/helo/from/to/subject/body)
+        This command is deprecated. You should try to use the sendmail() action instead.
         Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
         This basically performs a telnet. No authentication or TLS are available. Additionally it does
         not track notification state and will notify you any time, the corresponding rule hits.</pre>
+<pre>
+        sendmail(sendmail-path::from::to::subject::body)
+        Mail command, that uses an existing sendmail binary and sends a message with the given arguments.
+        LIMITATIONS: The command does not track notification state and will notify you any time, the
+        corresponding rule hits (which could mean 100 mails for a mail with 100 recipients at RCPT stage).</pre>
 <pre>
         wait (&lt;delay&gt;)
         pauses the program execution for &lt;delay&gt; seconds. use this for
@@ -715,15 +721,15 @@ continue or to stop parsing the ruleset.</p>
                         # note(&lt;logstring&gt;) command
                         &quot;note&quot;  =&gt; sub {
                                 my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-                                my($myaction) = $default_action; my($stop) = 0;
-                                mylogs 'info', &quot;[RULES] &quot;.$myline.&quot; - note: &quot;.$myarg if $myarg;
+                                my($myaction) = 'dunno'; my($stop) = 0;
+                                log_info &quot;[RULES] &quot;.$myline.&quot; - note: &quot;.$myarg if $myarg;
                                 return ($stop,$index,$myaction,$myline,%request);
                         },
         
                         # skips next &lt;myarg&gt; rules
                         &quot;skip&quot; =&gt; sub {
                                 my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-                                my($myaction) = $default_action; my($stop) = 0;
+                                my($myaction) = 'dunno'; my($stop) = 0;
                                 $index += $myarg if ( $myarg and not(($index + $myarg) &gt; $#Rules) );
                                 return ($stop,$index,$myaction,$myline,%request);
                         },
@@ -731,8 +737,8 @@ continue or to stop parsing the ruleset.</p>
                         # dumps current request contents to syslog
                         &quot;dumprequest&quot; =&gt; sub {
                                 my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-                                my($myaction) = $default_action; my($stop) = 0;
-                                map { mylogs 'info', &quot;[DUMP] rule=$index, Attribute: $_=$request{$_}&quot; } (keys %request);
+                                my($myaction) = 'dunno'; my($stop) = 0;
+                                map { log_info &quot;[DUMP] rule=$index, Attribute: $_=$request{$_}&quot; } (keys %request);
                                 return ($stop,$index,$myaction,$myline,%request);
                         },</pre>
 <pre>

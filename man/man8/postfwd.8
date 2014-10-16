@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD1-ALL-IN-ONE 1"
-.TH POSTFWD1-ALL-IN-ONE 1 "2012-05-17" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD1-ALL-IN-ONE 1 "2012-11-17" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -682,7 +682,7 @@ Files can refer to other files. The following is valid.
 \&        192.168.3.0/24
 .Ve
 .PP
-Remind that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
+Note that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
 with postfwd1 v1.15 and postfwd2 v0.18 and higher.
 .Sh "\s-1ACTIONS\s0"
 .IX Subsection "ACTIONS"
@@ -750,7 +750,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&        this command creates a counter for the given <item>, which will be increased any time a request
 \&        containing it arrives. if it exceeds <max> within <time> seconds it will return <action> to postfix.
 \&        rate counters are very fast as they are executed before the ruleset is parsed.
-\&        please note that <action> is currently limited to postfix actions (no postfwd actions)!
+\&        please note that <action> was limited to postfix actions (no postfwd actions) for postfwd versions <1.33!
 \&            # no more than 3 requests per 5 minutes
 \&            # from the same "unknown" client
 \&            id=RATE01 ;  client_name==unknown
@@ -799,11 +799,19 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 \&           id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 .Ve
 .PP
-.Vb 4
+.Vb 5
 \&        mail(server/helo/from/to/subject/body)
+\&        This command is deprecated. You should try to use the sendmail() action instead.
 \&        Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
 \&        This basically performs a telnet. No authentication or TLS are available. Additionally it does
 \&        not track notification state and will notify you any time, the corresponding rule hits.
+.Ve
+.PP
+.Vb 4
+\&        sendmail(sendmail-path::from::to::subject::body)
+\&        Mail command, that uses an existing sendmail binary and sends a message with the given arguments.
+\&        LIMITATIONS: The command does not track notification state and will notify you any time, the
+\&        corresponding rule hits (which could mean 100 mails for a mail with 100 recipients at RCPT stage).
 .Ve
 .PP
 .Vb 3
@@ -1043,8 +1051,8 @@ continue or to stop parsing the ruleset.
 \&                        # note(<logstring>) command
 \&                        "note"  => sub {
 \&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-\&                                my($myaction) = $default_action; my($stop) = 0;
-\&                                mylogs 'info', "[RULES] ".$myline." - note: ".$myarg if $myarg;
+\&                                my($myaction) = 'dunno'; my($stop) = 0;
+\&                                log_info "[RULES] ".$myline." - note: ".$myarg if $myarg;
 \&                                return ($stop,$index,$myaction,$myline,%request);
 \&                        },
 .Ve
@@ -1053,7 +1061,7 @@ continue or to stop parsing the ruleset.
 \&                        # skips next <myarg> rules
 \&                        "skip" => sub {
 \&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-\&                                my($myaction) = $default_action; my($stop) = 0;
+\&                                my($myaction) = 'dunno'; my($stop) = 0;
 \&                                $index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
 \&                                return ($stop,$index,$myaction,$myline,%request);
 \&                        },
@@ -1063,8 +1071,8 @@ continue or to stop parsing the ruleset.
 \&                        # dumps current request contents to syslog
 \&                        "dumprequest" => sub {
 \&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-\&                                my($myaction) = $default_action; my($stop) = 0;
-\&                                map { mylogs 'info', "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
+\&                                my($myaction) = 'dunno'; my($stop) = 0;
+\&                                map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
 \&                                return ($stop,$index,$myaction,$myline,%request);
 \&                        },
 .Ve

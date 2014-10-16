@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.33";
+our $VERSION	= "1.34";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -75,7 +75,6 @@ our %postfwd_settings = (
 		proto		 => (($nounixsock) ? "tcp" : "unix"),
 		check		 => (($nounixsock) ? \&check_inet : \&check_unix),
 		umask		 => "0177",
-		recvbuffer	 => 65535,
 	},
 	server => {
 		commandline	 => " ".$NAME."::policy",
@@ -85,7 +84,6 @@ our %postfwd_settings = (
 		proto            => "tcp",
 		check		 => \&check_inet,
 		umask		 => "0111",
-		recvbuffer	 => 65535,
 		# child control
 		#check_for_dead         => 30,
 		#check_for_waiting      => 10,
@@ -299,8 +297,8 @@ sub mylogs_new {
 
 # Syslog to stdout
 sub mylogs_stdout {
-	my($prio,$msg) = @_;
-	printf STDOUT "[LOG $prio]: $msg\n", @_;
+	my($prio,$msg) = @_; $msg =~ /^(.*)$/;
+	printf STDOUT "[LOG $prio]: $1\n", @_;
 };
 
 # send log message
@@ -345,8 +343,8 @@ sub check_inet {
 		Proto    => 'tcp',
 		Timeout  => $postfwd_settings{timeout}{$type},
 		Type     => SOCK_STREAM ) ) {
-		$socket->send("$send\n");
-		$socket->recv($send, $postfwd_settings{$type}{recvbuffer});
+		$socket->print("$send\n");
+		$send = $socket->getline();
 		$socket->close();
 		chomp($send);
 	} else {
@@ -363,8 +361,8 @@ sub check_unix {
 		Peer     => $postfwd_settings{$type}{port},
 		Timeout  => $postfwd_settings{timeout}{$type},
 		Type     => SOCK_STREAM ) ) {
-		$socket->send("$send\n");
-		$socket->recv($send, $postfwd_settings{$type}{recvbuffer});
+		$socket->print("$send\n");
+		$send = $socket->getline();
 		$socket->close();
 		chomp($send);
 	} else {
@@ -638,6 +636,7 @@ sub cleanup_cache {
 # saves rate limits to disk
 sub save_rates {
     return unless ($STORABLE and $postfwd_settings{rate}{store} and defined $Cache{rate});
+    cleanup_cache ('rate', time());
     eval {
 	local $SIG{__DIE__} = sub { log_note ("ERROR: Could not store rate limits to ".$postfwd_settings{rate}{store}.": $! @_") };
 	store ($Cache{rate}, $postfwd_settings{rate}{store});
@@ -660,6 +659,7 @@ sub load_rates {
 	$Cache{rate} = $loadrate;
         log_info ("Fetched ".(scalar %{$Cache{rate}})." rates from ".$postfwd_settings{rate}{store})
                 if wantsdebug(qw[ all verbose rates loadrates saverates ]);
+	cleanup_cache ('rate', time());
     };
 };
 
@@ -1976,7 +1976,7 @@ sub postfwd_items {
 		);
 		if ( my $socket = IO::Socket::INET->new(
 			PeerAddr => $mserver,
-			PeerPort => ($mport || 25),
+			PeerPort => ($mport ||= 25),
 			Proto    => 'tcp',
 			Timeout  => 30,
 			Type     => SOCK_STREAM,
@@ -1989,6 +1989,24 @@ sub postfwd_items {
 			log_info ("[MAIL] ".$myline.", mail server=<$mserver:$mport>, from=<$mfrom>, to=<$mto>, subject=<$msubject>, status=<$res>");
 		} else {
 			log_info ("[MAIL] ".$myline.", could not open socket to $mserver:$mport: '$!'");
+		};
+		return ($stop,$index,$myaction,$myline,%request);
+	},
+	# sendmail()
+	"sendmail" => sub {
+		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
+		my($mcmd,$mfrom,$mto,$msubject,$mbody) = split '::', $myarg, 5;
+		my($msg) = "From: $mfrom\nTo: $mto\nSubject: $msubject\n\n$mbody\n";
+		if ( (-x $mcmd) and open (SM, "| $mcmd -i -f $mfrom $mto") ) {
+			if ( print SM "$msg" ) {
+				log_info ("[SENDMAIL] ".$myline.", $mcmd from=<$mfrom>, to=<$mto>, subject=<$msubject>");
+			} else {
+				log_note ("[SENDMAIL] ".$myline.", could not print to $mcmd pipe: '$!'");
+			};
+			close(SM);
+		} else {
+			log_note ("[SENDMAIL] ".$myline.", could not open pipe to $mcmd: '$!'");
 		};
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -2501,7 +2519,7 @@ sub compare_rule {
 	$myline  = "[RULES]  RULE: ".$index."  MATCHES: ".((($myresult[0] - 2) > 0) ? ($myresult[0] - 2) : 0);
 	$myline .= "  RBLCOUNT: ".$myresult[1] if $myresult[1];
 	$myline .= "  RHSBLCOUNT: ".$myresult[2] if $myresult[2];
-	$myline .= "  DNSBLTEXT: ".(join ("; ", @DNSBL_Text)) if ( (defined @DNSBL_Text) and (($myresult[1] > 0) or ($myresult[2] > 0)) );
+	$myline .= "  DNSBLTEXT: ".(join ("; ", @DNSBL_Text)) if ( (@DNSBL_Text) and (($myresult[1] > 0) or ($myresult[2] > 0)) );
 	log_info ($myline);
     };
     return @myresult;
@@ -3208,6 +3226,7 @@ log_note ("NODNS: set - will skip all dns based checks") if $postfwd_settings{dn
 
 # check for --nodaemon option
 unless ($postfwd_settings{daemon}) {
+	log_note ("NODAEMON: Please note that rate() commands do not work with postfwd2 and --nodaemon option due to the missing cache daemon");
 	my(%attr) = ();
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
 	read_config(1);
@@ -3848,7 +3867,7 @@ Files can refer to other files. The following is valid.
 	-- FILE /etc/postfwd/clients_west.cf --
 	192.168.3.0/24
 
-Remind that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
+Note that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
 with postfwd1 v1.15 and postfwd2 v0.18 and higher.
 
 
@@ -3907,7 +3926,7 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 	this command creates a counter for the given <item>, which will be increased any time a request
 	containing it arrives. if it exceeds <max> within <time> seconds it will return <action> to postfix.
 	rate counters are very fast as they are executed before the ruleset is parsed.
-	please note that <action> is currently limited to postfix actions (no postfwd actions)!
+	please note that <action> was limited to postfix actions (no postfwd actions) for postfwd versions <1.33!
 	    # no more than 3 requests per 5 minutes
 	    # from the same "unknown" client
 	    id=RATE01 ;  client_name==unknown
@@ -3941,9 +3960,15 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 	   id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 
         mail(server/helo/from/to/subject/body)
+	This command is deprecated. You should try to use the sendmail() action instead.
         Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
         This basically performs a telnet. No authentication or TLS are available. Additionally it does
         not track notification state and will notify you any time, the corresponding rule hits.
+
+	sendmail(sendmail-path::from::to::subject::body)
+	Mail command, that uses an existing sendmail binary and sends a message with the given arguments.
+	LIMITATIONS: The command does not track notification state and will notify you any time, the
+	corresponding rule hits (which could mean 100 mails for a mail with 100 recipients at RCPT stage).
 
 	wait (<delay>)
 	pauses the program execution for <delay> seconds. use this for
@@ -4137,15 +4162,15 @@ continue or to stop parsing the ruleset.
 			# note(<logstring>) command
 			"note"  => sub {
 				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-				my($myaction) = $default_action; my($stop) = 0;
-				mylogs 'info', "[RULES] ".$myline." - note: ".$myarg if $myarg;
+				my($myaction) = 'dunno'; my($stop) = 0;
+				log_info "[RULES] ".$myline." - note: ".$myarg if $myarg;
 				return ($stop,$index,$myaction,$myline,%request);
 			},
 	
 			# skips next <myarg> rules
         		"skip" => sub {
 				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-				my($myaction) = $default_action; my($stop) = 0;
+				my($myaction) = 'dunno'; my($stop) = 0;
 				$index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
 				return ($stop,$index,$myaction,$myline,%request);
         		},
@@ -4153,8 +4178,8 @@ continue or to stop parsing the ruleset.
 			# dumps current request contents to syslog
         		"dumprequest" => sub {
 				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-				my($myaction) = $default_action; my($stop) = 0;
-				map { mylogs 'info', "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
+				my($myaction) = 'dunno'; my($stop) = 0;
+				map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
 				return ($stop,$index,$myaction,$myline,%request);
         		},
 

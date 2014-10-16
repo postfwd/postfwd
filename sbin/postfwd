@@ -41,7 +41,7 @@ BEGIN {
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.33';
+our($VERSION)			= '1.34';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -268,7 +268,7 @@ sub mylog {
 				syslog $prio, "$msg", @_;
 			};
 		} else { syslog $prio, "$msg", @_; };
-	} else { $msg =~ s/\%/%%/g; printf "[LOG $prio]: $msg\n", @_; };
+	} else { $msg =~ s/\%/%%/g; $msg =~ /^(.*)$/; printf "[LOG $prio]: $1\n", @_; };
     };
 };
 #
@@ -297,6 +297,14 @@ sub myprintf {
 	unless $opt_perfmon;
 };
 #
+# short versions
+#
+sub log_info { mylogs ('info', @_) };
+sub log_note { mylogs ('notice', @_) };
+sub log_warn { mylogs ('warning', @_) };
+sub log_err  { mylogs ('err', @_) };
+sub log_crit { mylogs ('crit', @_) };
+#
 # tests debug levels
 #
 sub wantsdebug {
@@ -323,7 +331,7 @@ sub end_program {
     show_stats() if $opt_summary;
     $net_pid ||= $def_net_pid; unlink $net_pid if (-T $net_pid);
     save_rates();
-    mylogs "notice", $NAME." ".$VERSION." terminated" if $opt_daemon;
+    log_note $NAME." ".$VERSION." terminated" if $opt_daemon;
     exit;
 };
 # get pid of running master process
@@ -437,11 +445,11 @@ sub cleanup_dns_cache {
     foreach my $checkitem (keys %DNS_Cache) {
 	# remove inclomplete objects (dns timeouts)
 	if ( !defined($DNS_Cache{$checkitem}{"time"}) or !defined($DNS_Cache{$checkitem}{ttl}) ) {
-		mylogs $syslog_priority, "[CLEANUP] deleting incomplete dns-cache item '$checkitem'" if (wantsdebug(qw[ all cleanup ]));
+		log_info "[CLEANUP] deleting incomplete dns-cache item '$checkitem'" if (wantsdebug(qw[ all cleanup ]));
 		delete $DNS_Cache{$checkitem};
 	# remove timed out objects
 	} elsif ( ($now - $DNS_Cache{$checkitem}{"time"}) > $DNS_Cache{$checkitem}{ttl} ) {
-		mylogs $syslog_priority, "[CLEANUP] removing dns-cache item '$checkitem' after ttl ".$DNS_Cache{$checkitem}{ttl}."s"
+		log_info "[CLEANUP] removing dns-cache item '$checkitem' after ttl ".$DNS_Cache{$checkitem}{ttl}."s"
 			if (wantsdebug(qw[ all cleanup ]));
 		delete $DNS_Cache{$checkitem};
 	};
@@ -454,10 +462,10 @@ sub cleanup_request_cache {
     my($now) = $_[0];
     foreach my $checkitem (keys %Request_Cache) {
 	if ( not(defined $Request_Cache{$checkitem}{'until'}) ) {
-		mylogs $syslog_priority, "[CLEANUP] deleting incomplete request-cache item '$checkitem'" if (wantsdebug(qw[ all cleanup ]));
+		log_info "[CLEANUP] deleting incomplete request-cache item '$checkitem'" if (wantsdebug(qw[ all cleanup ]));
 		delete $Request_Cache{$checkitem};
 	} elsif ( $now > $Request_Cache{$checkitem}{'until'} ) {
-		mylogs $syslog_priority, "[CLEANUP] removing request-cache item '$checkitem' after ttl ".$REQUEST_MAX_CACHE."s"
+		log_info "[CLEANUP] removing request-cache item '$checkitem' after ttl ".$REQUEST_MAX_CACHE."s"
 			if (wantsdebug(qw[ all cleanup ]));
 		delete $Request_Cache{$checkitem};
 	};
@@ -475,10 +483,10 @@ sub cleanup_rate_cache {
 		my @i = ();
 		foreach my $crate (@{$Rates{$checkitem}{'list'}}) {
 			if ( not(defined $Rates{$checkitem}{$crate}{'until'}) ) {
-				mylogs $syslog_priority, "[CLEANUP] deleting incomplete rate-cache item '$checkitem'->'$crate'" if (wantsdebug(qw[ all cleanup ]));
+				log_info "[CLEANUP] deleting incomplete rate-cache item '$checkitem'->'$crate'" if (wantsdebug(qw[ all cleanup ]));
 				delete $Rates{$checkitem}{$crate};
 			} elsif ( $now > $Rates{$checkitem}{$crate}{'until'} ) {
-				mylogs $syslog_priority, "[CLEANUP] removing rate-cache item '$checkitem'->'$crate' after ttl ".$Rates{$checkitem}{$crate}{ttl}."s"
+				log_info "[CLEANUP] removing rate-cache item '$checkitem'->'$crate' after ttl ".$Rates{$checkitem}{$crate}{ttl}."s"
 					if (wantsdebug(qw[ all cleanup ]));
 				delete $Rates{$checkitem}{$crate};
 			} else {
@@ -486,10 +494,10 @@ sub cleanup_rate_cache {
 			};
 		};
 		unless ($i[0]) {
-			mylogs $syslog_priority, "[CLEANUP] deleting complete rate-cache item '$checkitem'" if (wantsdebug(qw[ all cleanup ]));
+			log_info "[CLEANUP] deleting complete rate-cache item '$checkitem'" if (wantsdebug(qw[ all cleanup ]));
 			delete $Rates{$checkitem};
 		} else {
-			mylogs $syslog_priority, "[CLEANUP] new index list for rate-cache item '$checkitem': ".(join ', ', @i) if (wantsdebug(qw[ all cleanup ]));
+			log_info "[CLEANUP] new index list for rate-cache item '$checkitem': ".(join ', ', @i) if (wantsdebug(qw[ all cleanup ]));
 			@{$Rates{$checkitem}{'list'}} = @i;
 		};
 	};
@@ -502,8 +510,8 @@ sub modify_score {
 	(my($myscore), my($myaction)) = @_;
 
 	( exists($MAX_SCORES{$myscore}) )
-		? mylogs "notice", "redefined score $myscore with action=\"$myaction\""
-		: mylogs "notice", "setting new score $myscore with action=\"$myaction\""
+		? log_note "redefined score $myscore with action=\"$myaction\""
+		: log_note "setting new score $myscore with action=\"$myaction\""
 		if wantsdebug(qw[ all thisrequest verbose score ]);
 	$MAX_SCORES{$myscore} = $myaction;
 };
@@ -593,7 +601,7 @@ sub devar_item {
 	} elsif (defined $request{$var}) {
 		$myresult=$val=$pre.$request{$var}.$post;
 	};
-	mylogs $syslog_priority, "substitute :  \"$myitem\"  \"$cmp\"  \"$val\""
+	log_info "substitute :  \"$myitem\"  \"$cmp\"  \"$val\""
 		if (wantsdebug(qw[ all thisrequest devar ]));
     };
     return $myresult;
@@ -616,7 +624,7 @@ sub acl_parser {
 				$myline =~ s/\s*$acl\s*/$ACLs{$acl}/g;
 			} else {
 				#return "action=note(undefined macro '$acl')";
-				mylogs 'warning', "file $file, ignoring line $num: undefined macro '$acl'";
+				log_warn "file $file, ignoring line $num: undefined macro '$acl'";
 				return "";
 			};
 		};
@@ -645,7 +653,7 @@ sub prepare_file {
 	my($forced_reload,$type,$cmp,$file) = @_; my(@result) = (); undef my $fh;
 	my($is_table) = ($type =~ /^$COMP_TABLES$/);
 	unless (-e $file) {
-		mylogs 'warning', "error: $type:$file not found - will be ignored";
+		log_warn "error: $type:$file not found - will be ignored";
 		return @result;
 	};
 	if ( not($forced_reload) and (defined $Config_Cache{$file}{lastread}) and ($Config_Cache{$file}{lastread} > (stat $file)[9]) ) {
@@ -655,10 +663,10 @@ sub prepare_file {
 		return  @{$Config_Cache{$file}{content}};
 	};
 	unless (open ($fh, "<$file")) {
-		mylogs 'warning', "error: could not open $type:$file - $! - will be ignored";
+		log_warn "error: could not open $type:$file - $! - will be ignored";
 		return @result;
 	};
-	mylogs $syslog_priority, "reading $type:$file" if (wantsdebug(qw[ all thisrequest config ]));
+	log_info "reading $type:$file" if (wantsdebug(qw[ all thisrequest config ]));
 	while (<$fh>) {
 		chomp;
 		s/#.*//g;
@@ -670,7 +678,7 @@ sub prepare_file {
 	# update Config_Cache
 	$Config_Cache{$file}{lastread}   = time();
 	@{$Config_Cache{$file}{content}} = @result;
-	mylogs $syslog_priority, "read ".($#result + 1)." items from $type:$file" if (wantsdebug(qw[ all thisrequest config ]));
+	log_info "read ".($#result + 1)." items from $type:$file" if (wantsdebug(qw[ all thisrequest config ]));
 	return @result;
 };
 #
@@ -698,7 +706,7 @@ sub check_for_old_syntax {
           if ($myarg =~ /^\$\$(.*)$/) {
             $myarg = $1;
             $myvalue = "$mycmd($myarg)";
-            mylogs "notice", "notice: Rule $myindex ($myfile line $mynum): "
+            log_note "notice: Rule $myindex ($myfile line $mynum): "
             ."removing obsolete '\$\$' for $mycmd limit index. See man page for new syntax." if wantsdebug(qw[ all thisrequest verbose config ]);
           };
           push @Rate_Items, (split '/', $myarg)[0];
@@ -716,11 +724,11 @@ sub parse_config_line {
 	my($mykey, $myvalue, $mycomp);
 	eval {
 	    local $SIG{'__DIE__'};
-	    local $SIG{'ALRM'}  = sub { $myline =~ s/[ \t][ \t]*/ /g; mylogs 'warning', "timeout after ".$config_timeout."s at parsing Rule $myindex ($myfile line $mynum): \"$myline\""; %myrule = (); die };
+	    local $SIG{'ALRM'}  = sub { $myline =~ s/[ \t][ \t]*/ /g; log_warn "timeout after ".$config_timeout."s at parsing Rule $myindex ($myfile line $mynum): \"$myline\""; %myrule = (); die };
 	    my $prevalert = alarm($config_timeout) if $config_timeout;
 	    if ( $myline = acl_parser ($myfile, $mynum, $myline) ) {
 		unless ( $myline =~ /^\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+(;\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+)*[;\s]*$/ ) {
-			mylogs 'warning', "ignoring invalid $myfile line ".$mynum.": \"".$myline."\"";
+			log_warn "ignoring invalid $myfile line ".$mynum.": \"".$myline."\"";
 		} else {
 			# separate items
 			foreach (split ";", $myline) {
@@ -729,7 +737,7 @@ sub parse_config_line {
 				( ($mycomp = $2) =~ /^([\<\>\~])=$/ ) and $mycomp = "=$1";
 				($mykey, $myvalue) = split /$COMP_SEPARATOR/, $_, 2;
 				if ($mykey =~ /^$COMP_SINGLE$/) {
-					mylogs 'notice', "notice: Rule $myindex ($myfile line $mynum):"
+					log_note "notice: Rule $myindex ($myfile line $mynum):"
 						." overriding $mykey=\"".$myrule{$mykey}."\""
 						." with $mykey=\"$myvalue\""
 						if (defined $myrule{$mykey});
@@ -743,14 +751,14 @@ sub parse_config_line {
 				};
 			};
 			unless (exists($myrule{$COMP_ACTION})) {
-				mylogs 'warning', "Rule ".$myindex." ($myfile line ".$mynum."): contains no action and will be ignored";
+				log_warn "Rule ".$myindex." ($myfile line ".$mynum."): contains no action and will be ignored";
 				return (%myrule = ());
 			};
 			unless (exists($myrule{$COMP_ID})) {
 				$myrule{$COMP_ID} = "R-".$myindex;
-				 mylogs 'notice', "notice: Rule $myindex ($myfile line $mynum): contains no rule identifier - will use \"$myrule{id}\"" if wantsdebug(qw[ all thisrequest verbose config ]);
+				 log_note "notice: Rule $myindex ($myfile line $mynum): contains no rule identifier - will use \"$myrule{id}\"" if wantsdebug(qw[ all thisrequest verbose config ]);
 			};
-			mylogs $syslog_priority, "loaded: Rule $myindex ($myfile line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"" if wantsdebug(qw[ all thisrequest verbose config ]);
+			log_info "loaded: Rule $myindex ($myfile line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"" if wantsdebug(qw[ all thisrequest verbose config ]);
 		};
 	    };
 	    alarm($prevalert) if $config_timeout;
@@ -771,7 +779,7 @@ sub read_config_file {
 	unless (open ($fh, "<$myfile")) {
 		warn "error: could not open ".$myfile." - $! - file will be ignored";
 	} else {
-		mylogs $syslog_priority, "reading file $myfile" if wantsdebug(qw[ all thisrequest verbose config ]);
+		log_info "reading file $myfile" if wantsdebug(qw[ all thisrequest verbose config ]);
 		while (<$fh>) {
 			chomp;
 			s/(\"|#.*)//g;
@@ -786,12 +794,12 @@ sub read_config_file {
 			$mybuffer = "";
 		};
 		map {
-			mylogs $syslog_priority, "parsing line: '$_'" if wantsdebug(qw[ all thisrequest config ]);
+			log_info "parsing line: '$_'" if wantsdebug(qw[ all thisrequest config ]);
 			%myrule = parse_config_line ($forced_reload, $myfile, $., ($#myruleset+$myindex+1), $_);
 			push ( @myruleset, { %myrule } ) if (%myrule);
 		} @lines;
 		close ($fh);
-		mylogs $syslog_priority, "loaded: Rules $myindex - ".($myindex + $#myruleset)." from file \"$myfile\"" if wantsdebug(qw[ all thisrequest verbose config ]);
+		log_info "loaded: Rules $myindex - ".($myindex + $#myruleset)." from file \"$myfile\"" if wantsdebug(qw[ all thisrequest verbose config ]);
 	};
     };
     return @myruleset;
@@ -832,17 +840,17 @@ sub read_config {
 	};
     };
     if ($#Rules < 0) {
-	mylogs 'warning', "critical: no rules found - i feel useless (have you set -f or -r?)";
+	log_warn "critical: no rules found - i feel useless (have you set -f or -r?)";
     } else {
 	# update Rule by ID hash
 	map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
 	if (@Rate_Items) {
 		@Rate_Items = uniq(@Rate_Items);
-		mylogs $syslog_priority, "rate items: ".(join ', ', @Rate_Items) if wantsdebug(qw[ all thisrequest verbose config rates ]);
+		log_info "rate items: ".(join ', ', @Rate_Items) if wantsdebug(qw[ all thisrequest verbose config rates ]);
 		# disable request cache with ratelimits unless --fast_limit_evaluation is set
 		unless ($opt_fast_limits) {
 			$REQUEST_MAX_CACHE = 0;
-			mylogs "notice", "disabling request cache due to ratelimits in configuration. may be changed with the --fast_limit_evaluation option"
+			log_note "disabling request cache due to ratelimits in configuration. may be changed with the --fast_limit_evaluation option"
 				if wantsdebug (qw[ all thisrequest verbose ]);
 		};
 	};
@@ -881,12 +889,13 @@ sub show_config {
 #
 sub save_rates {
     return unless ($STORABLE and $opt_saverates and %Rates);
+    cleanup_rate_cache(time());
     umask oct('0177');
     eval { store (\%Rates, $opt_saverates) };
     if ( $@ ) {
-	mylogs 'notice', "ERROR: Could not store rate limits to ".$opt_saverates." ('$!': '@_')";
+	log_note "ERROR: Could not store rate limits to ".$opt_saverates." ('$!': '@_')";
     } else {
-	mylogs $syslog_priority, "Saved ".(scalar %Rates)." rates to ".$opt_saverates
+	log_info "Saved ".(scalar %Rates)." rates to ".$opt_saverates
 		if wantsdebug(qw[ all verbose rates loadrates saverates ]);
     };
     umask oct($net_umask);
@@ -898,10 +907,11 @@ sub load_rates {
     return unless ($STORABLE and $opt_saverates and (-f $opt_saverates));
     eval { %Rates = %{ retrieve($opt_saverates) } };
     if ( $@ ) {
-	mylogs 'notice', "Could not load rate limits from ".$opt_saverates." ('$!': '@_')";
+	log_note "Could not load rate limits from ".$opt_saverates." ('$!': '@_')";
     } else {
-	mylogs $syslog_priority, "Fetched ".(scalar %Rates)." rates from ".$opt_saverates
+	log_info "Fetched ".(scalar %Rates)." rates from ".$opt_saverates
 		if wantsdebug(qw[ all verbose rates loadrates saverates ]);
+    	cleanup_rate_cache(time());
     };
 };
 
@@ -945,7 +955,7 @@ sub rbl_read_dns {
 			if ( exists($DNS_Cache{$que}) ) {
 				if ($typ eq 'A') {
 					$ttl = ( $DNS_Cache{$que}{ttl} > ($ttl||=0) ) ? $DNS_Cache{$que}{ttl} : $ttl;
-					mylogs $syslog_priority, "[DNSBL] object "
+					log_info "[DNSBL] object "
 						.( ($DNS_Cache{$que}{type} eq $COMP_RBL_KEY)
 							? join(".", reverse(split(/\./,$DNS_Cache{$que}{value})))
 							: $DNS_Cache{$que}{value} )
@@ -967,12 +977,12 @@ sub rbl_read_dns {
 					$DNS_Cache{$que}{ttl}  = $ttl unless $DNS_Cache{$que}{ttl};
 				};
 			} else {
-				mylogs "notice", "[DNSBL] ignoring unknown query $que";
+				log_note "[DNSBL] ignoring unknown query $que";
 			};
 		};
 	};
     } else {
-	mylogs "notice", "[DNSBL] dns timeout";
+	log_note "[DNSBL] dns timeout";
     };
     return $que if (@addrs || $res);
 };
@@ -1007,7 +1017,7 @@ sub rbl_prepare_lookups {
 		ANSWER: foreach (@{$DNS_Cache{$myquery}{A}}) {
 			last ANSWER if $myresult = ( $_ =~ /$myrblans/ );
 		};
-		mylogs $syslog_priority, "[DNSQUERY] cached $mytype: $myrbl $myval ($myquery) - answer: \'".(join ", ", @{$DNS_Cache{$myquery}{A}})."\'"
+		log_info "[DNSQUERY] cached $mytype: $myrbl $myval ($myquery) - answer: \'".(join ", ", @{$DNS_Cache{$myquery}{A}})."\'"
 			if ( ($myresult and wantsdebug(qw[ verbose ])) or (wantsdebug(qw[ all thisrequest ])) );
 
 	# not found -> prepare dns query
@@ -1020,7 +1030,7 @@ sub rbl_prepare_lookups {
 			value		=> $myval,
 			type		=> $mytype,
 		};
-		mylogs $syslog_priority, "[DNSQUERY] query $mytype:  $myrbl $myval ($myquery)" if (wantsdebug(qw[ all thisrequest ]));
+		log_info "[DNSQUERY] query $mytype:  $myrbl $myval ($myquery)" if (wantsdebug(qw[ all thisrequest ]));
 		push @lookups, $myquery;
 	};
     };
@@ -1049,7 +1059,7 @@ sub rbl_check {
     if ( $myresult ) {
 	ANSWER: foreach (@{$DNS_Cache{$myquery}{A}}) {
 		if ( $myresult = ( ($_) and ($_ =~ /$myrblans/)) ) {
-			mylogs $syslog_priority, "[DNSBL] query $myval listed on "
+			log_info "[DNSBL] query $myval listed on "
 				.uc($mytype).":$myrbl (answer: ".(join ", ", @{$DNS_Cache{$myquery}{A}})
 				.", cached: ".ts($now - $DNS_Cache{$myquery}{"time"})."s ago)"
 				if wantsdebug(qw[ all thisrequest verbose ]);
@@ -1067,7 +1077,7 @@ sub rbl_check {
 sub dns_query {
     my (@queries) = @_; undef my @result;
     eval {
-	local $SIG{__DIE__} = sub { mylogs 'notice', "dns err: \"$!\", detail: \"@_\""; return if $^S; };
+	local $SIG{__DIE__} = sub { log_note "dns err: \"$!\", detail: \"@_\""; return if $^S; };
 	@result = dns_query_net_dns(@queries);
     };
     return @result;
@@ -1091,10 +1101,10 @@ sub dns_query_net_dns {
         # query child cache
         if ( (defined $DNS_Cache{$item}{$type}) and (defined $DNS_Cache{$item}{'until'}) and ($DNS_Cache{$item}{'until'} >= time()) ) {
             $DNS_Cache{$item}{$type} = [ $DNS_Cache{$item}{$type} ] unless (ref $DNS_Cache{$item}{$type} eq 'ARRAY');
-            mylogs $syslog_priority, "dnsccache: item=$item, type=$type -> ".(join ',', @{$DNS_Cache{$item}{$type}})." (ttl: ".($DNS_Cache{$item}{ttl} || 0).")" if (wantsdebug(qw[ all thisrequest verbose ]));
+            log_info "dnsccache: item=$item, type=$type -> ".(join ',', @{$DNS_Cache{$item}{$type}})." (ttl: ".($DNS_Cache{$item}{ttl} || 0).")" if (wantsdebug(qw[ all thisrequest verbose ]));
             push @result, @{$DNS_Cache{$item}{$type}};
 	} else {
-            mylogs $syslog_priority, "dnsquery: item=$item, type=$type" if (wantsdebug(qw[ all thisrequest verbose ]));
+            log_info "dnsquery: item=$item, type=$type" if (wantsdebug(qw[ all thisrequest verbose ]));
 	    $bgsock = $dns->bgsend ($item, $type);
 	    $ownsel->add($bgsock);
 	    $ownsock{$bgsock} = $item.','.$type;
@@ -1113,7 +1123,7 @@ sub dns_query_net_dns {
 		    # sort MX records by preference
 		    @rrs = sort { $a->preference <=> $b->preference } @rrs if ($type eq 'MX');
 		    foreach my $rr (@rrs) {
-			mylogs $syslog_priority, "dnsanswer: item=$item, type=$type -> $rname=".$rr->$rname." (ttl: ".$rr->ttl.")" if wantsdebug(qw[ all thisrequest verbose ]);
+			log_info "dnsanswer: item=$item, type=$type -> $rname=".$rr->$rname." (ttl: ".$rr->ttl.")" if wantsdebug(qw[ all thisrequest verbose ]);
 			push @ans, $rr->$rname;
 		    };
 		    push @result, @ans;
@@ -1131,7 +1141,7 @@ sub dns_query_net_dns {
 	};
     };
     # show timeouts
-    map { mylogs 'notice', "dnsquery: timeout for $_ after $dns_timeout seconds" } (values %ownsock);
+    map { log_note "dnsquery: timeout for $_ after $dns_timeout seconds" } (values %ownsock);
     return @result;
 };
 
@@ -1172,12 +1182,12 @@ sub postfwd_items {
     my(%request) = @_;
     my(%result) = ();
     foreach (sort keys %postfwd_items) {
-	mylogs $syslog_priority, "[PLUGIN] executing postfwd-item ".$_
+	log_info "[PLUGIN] executing postfwd-item ".$_
 		if (wantsdebug(qw[ all thisrequest ]));
 	%result = (%result, &{$postfwd_items{$_}}((%request,%result)))
 		if (defined $postfwd_items{$_});
     };
-    map { $result{$_} = '' unless (defined $result{$_}); mylogs $syslog_priority, "[PLUGIN]  Added key: $_=$result{$_}" if (wantsdebug(qw[ all thisrequest ])) } (keys %result);
+    map { $result{$_} = '' unless (defined $result{$_}); log_info "[PLUGIN]  Added key: $_=$result{$_}" if (wantsdebug(qw[ all thisrequest ])) } (keys %result);
     return %result;
 };
 #
@@ -1188,7 +1198,7 @@ sub postfwd_items {
 	"cidr" => sub {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = ($val and $myitem);
-		mylogs $syslog_priority, "type cidr :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+		log_info "type cidr :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 		if ($myresult) {
 			# always true
 			$myresult = ($val eq '0.0.0.0/0');
@@ -1199,7 +1209,7 @@ sub postfwd_items {
 					$val .= '/32' unless ($val =~ /\/\d{1,2}$/);
 					$myresult = cidr_match((cidr_parse($val)),$myitem);
 				} else {
-					mylogs $syslog_priority, "Non IPv4 address. Using type default" if (wantsdebug(qw[ all thisrequest ]));
+					log_info "Non IPv4 address. Using type default" if (wantsdebug(qw[ all thisrequest ]));
 					return &{$postfwd_compare{default}}($cmp,$val,$myitem,%request);
 				};
 			};
@@ -1210,7 +1220,7 @@ sub postfwd_items {
 	"numeric" => sub {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = undef;
-		mylogs $syslog_priority, "type numeric :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+		log_info "type numeric :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 		$myitem ||= "0"; $val ||= "0";
 		if ($cmp eq '==') {
 			$myresult = ($myitem == $val);
@@ -1236,7 +1246,7 @@ sub postfwd_items {
 	$COMP_RBL_KEY => sub {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = not($opt_nodns);
-		mylogs $syslog_priority, "type rbl :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+		log_info "type rbl :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 		$myresult = ( rbl_check ($COMP_RBL_KEY, $val, $myitem) ) if $myresult;
 		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
@@ -1244,7 +1254,7 @@ sub postfwd_items {
 	$COMP_RHSBL_KEY => sub {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = not($opt_nodns);
-		mylogs $syslog_priority, "type rhsbl :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+		log_info "type rhsbl :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 		$myresult = ( rbl_check ($COMP_RHSBL_KEY, $val, $myitem) ) if $myresult;
 		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
@@ -1256,7 +1266,7 @@ sub postfwd_items {
 		my($rmin,$rmax) = split (/\s*-\s*/, $val);
 		$rmin = ($rmin) ? (($rmin =~ /^\d$/) ? $rmin : $months{$rmin}) : $imon;
 		$rmax = ($rmax) ? (($rmax =~ /^\d$/) ? $rmax : $months{$rmax}) : (($val =~ /-/) ? $imon : $rmin);
-		mylogs $syslog_priority, "type months :  \"$imon\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
+		log_info "type months :  \"$imon\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if (wantsdebug(qw[ all thisrequest ]));
 		$myresult = (($rmin <= $imon) and ($rmax >= $imon));
 		$myresult = not($myresult) if ($cmp eq '!=');
@@ -1269,7 +1279,7 @@ sub postfwd_items {
 		my($rmin,$rmax) = split (/\s*-\s*/, $val);
 		$rmin = ($rmin) ? (($rmin =~ /^\d$/) ? $rmin : $weekdays{$rmin}) : $iday;
 		$rmax = ($rmax) ? (($rmax =~ /^\d$/) ? $rmax : $weekdays{$rmax}) : (($val =~ /-/) ? $iday : $rmin);
-		mylogs $syslog_priority, "type days :  \"$iday\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
+		log_info "type days :  \"$iday\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if (wantsdebug(qw[ all thisrequest ]));
 		$myresult = (($rmin <= $iday) and ($rmax >= $iday));
 		$myresult = not($myresult) if ($cmp eq '!=');
@@ -1283,7 +1293,7 @@ sub postfwd_items {
 		my($idat) = ($iyear + 1900) . ((($imon+1) < 10) ? '0'.($imon+1) : ($imon+1)) . (($iday < 10) ? '0'.$iday : $iday);
 		$rmin = ($rmin) ? join ('', reverse split ('\.', $rmin)) : $idat;
 		$rmax = ($rmax) ? join ('', reverse split ('\.', $rmax)) : (($val =~ /-/) ? $idat : $rmin);
-		mylogs $syslog_priority, "type date :  \"$idat\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
+		log_info "type date :  \"$idat\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if (wantsdebug(qw[ all thisrequest ]));
 		$myresult = (($rmin <= $idat) and ($rmax >= $idat));
 		$myresult = not($myresult) if ($cmp eq '!=');
@@ -1297,7 +1307,7 @@ sub postfwd_items {
 		my($idat) = (($ihour < 10) ? '0'.$ihour : $ihour) . (($imin < 10) ? '0'.$imin : $imin) . (($isec < 10) ? '0'.$isec : $isec);
 		$rmin = ($rmin) ? join ('', split ('\:', $rmin)) : $idat;
 		$rmax = ($rmax) ? join ('', split ('\:', $rmax)) : (($val =~ /-/) ? $idat : $rmin);
-		mylogs $syslog_priority, "type time :  \"$idat\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
+		log_info "type time :  \"$idat\"  \"$cmp\"  \"$rmin\"-\"$rmax\""
 			if (wantsdebug(qw[ all thisrequest ]));
 		$myresult = (($rmin <= $idat) and ($rmax >= $idat));
 		$myresult = not($myresult) if ($cmp eq '!=');
@@ -1309,7 +1319,7 @@ sub postfwd_items {
 		return $myresult if $opt_nodns;
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,A") ) {
-			mylogs $syslog_priority, "type $COMP_HELO_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+			log_info "type $COMP_HELO_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 			map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
 		};
 		return $myresult;
@@ -1320,7 +1330,7 @@ sub postfwd_items {
 		return $myresult if $opt_nodns;
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,NS") ) {
-			mylogs $syslog_priority, "type $COMP_NS_NAME : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+			log_info "type $COMP_NS_NAME : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
 		} else {
 			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',%request)) );
@@ -1333,7 +1343,7 @@ sub postfwd_items {
 		return $myresult if $opt_nodns;
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,MX") ) {
-			mylogs $syslog_priority, "type $COMP_MX_NAME : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+			log_info "type $COMP_MX_NAME : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
 		} else {
 			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',%request)) );
@@ -1348,7 +1358,7 @@ sub postfwd_items {
 		if ( my @answers = dns_query ("$myitem,NS") ) {
 			splice (@answers, $opt_max_ns_lookups) if $opt_max_ns_lookups and $#answers > $opt_max_ns_lookups;
 			if ( @answers = dns_query (@answers) ) {
-				mylogs $syslog_priority, "type $COMP_NS_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+				log_info "type $COMP_NS_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
 			};
 		};
@@ -1362,7 +1372,7 @@ sub postfwd_items {
 		if ( my @answers = dns_query ("$myitem,MX") ) {
 			splice (@answers, $opt_max_mx_lookups) if $opt_max_mx_lookups and $#answers > $opt_max_mx_lookups;
 			if ( @answers = dns_query (@answers) ) {
-				mylogs $syslog_priority, "type $COMP_MX_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+				log_info "type $COMP_MX_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
 			};
 		};
@@ -1371,7 +1381,7 @@ sub postfwd_items {
 	"default" => sub {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($var,$myresult) = undef;
-		mylogs $syslog_priority, "type default :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+		log_info "type default :  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 		# backward compatibility
 		$cmp = '==' if ( ($var) and ($cmp eq '=') );
 		if ($cmp eq '==') {
@@ -1428,7 +1438,7 @@ sub postfwd_items {
 		my($myaction) = $default_action; my($stop) = 0;
 		if (defined $Rule_by_ID{$myarg}) {
 			my($ruleno) = $Rule_by_ID{$myarg};
-			mylogs $syslog_priority, "[RULES] ".$myline
+			log_info "[RULES] ".$myline
 				.", jump to rule $ruleno (id $myarg)"
 				if wantsdebug(qw[ all thisrequest verbose ]);
 			$index = $ruleno - 1;
@@ -1463,8 +1473,8 @@ sub postfwd_items {
 				};
 				$m_val = $1.($2 || '').($3 || '') if ( $m_val =~ /^(\-?\d+)([\.,]\d+)?(.*)$/ );
 				(defined $request{$r_var})
-					? mylogs "notice", "[RULES] ".$myline.", redefining existing ".$r_var."=".$request{$r_var}." with ".$r_var."=".$m_val
-					: mylogs $syslog_priority, "[RULES] ".$myline.", defining ".$r_var."=".$m_val
+					? log_note "[RULES] ".$myline.", redefining existing ".$r_var."=".$request{$r_var}." with ".$r_var."=".$m_val
+					: log_info "[RULES] ".$myline.", defining ".$r_var."=".$m_val
 					if wantsdebug(qw[ all thisrequest verbose ]);
 				$request{$r_var} = $m_val;
 			} else {
@@ -1492,7 +1502,7 @@ sub postfwd_items {
 				$score += $val;
 			};
 			$score = $1.((defined $2) ? $2 : '.0') if ( $score =~ /^(\-?\d+)([\.,]\d\d?)?/ );
-			mylogs $syslog_priority, "[SCORE] ".$myline.", modifying score about ".$myarg." points to ". $score
+			log_info "[SCORE] ".$myline.", modifying score about ".$myarg." points to ". $score
 				if wantsdebug(qw[ all thisrequest verbose ]);
 			$request{score} = $request{request_score} = $score;
 		} elsif ($myarg) {
@@ -1523,7 +1533,7 @@ sub postfwd_items {
 		);
 		if ( my $socket = IO::Socket::INET->new(
 			PeerAddr => $mserver,
-			PeerPort => ($mport || 25),
+			PeerPort => ($mport ||= 25),
 			Proto    => 'tcp',
 			Timeout  => 30,
 			Type     => SOCK_STREAM,
@@ -1533,9 +1543,27 @@ sub postfwd_items {
 				last SMTP unless $res =~ /^[23][0-9][0-9] /;
 			};
 			close($socket);
-			mylogs $syslog_priority, "[MAIL] ".$myline.", mail server=<$mserver:$mport>, from=<$mfrom>, to=<$mto>, subject=<$msubject>, status=<$res>";
+			log_info "[MAIL] ".$myline.", mail server=<$mserver:$mport>, from=<$mfrom>, to=<$mto>, subject=<$msubject>, status=<$res>";
 		} else {
-			mylogs 'notice', "[MAIL] ".$myline.", could not open socket to $mserver:$mport: '$!'";
+			log_note "[MAIL] ".$myline.", could not open socket to $mserver:$mport: '$!'";
+		};
+		return ($stop,$index,$myaction,$myline,%request);
+	},
+	# sendmail()
+	"sendmail" => sub {
+		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($myaction) = $default_action; my($stop) = 0;
+		my($mcmd,$mfrom,$mto,$msubject,$mbody) = split '::', $myarg, 5;
+		my($msg) = "From: $mfrom\nTo: $mto\nSubject: $msubject\n\n$mbody\n";
+		if ( (-x $mcmd) and open (SM, "| $mcmd -i -f $mfrom $mto") ) {
+			if ( print SM "$msg" ) {
+				log_info "[SENDMAIL] ".$myline.", $mcmd from=<$mfrom>, to=<$mto>, subject=<$msubject>";
+			} else {
+				log_note "[SENDMAIL] ".$myline.", could not print to $mcmd pipe: '$!'";
+			};
+			close(SM);
+		} else {
+			log_note "[SENDMAIL] ".$myline.", could not open pipe to $mcmd: '$!'";
 		};
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -1562,7 +1590,7 @@ sub postfwd_items {
 					'rule'		=> $Rules[$index]{$COMP_ID},
 					'action'	=> $ratecmd,
 				};
-				mylogs $syslog_priority, "[RATES] ".$myline
+				log_info "[RATES] ".$myline
 					.", creating rate object ".$ratetype
 					." [type: ".$mycmd.", max: ".$ratecount.", time: ".$ratetime."s]"
 					if (wantsdebug(qw[ all thisrequest rates ]));
@@ -1572,7 +1600,7 @@ sub postfwd_items {
 					$Rates{$ratetype}{$crate}{'count'} = $rcount;
 					$Rates{$ratetype}{$crate}{'time'}  = $now;
 					$Rates{$ratetype}{$crate}{'until'} = $now + $Rates{$ratetype}{$crate}{ttl};
-					mylogs $syslog_priority, "[RATES] ".$myline
+					log_info "[RATES] ".$myline
 						.", renewing rate object '".$ratetype."/".$crate."'"
 						." [type: ".$Rates{$ratetype}{$crate}{type}
 						.", max: ".$Rates{$ratetype}{$crate}{maxcount}
@@ -1581,7 +1609,7 @@ sub postfwd_items {
 				} elsif (not (($rcount+=$Rates{$ratetype}{$crate}{count}) > $Rates{$ratetype}{$crate}{maxcount})) {
 					# increase rate
 					$Rates{$ratetype}{$crate}{count} = $rcount;
-					mylogs $syslog_priority, "[RATES] ".$myline
+					log_info "[RATES] ".$myline
 						.", increasing rate object '".$ratetype."/".$crate."'"
 						." to ".$Rates{$ratetype}{$crate}{count}
 						." [type: ".$Rates{$ratetype}{$crate}{type}
@@ -1599,10 +1627,10 @@ sub postfwd_items {
 				$myline .= ", rate=".$Rates{$ratetype}{$crate}{type}."/".$rcount."/".ts($now - $Rates{$ratetype}{$crate}{'time'})."s";
 			};
 		  } else {
-			mylogs $syslog_priority, "[RULES] ".$myline.", ignoring empty index for ".$mycmd." limit '".$ratetype."'" if (wantsdebug(qw[ all thisrequest ]));
+			log_info "[RULES] ".$myline.", ignoring empty index for ".$mycmd." limit '".$ratetype."'" if (wantsdebug(qw[ all thisrequest ]));
 		  };
 		} else {
-			mylogs "notice", "[RULES] ".$myline.(($rcount) ? ", ignoring unknown ".$mycmd."() attribute \'".$myarg."\'" : ", ignoring empty counter");
+			log_note "[RULES] ".$myline.(($rcount) ? ", ignoring unknown ".$mycmd."() attribute \'".$myarg."\'" : ", ignoring empty counter");
 		};
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -1614,7 +1642,7 @@ sub postfwd_items {
 	"wait"	=> sub {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
 		my($myaction) = $default_action; my($stop) = 0;
-		mylogs $syslog_priority, "[RULES] ".$myline.", delaying for $myarg seconds";
+		log_info "[RULES] ".$myline.", delaying for $myarg seconds";
 		sleep $myarg;
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -1622,14 +1650,14 @@ sub postfwd_items {
 	"note"	=> sub {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
 		my($myaction) = $default_action; my($stop) = 0;
-		mylogs $syslog_priority, "[RULES] ".$myline." - note: ".$myarg if $myarg;
+		log_info "[RULES] ".$myline." - note: ".$myarg if $myarg;
 		return ($stop,$index,$myaction,$myline,%request);
 	},
 	# debug() command
 	"debug"	=> sub {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
 		my($myaction) = $default_action; my($stop) = 0;
-		mylogs $syslog_priority, "[RULES] ".$myline.", DEBUG=$myarg";
+		log_info "[RULES] ".$myline.", DEBUG=$myarg";
 		($myarg =~ /^(1|y(es)?|on)$/i) ? $DEBUG{thisrequest} = 1 : delete $DEBUG{thisrequest};
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -1701,9 +1729,9 @@ sub get_plugins {
 		map { delete $postfwd_items_plugin{$_}   unless ($_ and defined $postfwd_items_plugin{$_})   } (keys %postfwd_items_plugin);
 		map { delete $postfwd_compare_plugin{$_} unless ($_ and defined $postfwd_compare_plugin{$_}) } (keys %postfwd_compare_plugin);
 		map { delete $postfwd_actions_plugin{$_} unless ($_ and defined $postfwd_actions_plugin{$_}) } (keys %postfwd_actions_plugin);
-		map { mylogs "notice", "[PLUGIN] overriding prior item \'".$_."\'" 		if (defined $postfwd_items{$_})   } (keys %postfwd_items_plugin);
-		map { mylogs "notice", "[PLUGIN] overriding prior compare function \'".$_."\'" 	if (defined $postfwd_compare{$_}) } (keys %postfwd_compare_plugin);
-		map { mylogs "notice", "[PLUGIN] overriding prior action \'".$_."\'" 		if (defined $postfwd_actions{$_}) } (keys %postfwd_actions_plugin);
+		map { log_note "[PLUGIN] overriding prior item \'".$_."\'" 		if (defined $postfwd_items{$_})   } (keys %postfwd_items_plugin);
+		map { log_note "[PLUGIN] overriding prior compare function \'".$_."\'" 	if (defined $postfwd_compare{$_}) } (keys %postfwd_compare_plugin);
+		map { log_note "[PLUGIN] overriding prior action \'".$_."\'" 		if (defined $postfwd_actions{$_}) } (keys %postfwd_actions_plugin);
 		%postfwd_items   = ( %postfwd_items, %postfwd_items_plugin )     if %postfwd_items_plugin;
 		%postfwd_compare = ( %postfwd_compare, %postfwd_compare_plugin ) if %postfwd_compare_plugin;
 		%postfwd_actions = ( %postfwd_actions, %postfwd_actions_plugin ) if %postfwd_actions_plugin;
@@ -1714,7 +1742,7 @@ sub get_plugins {
 			if %postfwd_compare_plugin;
 		$pluginlog .= " actions: \"".(join ", ", (sort keys %postfwd_actions_plugin))."\""
 			if %postfwd_actions_plugin;
-		mylogs $syslog_priority, $pluginlog;
+		log_info $pluginlog;
 	};
     };
 };
@@ -1746,24 +1774,24 @@ sub compare_item {
 		push @items, prepare_file (0, $1, $cmp, $2);
 		next ITEM;
 	};
-	mylogs $syslog_priority, "compare $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
+	log_info "compare $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 	$val = $neg if ($neg = deneg_item($val));
-	mylogs $syslog_priority, "deneg $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if ($neg and (wantsdebug(qw[ all thisrequest ])));
+	log_info "deneg $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if ($neg and (wantsdebug(qw[ all thisrequest ])));
 	next ITEM unless (defined $val);
 	# substitute check for $$vars in rule item
 	if ( $var = devar_item ($cmp,$val,$myitem,%request) ) {
 		$val = $var; $val =~ s/([^-_@\.\w\s])/\\$1/g unless ($cmp eq '==');
 	};
 	$myresult = &{$postfwd_compare{$postfwd_compare_proc}}($cmp,$val,$myitem,%request);
-	mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if (wantsdebug(qw[ all thisrequest ]));
+	log_info "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if (wantsdebug(qw[ all thisrequest ]));
 	if ($neg) {
 		$myresult = not($myresult);
-		mylogs $syslog_priority, "negate match $mykey:  ".($myresult ? "TRUE" : "FALSE") if (wantsdebug(qw[ all thisrequest ]));
+		log_info "negate match $mykey:  ".($myresult ? "TRUE" : "FALSE") if (wantsdebug(qw[ all thisrequest ]));
 	};
 	$rcount++ if $myresult;
 	$myresult = not($mymin eq 'all');
 	$myresult = ( $rcount >= $mymin ) if $myresult;
-	mylogs $syslog_priority, "count $mykey:  request=$rcount  minimum: $mymin  result: ".($myresult ? "TRUE" : "FALSE") if (wantsdebug(qw[ all thisrequest ]));
+	log_info "count $mykey:  request=$rcount  minimum: $mymin  result: ".($myresult ? "TRUE" : "FALSE") if (wantsdebug(qw[ all thisrequest ]));
 	last ITEM if $myresult;
     };
     $myresult = $rcount if ($myresult or ($mymin eq 'all'));
@@ -1800,7 +1828,7 @@ sub compare_rule {
     my @ownready = ();
     my $bgsock = undef;
 
-    mylogs $syslog_priority, "[RULES] rule: $index, id: $Rules[$index]{$COMP_ID}, items: '".((@ruleitems) ? join ';', @ruleitems: '')."'" if (wantsdebug(qw[ all thisrequest ]));
+    log_info "[RULES] rule: $index, id: $Rules[$index]{$COMP_ID}, items: '".((@ruleitems) ? join ';', @ruleitems: '')."'" if (wantsdebug(qw[ all thisrequest ]));
 
     # COMPARE-ITEMS
     # check all non-dns items
@@ -1836,7 +1864,7 @@ sub compare_rule {
     if ($hasdns and $myresult[0]) {
 
 	map { $timed .= (($timed) ? ", $_" : $_) if $Timeouts{$_} > $MAX_DNSBL_TIMEOUTS } (keys %Timeouts);
-	mylogs "notice", "[DNSQUERY] skipping rbls: $timed - too much timeouts" if $timed;
+	log_note "[DNSQUERY] skipping rbls: $timed - too much timeouts" if $timed;
 
 	push @queries, rbl_prepare_lookups ( $COMP_RBL_KEY, $request{reverse_address}, @{$Rules[$index]{$COMP_RBL_KEY}} )
 		if ( exists($Rules[$index]{$COMP_RBL_KEY}) and not($request{client_address} =~ /:/) );
@@ -1855,7 +1883,7 @@ sub compare_rule {
 	if ( @queries ) {
 		@queries = uniq(@queries);
 		foreach my $query (@queries) {
-			mylogs $syslog_priority, "[SENDDNS] sending query \'$query\'"
+			log_info "[SENDDNS] sending query \'$query\'"
 				if (wantsdebug(qw[ all thisrequest ]));
 			# send A query
 			$bgsock = $ownres->bgsend($query, 'A');
@@ -1868,7 +1896,7 @@ sub compare_rule {
 				$ownsock{$bgsock} = 'TXT:'.$query;
 			};
 		};
-		mylogs $syslog_priority, "[SENDDNS] rule: $index, id: $Rules[$index]{$COMP_ID}, lookups: ".($#queries + 1)
+		log_info "[SENDDNS] rule: $index, id: $Rules[$index]{$COMP_ID}, lookups: ".($#queries + 1)
 			if (wantsdebug(qw[ all thisrequest ]));
 	};
 
@@ -1908,9 +1936,9 @@ sub compare_rule {
 	# perform outstanding TXT queries unless --dns_async_txt is set
 	if (not($dns_async_txt) and @queries) {
 		@queries = uniq(@queries);
-		mylogs $syslog_priority, "[DNSBL] sending TXT queries for ".(join ',', @queries) if (wantsdebug(qw[ all thisrequest ]));
+		log_info "[DNSBL] sending TXT queries for ".(join ',', @queries) if (wantsdebug(qw[ all thisrequest ]));
 		foreach my $query (@queries) {
-			mylogs $syslog_priority, "[SENDDNS] sending TXT query \'$query\'" if (wantsdebug(qw[ all thisrequest ]));
+			log_info "[SENDDNS] sending TXT query \'$query\'" if (wantsdebug(qw[ all thisrequest ]));
 			# send TXT query
 			$bgsock = $ownres->bgsend($query, 'TXT');
 			$ownsel->add($bgsock);
@@ -2037,8 +2065,8 @@ sub compare_rule {
 	$myline  = "[RULES]  RULE: ".$index."  MATCHES: ".((($myresult[0] - 2) > 0) ? ($myresult[0] - 2) : 0);
 	$myline .= "  RBLCOUNT: ".$myresult[1] if ($myresult[1] > 0);
 	$myline .= "  RHSBLCOUNT: ".$myresult[2] if ($myresult[2] > 0);
-	$myline .= "  DNSBLTEXT: ".(join ("; ", @DNSBL_Text)) if ( (defined @DNSBL_Text) and (($myresult[1] > 0) or ($myresult[2] > 0)) );
-	mylogs $syslog_priority, $myline;
+	$myline .= "  DNSBLTEXT: ".(join ("; ", @DNSBL_Text)) if ( (@DNSBL_Text) and (($myresult[1] > 0) or ($myresult[2] > 0)) );
+	log_info $myline;
     };
     return @myresult;
 }
@@ -2081,7 +2109,7 @@ sub smtpd_access_policy {
     # clear dnsbl timeout counters
     if ( ($MAX_DNSBL_INTERVAL > 0) and (($now - $Cleanup_Timeouts) > $MAX_DNSBL_INTERVAL) ) {
 	undef %Timeouts;
-	mylogs $syslog_priority, "[CLEANUP] clearing dnsbl timeout counters" if wantsdebug(qw[ all thisrequest verbose ]);
+	log_info "[CLEANUP] clearing dnsbl timeout counters" if wantsdebug(qw[ all thisrequest verbose ]);
 	$Cleanup_Timeouts = $now;
     };
 
@@ -2091,11 +2119,11 @@ sub smtpd_access_policy {
 	$t3 = scalar keys %Rates;
 	cleanup_rate_cache($now);
 	$t2 = time();
-	mylogs $syslog_priority, "[CLEANUP] needed ".ts($t2 - $t1)
+	log_info "[CLEANUP] needed ".ts($t2 - $t1)
 		." seconds for rate cleanup of "
 		.($t3 - scalar keys %Rates)." out of ".$t3
 		." cached items after cleanup time ".$CLEANUP_RATE_CACHE."s"
-		if ( wantsdebug(qw[ all thisrequest verbose ]) or (($t2 - $t1) >= 1) );
+		if ( wantsdebug(qw[ all thisrequest verbose cleanup ]) or (($t2 - $t1) >= 1) );
 	$Cleanup_Rates = $t1;
     };
 
@@ -2113,7 +2141,7 @@ sub smtpd_access_policy {
 			$Rates{$checkval}{$crate}{'count'} = $rcount;
 			$Rates{$checkval}{$crate}{'time'}  = $now;
 			$Rates{$checkval}{$crate}{'until'} = $now + $Rates{$checkval}{$crate}{ttl};
-			mylogs $syslog_priority, "[RATES] renewing rate object '".$checkval."/".$crate."'"
+			log_info "[RATES] renewing rate object '".$checkval."/".$crate."'"
 				." [type: ".$Rates{$checkval}{$crate}{type}
 				.", max: ".$Rates{$checkval}{$crate}{maxcount}
 				.", time: ".$Rates{$checkval}{$crate}{ttl}."s]"
@@ -2121,7 +2149,7 @@ sub smtpd_access_policy {
 		} elsif (not (($rcount+=$Rates{$checkval}{$crate}{count}) > $Rates{$checkval}{$crate}{maxcount})) {
 			# increase rate
 			$Rates{$checkval}{$crate}{count} = $rcount;
-			mylogs $syslog_priority, "[RATES] increasing rate object '".$checkval."/".$crate."'"
+			log_info "[RATES] increasing rate object '".$checkval."/".$crate."'"
 				." to ".$Rates{$checkval}{$crate}{count}
 				." [type: ".$Rates{$checkval}{$crate}{type}
 				.", max: ".$Rates{$checkval}{$crate}{maxcount}
@@ -2158,7 +2186,7 @@ sub smtpd_access_policy {
 			};
 		};
 	};
-	mylogs $syslog_priority, "created cache-id: $cacheid" if (wantsdebug(qw[ all thisrequest ]));
+	log_info "created cache-id: $cacheid" if (wantsdebug(qw[ all thisrequest ]));
 
     	# wipe out old cache entries
 	if ( (scalar keys %Request_Cache > 0) and (($now - $Cleanup_Requests) > $CLEANUP_REQUEST_CACHE) ) {
@@ -2166,11 +2194,11 @@ sub smtpd_access_policy {
 		$t3 = scalar keys %Request_Cache;
 		cleanup_request_cache($now);
 		$t2 = time();
-		mylogs $syslog_priority, "[CLEANUP] needed ".ts($t2 - $t1)
+		log_info "[CLEANUP] needed ".ts($t2 - $t1)
 			." seconds for request cleanup of "
 			.($t3 - scalar keys %Request_Cache)." out of ".$t3
 			." cached items after cleanup time ".$CLEANUP_REQUEST_CACHE."s"
-			if ( wantsdebug(qw[ all thisrequest verbose ]) or (($t2 - $t1) >= 1) );
+			if ( wantsdebug(qw[ all thisrequest verbose cleanup ]) or (($t2 - $t1) >= 1) );
 		$Cleanup_Requests = $t1;
 	};
     };
@@ -2183,7 +2211,7 @@ sub smtpd_access_policy {
 	$myaction = $Rates{$ratehit}{$rateitem}{action};
 	# substitute check for $$vars in action
 	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
-	mylogs $syslog_priority, "[RATES] rule=".$Rule_by_ID{$Rates{$ratehit}{$rateitem}{rule}}
+	log_info "[RATES] rule=".$Rule_by_ID{$Rates{$ratehit}{$rateitem}{rule}}
 		. ", id=".$Rates{$ratehit}{$rateitem}{rule}
 		. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 		. ", client=".$request{client_name}."[".$request{client_address}."]"
@@ -2208,7 +2236,7 @@ sub smtpd_access_policy {
 	$myaction = $Request_Cache{$cacheid}{$COMP_ACTION};
 	if ( $Request_Cache{$cacheid}{hit} and $Request_Cache{$cacheid}{$COMP_ID}) {
 		map { $Matches{$_}++ } (split ';', $Request_Cache{$cacheid}{hits}) if $Request_Cache{$cacheid}{hits};
-		mylogs $syslog_priority, "[CACHE] rule=".$Rule_by_ID{$Request_Cache{$cacheid}{$COMP_ID}}
+		log_info "[CACHE] rule=".$Rule_by_ID{$Request_Cache{$cacheid}{$COMP_ID}}
 			. ", id=".$Request_Cache{$cacheid}{$COMP_ID}
 			. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
 			. ", client=".$request{client_name}."[".$request{client_address}."]"
@@ -2231,7 +2259,7 @@ sub smtpd_access_policy {
 	read_config(0) if $opt_instantconfig;
 
 	if ($#Rules < 0) {
-		mylogs 'warning', "critical: no rules found - i feel useless (have you set -f or -r?)";
+		log_warn "critical: no rules found - i feel useless (have you set -f or -r?)";
 
 	} else {
 
@@ -2241,11 +2269,11 @@ sub smtpd_access_policy {
 			$t3 = scalar keys %DNS_Cache;
 			cleanup_dns_cache($now);
 			$t2 = time();
-			mylogs $syslog_priority, "[CLEANUP] needed ".ts($t2 - $t1)
+			log_info "[CLEANUP] needed ".ts($t2 - $t1)
 				." seconds for rbl cleanup of "
 				.($t3 - scalar keys %DNS_Cache)." out of ".$t3
 				." cached items after cleanup time ".$CLEANUP_RBL_CACHE."s"
-				if ( wantsdebug(qw[ all thisrequest verbose ]) or (($t2 - $t1) >= 1) );
+				if ( wantsdebug(qw[ all thisrequest verbose cleanup ]) or (($t2 - $t1) >= 1) );
 			$Cleanup_RBLs = $t1;
 		};
 
@@ -2289,7 +2317,7 @@ sub smtpd_access_policy {
 				while ($ai++ < $max_command_recursion and $myaction =~ /^(\w[\-\w]+)\s*\(\s*(.*?)\s*\)$/) {
 					my($mycmd,$myarg) = ($1, $2); $stop = 0;
 					if (defined $postfwd_actions{$mycmd}) {
-						mylogs $syslog_priority, "[PLUGIN] executing postfwd-action $mycmd" if (wantsdebug(qw[ all thisrequest ]));
+						log_info "[PLUGIN] executing postfwd-action $mycmd" if (wantsdebug(qw[ all thisrequest ]));
 						($stop, $index, $myaction, $myline, %request) = &{$postfwd_actions{$mycmd}}($index, $now, $mycmd, $myarg, $myline, %request);
 						# substitute again after postfwd-actions
 						$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
@@ -2301,7 +2329,7 @@ sub smtpd_access_policy {
 
 				if ($stop) {
 					$myline .= ", delay=".ts(time() - $now)."s, hits=".$request{$COMP_HITS}.", action=".$myaction;
-    					mylogs $syslog_priority, "[RULES] ".$myline unless $opt_norulelog;
+    					log_info "[RULES] ".$myline unless $opt_norulelog;
 					last RULE;
 				};
 			} else { undef $myline; };
@@ -2330,11 +2358,11 @@ sub process_input {
                 $$attr{$1} = $2;
         # evaluate request
         } elsif ( $msg eq '' ) {
-                map { mylogs $syslog_priority, "Attribute: $_=$$attr{$_}" } (keys %$attr) if (wantsdebug(qw[ all thisrequest ]));
+                map { log_info "Attribute: $_=$$attr{$_}" } (keys %$attr) if (wantsdebug(qw[ all thisrequest ]));
 		if (defined $$attr{request}) {
 	                if ( $$attr{request} eq "smtpd_access_policy" ) {
                         	my $action = smtpd_access_policy(%$attr) || $default_action;
-	                        mylogs $syslog_priority, "Action: $action" if (wantsdebug(qw[ all thisrequest ]));
+	                        log_info "Action: $action" if (wantsdebug(qw[ all thisrequest ]));
         	                if ($client) {
                 	                print $client ("action=$action\n\n");
                         	} else {
@@ -2343,42 +2371,42 @@ sub process_input {
 				$Counter_Requests++; $Counter_Interval++; %$attr = ();
 				delete $DEBUG{thisrequest};
 	                } elsif ( $$attr{request} eq "dumpstats" ) {
-	                        mylogs $syslog_priority, "STATS requested";
+	                        log_info "STATS requested";
 				map { print $client "[STATS]  $_\r\n" } list_stats();
 				close($client);
 	                } elsif ( $$attr{request} eq "dumpcache" ) {
-	                        mylogs $syslog_priority, "DUMP requested";
+	                        log_info "DUMP requested";
 				map { print $client "$_\r\n" } dump_cache();
 				close($client);
 	                } elsif ( $$attr{request} =~ /^delrate (.*)$/ ) {
 				my $del = $1; $del =~ s/^[%]?//g;
 				if (defined $Rates{$del}) {
-					mylogs "notice", "rate cache item '$del' removed";
+					log_note "rate cache item '$del' removed";
 					print $client "rate cache item '$del' removed\r\n";
 					delete $Rates{$del};
 				} else {
-					 mylogs "notice", "rate cache removal of '$del' failed: item not found";
+					 log_note "rate cache removal of '$del' failed: item not found";
 					 print $client "rate cache removal of '$del' failed: item not found\r\n";
 				};
 				close($client);
 	                } elsif ( $$attr{request} =~ /^delcache (.*)$/ ) {
 				my $del = $1; $del =~ s/^[%]?//g;
 				if (defined $Request_Cache{$del}) {
-					mylogs "notice", "request cache item '$del' removed";
+					log_note "request cache item '$del' removed";
 					print $client "request cache item '$del' removed\r\n";
 					delete $Request_Cache{$del};
 				} else {
-					 mylogs "notice", "request cache removal of '$del' failed: item not found";
+					 log_note "request cache removal of '$del' failed: item not found";
 					 print $client "request cache removal of '$del' failed: item not found\r\n";
 				};
 				close($client);
                 	} else {
-        	                mylogs 'warning', "Ignoring unrecognized request type: '".((defined $$attr{request}) ? substr($$attr{request},0,100) : '')."'";
+        	                log_warn "Ignoring unrecognized request type: '".((defined $$attr{request}) ? substr($$attr{request},0,100) : '')."'";
                 	};
 		};
         # unknown command
         } else {
-                mylogs 'warning', "Ignoring garbage '".substr($msg, 0, 100)."'";
+                log_warn "Ignoring garbage '".substr($msg, 0, 100)."'";
         };
 };
 
@@ -2487,8 +2515,8 @@ setlogsock $syslog_socktype;
 $syslog_options = 'cons,pid' unless $opt_daemon;
 openlog $syslog_name, $syslog_options, $syslog_facility;
 
-mylogs "notice", $NAME." ".$VERSION." starting" if $opt_daemon;
-mylogs "notice", "Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", Perl ".$]." on ".$^O if (wantsdebug(qw[ all verbose ]));
+log_note $NAME." ".$VERSION." starting" if $opt_daemon;
+log_note "Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", Perl ".$]." on ".$^O if (wantsdebug(qw[ all verbose ]));
 
 # query usage statistics
 if ($opt_dumpstats) {
@@ -2573,14 +2601,14 @@ if ($opt_showconfig) {
 };
 
 # check modes
-mylogs "notice", "TESTMODE: set - will return ".$default_action." to all requests" if ($opt_test);
+log_note "TESTMODE: set - will return ".$default_action." to all requests" if ($opt_test);
 if (wantsdebug(qw[ all verbose ])) {
 	$opt_summary ||= $Stat_Interval_Time;
-	mylogs "notice", "VERBOSE: set";
+	log_note "VERBOSE: set";
 };
 
 # -n - skip dns based checks
-mylogs "notice", "NODNS: set - will skip all dns based checks" if $opt_nodns;
+log_note "NODNS: set - will skip all dns based checks" if $opt_nodns;
 
 # set max lookups to default (set to 0 to disable)
 $opt_max_ns_lookups = $def_dns_max_ns_a_lookups unless defined $opt_max_ns_lookups;
@@ -2592,7 +2620,7 @@ map ( modify_score (each %opt_scores), (keys %opt_scores) );
 # get summary interval time, set next display time
 $Stat_Interval_Time = $opt_summary if $opt_summary;
 $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = $Starttime = time();
-mylogs $syslog_priority, "Overriding cacheid itemlist with: ".(join ",", @CacheID) if ( @CacheID );
+log_info "Overriding cacheid itemlist with: ".(join ",", @CacheID) if ( @CacheID );
 
 # load plugin-items
 get_plugins (@Plugins) if @Plugins;
@@ -2673,13 +2701,13 @@ if ($opt_daemon) {
 	# does not call read_config directly, to avoid
 	# possible race conditions when caches are cleared
 	sub sig_hup () {
-		mylogs "notice", "catched HUP signal - reloading ruleset on next request";
+		log_note "catched HUP signal - reloading ruleset on next request";
 		$Reload_Conf = 1;
 	};
 
 	# show stats on exit
 	sub pre_server_close_hook() {
-		mylogs "notice", "terminating..." if $opt_summary;
+		log_note "terminating..." if $opt_summary;
 		end_program;
 	};
 
@@ -2687,10 +2715,10 @@ if ($opt_daemon) {
 	sub pre_loop_hook() {
 
 		# install signal handlers
-		$SIG{__WARN__}	= sub { mylogs "crit", "warning - \"@_\""; };
+		$SIG{__WARN__}	= sub { log_crit "warning - \"@_\""; };
 		$SIG{__DIE__}	= sub { fatal_exit "last err: \"$!\", detail: \"@_\""; };
 		$SIG{ALRM} = sub { show_stats; alarm ($Stat_Interval_Time); } if $opt_summary;
-		mylogs $syslog_priority, "successfully installed signal handlers" if wantsdebug(qw[ all verbose ]);
+		log_info "successfully installed signal handlers" if wantsdebug(qw[ all verbose ]);
 
 		# process init
 		umask oct($net_umask);
@@ -2701,11 +2729,11 @@ if ($opt_daemon) {
 		# set first status interval time
 		if ($opt_summary) {
 			alarm ($Stat_Interval_Time);
-			mylogs $syslog_priority, "Setting status interval to $Stat_Interval_Time seconds";
+			log_info "Setting status interval to $Stat_Interval_Time seconds";
 		};
 
 		# let's go
-		mylogs $syslog_priority, "$NAME $VERSION ready for input";
+		log_info "$NAME $VERSION ready for input";
 	};
 
 	# main loop
@@ -3196,7 +3224,7 @@ Files can refer to other files. The following is valid.
 	-- FILE /etc/postfwd/clients_west.cf --
 	192.168.3.0/24
 
-Remind that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
+Note that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available
 with postfwd1 v1.15 and postfwd2 v0.18 and higher.
 
 
@@ -3255,7 +3283,7 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	this command creates a counter for the given <item>, which will be increased any time a request
 	containing it arrives. if it exceeds <max> within <time> seconds it will return <action> to postfix.
 	rate counters are very fast as they are executed before the ruleset is parsed.
-	please note that <action> is currently limited to postfix actions (no postfwd actions)!
+	please note that <action> was limited to postfix actions (no postfwd actions) for postfwd versions <1.33!
 	    # no more than 3 requests per 5 minutes
 	    # from the same "unknown" client
 	    id=RATE01 ;  client_name==unknown
@@ -3298,9 +3326,15 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	   id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031:^dunno$)
 
 	mail(server/helo/from/to/subject/body)
+	This command is deprecated. You should try to use the sendmail() action instead.
 	Very basic mail command, that sends a message with the given arguments. LIMITATIONS:
 	This basically performs a telnet. No authentication or TLS are available. Additionally it does
 	not track notification state and will notify you any time, the corresponding rule hits.
+
+	sendmail(sendmail-path::from::to::subject::body)
+	Mail command, that uses an existing sendmail binary and sends a message with the given arguments.
+	LIMITATIONS: The command does not track notification state and will notify you any time, the
+	corresponding rule hits (which could mean 100 mails for a mail with 100 recipients at RCPT stage).
 
 	wait (<delay>)
 	pauses the program execution for <delay> seconds. use this for
@@ -3494,15 +3528,15 @@ continue or to stop parsing the ruleset.
 			# note(<logstring>) command
 			"note"  => sub {
 				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-				my($myaction) = $default_action; my($stop) = 0;
-				mylogs 'info', "[RULES] ".$myline." - note: ".$myarg if $myarg;
+				my($myaction) = 'dunno'; my($stop) = 0;
+				log_info "[RULES] ".$myline." - note: ".$myarg if $myarg;
 				return ($stop,$index,$myaction,$myline,%request);
 			},
 	
 			# skips next <myarg> rules
         		"skip" => sub {
 				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-				my($myaction) = $default_action; my($stop) = 0;
+				my($myaction) = 'dunno'; my($stop) = 0;
 				$index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
 				return ($stop,$index,$myaction,$myline,%request);
         		},
@@ -3510,8 +3544,8 @@ continue or to stop parsing the ruleset.
 			# dumps current request contents to syslog
         		"dumprequest" => sub {
 				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-				my($myaction) = $default_action; my($stop) = 0;
-				map { mylogs 'info', "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
+				my($myaction) = 'dunno'; my($stop) = 0;
+				map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
 				return ($stop,$index,$myaction,$myline,%request);
         		},
 

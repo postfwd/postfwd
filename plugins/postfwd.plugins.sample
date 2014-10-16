@@ -137,15 +137,15 @@
 	#	# note(<logstring>) command
 	#	"note"  => sub {
 	#		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-	#		my($myaction) = $default_action; my($stop) = 0;
-	#		mylogs 'info', "[RULES] ".$myline." - note: ".$myarg if $myarg;
+	#		my($myaction) = 'dunno'; my($stop) = 0;
+	#		log_info ("[RULES] ".$myline." - note: ".$myarg) if $myarg;
 	#		return ($stop,$index,$myaction,$myline,%request);
 	#	},
 	#
 	#	# skips next <myarg> rules
         #	"skip" => sub {
 	#		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-	#		my($myaction) = $default_action; my($stop) = 0;
+	#		my($myaction) = 'dunno'; my($stop) = 0;
 	#		$index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
 	#		return ($stop,$index,$myaction,$myline,%request);
         #	},
@@ -153,8 +153,8 @@
 	#	# dumps current request contents to syslog
         #	"dumprequest" => sub {
 	#		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
-	#		my($myaction) = $default_action; my($stop) = 0;
-	#		map { mylogs 'info', "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
+	#		my($myaction) = 'dunno'; my($stop) = 0;
+	#		map { log_info ("[DUMP] rule=$index, Attribute: $_=$request{$_}") } (keys %request);
 	#		return ($stop,$index,$myaction,$myline,%request);
         #	},
 

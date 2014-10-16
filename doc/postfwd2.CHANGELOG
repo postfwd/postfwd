@@ -1,3 +1,19 @@
+postfwd2 1.34
+=============
+- bugfix:  fixed taint mode logging error for verbose --showconfig and --stdoutlog
+           options and newer perl versions.
+- bugfix:  check_* functions use print/getline instead of send/recv for large
+           --dumpcache output (thanks to Alexandre Simon)
+- code:    added more information when using --debug=cleanup
+- docs:    documentation updates
+- feature: new sendmail(sendmail-path::from::to::subject::body) action.
+           Please take a look at the manual, especially about
+           it's limitations, before using it!
+    ------------------------------------------------------------
+     # alert
+     action=sendmail(/usr/sbin/sendmail::from@example.org::to@example.org::Subject::Text)
+    ------------------------------------------------------------
+
 postfwd2 1.33
 =============
 - feature: new compare operators *
