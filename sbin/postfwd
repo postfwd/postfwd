@@ -24,7 +24,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.10pre8a';
+our($VERSION)			= '1.10pre8';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -1428,12 +1428,6 @@ sub smtpd_access_policy {
     # replace empty sender with <>
     $request{sender} = '<>' unless ($request{sender});
 
-    # load postfwd_items attributes
-    if ( my(%postfwd_items_attr) = postfwd_items (%request) ) {
-	%request = (%request, %postfwd_items_attr);
-    };
-
-
     # check for HUP signal
     if ( $Reload_Conf ) {
 	undef $Reload_Conf;
@@ -1589,6 +1583,11 @@ sub smtpd_access_policy {
 				." cached items after ".($now - $Cleanup_RBLs)
 				." seconds (min ".$CLEANUP_RBL_CACHE."s)" if ( $opt_verbose or (($t2 - $t1) > 0) );
 			$Cleanup_RBLs = $t1;
+		};
+
+		# load postfwd_items attributes
+		if ( my(%postfwd_items_attr) = postfwd_items (%request) ) {
+			%request = (%request, %postfwd_items_attr);
 		};
 
 		# prepares hit counters
