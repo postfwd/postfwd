@@ -1,8 +1,10 @@
+<?xml version="1.0" ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <title>postfwd - postfix firewall daemon</title>
-<link rev="made" href="mailto:root@localhost" />
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:feedback@suse.de" />
 </head>
 
 <body style="background-color: white">
@@ -60,6 +62,7 @@
         -d, --daemon                run postfwd as daemon
         -i, --interface &lt;dev&gt;       listen on interface &lt;dev&gt;
         -p, --port &lt;port&gt;           listen on port &lt;port&gt;
+            --proto &lt;proto&gt;         socket type (tcp or unix)
         -u, --user &lt;name&gt;           set uid to user &lt;name&gt;
         -g, --group &lt;name&gt;          set gid to group &lt;name&gt;
         -R, --chroot &lt;path&gt;         chroot the daemon to &lt;path&gt;
@@ -88,6 +91,7 @@
             --noidlestats           disables statistics when idle
         -n, --nodns                 disable dns
             --nodnslog              disable dns logging
+            --dns_async_txt         perform dnsbl A and TXT lookups simultaneously
             --dns_timeout           timeout in seconds for asynchonous dns queries
             --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
             --dns_timeout_interval  interval in seconds for dns timeout maximum counter
@@ -206,6 +210,15 @@ arguments. Please see the COMMAND LINE section below for more information on thi
         recipient_localpart,    - the local-/domainpart of the recipient address
         recipient_domain</pre>
 <pre>
+        helo_address            - postfwd tries to look up the helo_name. use
+                                  helo_address=!!(0.0.0.0/0) to check for unknown.</pre>
+<pre>
+        sender_ns_names,        - postfwd tries to look up the names/ip addresses
+        sender_ns_addrs           of the nameservers for the sender domain part.</pre>
+<pre>
+        sender_mx_names,        - postfwd tries to look up the names/ip addresses
+        sender_mx_addrs           of the mx records for the sender domain part.</pre>
+<pre>
         version                 - postfwd version, contains &quot;postfwd n.nn&quot;
                                   this enables version based checks in your rulesets
                                   (e.g. for migration). works with old versions too,
@@ -228,6 +241,11 @@ for details:</p>
         score=5.0                               mask = maximum floating point value
         rbl=zen.spamhaus.org                    mask = &lt;name&gt;/&lt;reply&gt;/&lt;maxcache&gt;[,...]
         rblcount=2                              mask = numeric, will match if rbl hits &gt;= 2
+        helo_address=&lt;a.b.c.d/nn&gt;               mask = CIDR[,CIDR,...]
+        sender_ns_names=some.domain.tld         mask = PCRE
+        sender_mx_names=some.domain.tld         mask = PCRE
+        sender_ns_addrs=&lt;a.b.c.d/nn&gt;            mask = CIDR[,CIDR,...]
+        sender_mx_addrs=&lt;a.b.c.d/nn&gt;            mask = CIDR[,CIDR,...]
         # ------------------------------
         # Postfix version 2.1 and later:
         # ------------------------------
@@ -485,6 +503,11 @@ The following arguments will control it's behaviour in this case.</p>
         -p, --port &lt;port&gt;
         postfwd listens on the specified port (default tcp/10040).</pre>
 <pre>
+        --proto &lt;type&gt;
+        The protocol type for postfwd's socket. Currently you may use 'tcp' or 'unix' here.
+        To use postfwd with a unix domain socket, run it as follows:
+            postfwd --proto=unix --port=/somewhere/postfwd.socket</pre>
+<pre>
         -u, --user &lt;name&gt;
         Changes real and effective user to &lt;name&gt;.</pre>
 <pre>
@@ -607,6 +630,11 @@ The following arguments will control it's behaviour in this case.</p>
         --dns_timeout_interval    (default=1200)
         The dnsbl timeout counter will be cleaned after this interval in seconds. Use this
         in conjunction with the --dns_timeout_max parameter.</pre>
+<pre>
+        --dns_async_txt
+        Perform dnsbl A and TXT lookups in parallel (otherwise only for listings with at least
+        one A record). This needs more network bandwidth due to increased queries but
+        might also increase throughput because the lookups can be parallelized that way.</pre>
 <pre>
         -I, --instantcfg
         The config files, specified by -f will be re-read for every request

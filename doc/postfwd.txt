@@ -15,6 +15,7 @@ SYNOPSIS
             -d, --daemon                run postfwd as daemon
             -i, --interface <dev>       listen on interface <dev>
             -p, --port <port>           listen on port <port>
+                --proto <proto>         socket type (tcp or unix)
             -u, --user <name>           set uid to user <name>
             -g, --group <name>          set gid to group <name>
             -R, --chroot <path>         chroot the daemon to <path>
@@ -43,6 +44,7 @@ SYNOPSIS
                 --noidlestats           disables statistics when idle
             -n, --nodns                 disable dns
                 --nodnslog              disable dns logging
+                --dns_async_txt         perform dnsbl A and TXT lookups simultaneously
                 --dns_timeout           timeout in seconds for asynchonous dns queries
                 --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
                 --dns_timeout_interval  interval in seconds for dns timeout maximum counter
@@ -181,6 +183,15 @@ DESCRIPTION
             recipient_localpart,    - the local-/domainpart of the recipient address
             recipient_domain
 
+            helo_address            - postfwd tries to look up the helo_name. use
+                                      helo_address=!!(0.0.0.0/0) to check for unknown.
+
+            sender_ns_names,        - postfwd tries to look up the names/ip addresses
+            sender_ns_addrs           of the nameservers for the sender domain part.
+
+            sender_mx_names,        - postfwd tries to look up the names/ip addresses
+            sender_mx_addrs           of the mx records for the sender domain part.
+
             version                 - postfwd version, contains "postfwd n.nn"
                                       this enables version based checks in your rulesets
                                       (e.g. for migration). works with old versions too,
@@ -206,6 +217,11 @@ DESCRIPTION
             score=5.0                               mask = maximum floating point value
             rbl=zen.spamhaus.org                    mask = <name>/<reply>/<maxcache>[,...]
             rblcount=2                              mask = numeric, will match if rbl hits >= 2
+            helo_address=<a.b.c.d/nn>               mask = CIDR[,CIDR,...]
+            sender_ns_names=some.domain.tld         mask = PCRE
+            sender_mx_names=some.domain.tld         mask = PCRE
+            sender_ns_addrs=<a.b.c.d/nn>            mask = CIDR[,CIDR,...]
+            sender_mx_addrs=<a.b.c.d/nn>            mask = CIDR[,CIDR,...]
             # ------------------------------
             # Postfix version 2.1 and later:
             # ------------------------------
@@ -504,6 +520,11 @@ DESCRIPTION
             -p, --port <port>
             postfwd listens on the specified port (default tcp/10040).
 
+            --proto <type>
+            The protocol type for postfwd's socket. Currently you may use 'tcp' or 'unix' here.
+            To use postfwd with a unix domain socket, run it as follows:
+                postfwd --proto=unix --port=/somewhere/postfwd.socket
+
             -u, --user <name>
             Changes real and effective user to <name>.
 
@@ -629,6 +650,11 @@ DESCRIPTION
             --dns_timeout_interval    (default=1200)
             The dnsbl timeout counter will be cleaned after this interval in seconds. Use this
             in conjunction with the --dns_timeout_max parameter.
+
+            --dns_async_txt
+            Perform dnsbl A and TXT lookups in parallel (otherwise only for listings with at least
+            one A record). This needs more network bandwidth due to increased queries but
+            might also increase throughput because the lookups can be parallelized that way.
 
             -I, --instantcfg
             The config files, specified by -f will be re-read for every request

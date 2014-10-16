@@ -1,3 +1,20 @@
+1.12
+=====
+- feature: new items sender_ns_names and sender_ns_addrs
+- feature: new items sender_mx_names and sender_mx_addrs
+- feature: new item helo_address, please see docs for more
+- feature: added --proto switch, to enable the use of unix domain sockets
+	   (thanks to Bernhard Frauendienst)
+- feature: added command-line options --kill and --reload
+	   (of course you can still use TERM and HUP signals)
+- feature: dnsbl txt lookups will now only take place for dnsbls which return
+	   at least one a record. you can use --dns_async_txt for the
+	   old behaviour (see docs for more info).
+- code:    small performance improvement (5-10%) for pcre (~= or =~) items
+- bugfix:  network 0.0.0.0/0 did not work as expected on all platforms
+- bugfix:  postfwd tried to chop() an uninitialized value when sending
+	   garbage (non policy delegation protocol requests) to it.
+
 1.11
 =====
 - feature: the ask() action allows to delegate the policy decision to another
@@ -5,8 +22,8 @@
            answer patterns which should be ignored by postfwd. please look
            at the 'ACTIONS' section in the manual (postfwd2 -m) for details.
 - feature: new options --noidlestats and --norulelog
+- feature: more informative --version
 - feature: documentation updates
-- feature: --version more informative --version
 
 
 **************************************************************************************************
