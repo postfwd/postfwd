@@ -1,0 +1,518 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>postfwd - postfix firewall daemon</title>
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+<p><a name="__index__"></a></p>
+<!-- INDEX BEGIN -->
+
+<ul>
+
+	<li><a href="#name">NAME</a></li>
+	<li><a href="#synopsis">SYNOPSIS</a></li>
+	<li><a href="#description">DESCRIPTION</a></li>
+	<ul>
+
+		<li><a href="#introduction">INTRODUCTION</a></li>
+		<li><a href="#configuration">CONFIGURATION</a></li>
+		<li><a href="#items">ITEMS</a></li>
+		<li><a href="#actions">ACTIONS</a></li>
+		<li><a href="#command_line">COMMAND LINE</a></li>
+		<li><a href="#refresh">REFRESH</a></li>
+		<li><a href="#examples">EXAMPLES</a></li>
+		<li><a href="#integration">INTEGRATION</a></li>
+		<li><a href="#testing">TESTING</a></li>
+		<li><a href="#intention">INTENTION</a></li>
+		<li><a href="#see_also">SEE ALSO</a></li>
+	</ul>
+
+	<li><a href="#license">LICENSE</a></li>
+	<li><a href="#author">AUTHOR</a></li>
+</ul>
+<!-- INDEX END -->
+
+<hr />
+<p>
+</p>
+<h1><a name="name">NAME</a></h1>
+<p>postfwd - postfix firewall daemon</p>
+<p>
+</p>
+<hr />
+<h1><a name="synopsis">SYNOPSIS</a></h1>
+<p>postfwd [OPTIONS] SOURCE1, SOURCE2, ...</p>
+<pre>
+        Ruleset: (at least one, multiple use is allowed):
+        -f, --file &lt;file&gt;         reads rules from &lt;file&gt;
+        -r, --rule &lt;rule&gt;         adds &lt;rule&gt; to config</pre>
+<pre>
+        Scoring:
+        -s, --scores &lt;v&gt;=&lt;r&gt;      returns &lt;r&gt; when score exceeds &lt;v&gt;</pre>
+<pre>
+        Networking:
+        -d, --daemon              run postfwd as daemon
+        -i, --interface &lt;dev&gt;     listen on interface &lt;dev&gt;
+        -p, --port &lt;port&gt;         listen on port &lt;port&gt;
+        -u, --user &lt;name&gt;         set uid to user &lt;name&gt;
+        -g, --group &lt;name&gt;        set gid to group &lt;name&gt;
+        -R, --chroot &lt;path&gt;       chroot the daemon to &lt;path&gt;</pre>
+<pre>
+        optional:
+        -v, --verbose             verbose logging
+        -c, --cache &lt;int&gt;         sets the request-cache timeout to &lt;int&gt; seconds
+            --cache-no-size       ignores size attribute for caching
+            --cache-rdomain-only  ignores localpart of recipient address in cache
+        -S, --summary &lt;int&gt;       show some usage statistics every &lt;int&gt; seconds
+        -t, --test                testing, always returns &quot;dunno&quot;
+        -n, --nodns               disable dns
+        -I, --instantcfg          re-reads rulefiles for every new request</pre>
+<pre>
+        informational (use only at command-line!):
+        -C, --showconfig          shows config, -v for verbose
+        -P, --perfmon             no syslogging, no stdout
+        -V, --version             shows program version
+        -h, --help                shows usage
+        -m, --manual              shows program manual</pre>
+<p>
+</p>
+<hr />
+<h1><a name="description">DESCRIPTION</a></h1>
+<p>
+</p>
+<h2><a name="introduction">INTRODUCTION</a></h2>
+<p>postfwd uses the postfix policy delegation protocol to control access to the mail system
+before a message has been accepted (please visit <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a>
+for more information). It allows to choose an action (e.g. reject, dunno) for a combination of
+several smtp parameters (like sender and recipient address, size or the client's TLS fingerprint).</p>
+<p>Additionally you have the possibility to specify different actions for (multiple)
+RBL/RHSBL lookup(s). This allows you to do combined lookups and/or use selective greylisting
+based on it.</p>
+<p>Furthermore postfwd has a scoring system. First you define maximum scores and corresponding
+actions. Then you can specify scoring points for any rule you define. If the rule hits, the
+points will be added to the requests score. If it exceeds the maximum, the correspondig action will
+be returned to postfix.</p>
+<p>
+</p>
+<h2><a name="configuration">CONFIGURATION</a></h2>
+<p>A configuration line consists of optional item=value pairs, separated by semicolons
+(`;`) and the appropriate desired action:</p>
+<pre>
+        [ &lt;item1&gt;=&lt;value&gt;; &lt;item2&gt;=&lt;value&gt;; ... ] action=&lt;result&gt;</pre>
+<p><em>Example:</em></p>
+<pre>
+        client_address=192.168.1.1 ; sender=no@bad.local ; action=REJECT</pre>
+<p>This will deny all mail from 192.168.1.1 with envelope sender <a href="mailto:no@bad.local.">no@bad.local.</a> The order of the elements
+is not important. So the following would lead to the same result as the previous example:</p>
+<pre>
+        action=REJECT ; client_address=192.168.1.1 ; sender=no@bad.local</pre>
+<p>To identify single rules in your log files, you may add an unique identifier for each of it:</p>
+<pre>
+        id=R_001 ; action=REJECT ; client_address=192.168.1.1 ; sender=no@bad.local</pre>
+<p>You may use these identifiers as target for the `jump()` command (see ACTIONS section below). Leading
+or trailing whitespace characters will be ignored. Use '#' to comment your configuration. Others will
+appreciate.</p>
+<p>A ruleset consists of one or multiple rules, which can be loaded from files or passed as command line
+arguments. Please see the COMMAND LINE section below for more information on this topic.</p>
+<p>
+</p>
+<h2><a name="items">ITEMS</a></h2>
+<pre>
+        id                      - a unique rule id, which can be used for log analysis
+                                  ids also serve as targets for the &quot;jump&quot; command.</pre>
+<pre>
+        score                   - when the specified score is hit (see ACTIONS section)
+                                  the specified action will be returned to postfix</pre>
+<pre>
+        rbl, rhsbl              - query the specified RBLs/RHSBLs, possible values are:
+                                  &lt;name&gt;[/&lt;reply&gt;/&lt;maxcache&gt;, &lt;name&gt;/&lt;reply&gt;/&lt;maxcache&gt;]</pre>
+<pre>
+        rblcount, rhsblcount    - minimum RBL/RHSBL hitcounts to match if not specified
+                                  a single RBL/RHSBL hit will match the rbl/rhsbl items</pre>
+<p>Besides these you can specify any attribute of the postfix policy delegation protocol.  
+Feel free to combine them the way you need it (have a look at the EXAMPLES section below).</p>
+<p>Most values can be specified as regular expressions (PCRE). Please see the table below
+for details:</p>
+<pre>
+        # ==========================================================
+        # ITEM=VALUE                            TYPE
+        # ==========================================================
+        id=something                            mask = string
+        score=5.0                               mask = maximum floating point value
+        rbl=zen.spamhaus.org                    mask = &lt;name&gt;/&lt;reply&gt;/&lt;maxcache&gt;[,...]
+        rblcount=2                              mask = maximum integer value
+        # ------------------------------
+        # Postfix version 2.1 and later:
+        # ------------------------------
+        client_address=&lt;a.b.c.d/nn&gt;             mask = CIDR[,CIDR,...]
+        client_name=another.domain.tld          mask = PCRE
+        reverse_client_name=another.domain.tld  mask = PCRE
+        helo_name=some.domain.tld               mask = PCRE
+        sender=foo@bar.tld                      mask = PCRE
+        recipient=bar@foo.tld                   mask = PCRE
+        recipient_count=0                       mask = maximum integer value
+        # ------------------------------
+        # Postfix version 2.2 and later:
+        # ------------------------------
+        sasl_method=plain                       mask = PCRE
+        sasl_username=you                       mask = PCRE
+        sasl_sender=                            mask = PCRE
+        size=12345                              mask = maximum integer value
+        ccert_subject=blackhole.nowhere.local   mask = PCRE (only if tls verified)
+        ccert_issuer=John+20Doe                 mask = PCRE (only if tls verified)
+        ccert_fingerprint=AA:BB:CC:DD:EE:...    mask = PCRE (do NOT use &quot;...&quot; here)
+        # ------------------------------
+        # Postfix version 2.3 and later:
+        # ------------------------------
+        encryption_protocol=TLSv1/SSLv3         mask = PCRE
+        encryption_cipher=DHE-RSA-AES256-SHA    mask = PCRE
+        encryption_keysize=256                  mask = minimum integer value
+        ...</pre>
+<p>the current list can be found at <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a>. Pattern matching is performed case insensitive.</p>
+<p>
+</p>
+<h2><a name="actions">ACTIONS</a></h2>
+<p><em>postfix actions</em></p>
+<p>Actions will be replied to postfix as result to policy delegation requests. Any action that postfix understands is allowed - see
+``man 5 access'' or <a href="http://www.postfix.org/access.5.html">http://www.postfix.org/access.5.html</a> for a description. If no action is specified, the postfix WARN action
+which simply logs the event will be used for the corresponding rule.</p>
+<p>postfwd will return dunno if it has reached the end of the ruleset and no rule has matched. This can be changed by placing a last
+rule containing only an action statement:</p>
+<pre>
+        ...
+        action=dunno ; sender=@domain.local     # sender is ok
+        action=reject                           # default deny</pre>
+<p><em>postfwd actions</em></p>
+<p>postfwd actions control the behaviour of the program. Currently you can specify the following:</p>
+<pre>
+        jump (&lt;id&gt;)
+        jumps to rule with id &lt;id&gt;, use this to skip certain rules.
+        you can jump backwards - but remember that there is no loop
+        detection at the moment!</pre>
+<pre>
+        score (&lt;score&gt;)
+        the request's score will be increased by the specified &lt;score&gt;,
+        which must be a floating point value. if the score exceeds the
+        maximum set by `--scores` option (see COMMAND LINE) or the score
+        item (see ITEMS section), the action defined for this case
+        will be returned (default=REJECT). negative values are allowed.
+        Anything else than +/-nnnn.nn will be ignored.</pre>
+<pre>
+        wait (&lt;delay&gt;)
+        pauses the program execution for &lt;delay&gt; seconds. use this for
+        delaying or throtteling connections.</pre>
+<pre>
+        quit (&lt;code&gt;)
+        terminates the program with the given exit-code. postfix doesn`t
+        like that too much, so use it with care.</pre>
+<pre>
+        file (&lt;file&gt;) [STATUS unfinished]
+        loads rules from &lt;file&gt; and continues with the rules found there.
+        don't create loops here (file1 loads file1 loads file1...)!</pre>
+<pre>
+        exec (&lt;cmd&gt;) [STATUS unfinished]
+        executes command (output will be sent to syslog if &quot;-v&quot; is set)
+        if the return code equals to zero postfwd returns dunno. any
+        other result will create a reject. spawning external programs
+        can be very time expensive and open potential security holes -
+        use it with care.</pre>
+<p>
+</p>
+<h2><a name="command_line">COMMAND LINE</a></h2>
+<p><em>Ruleset</em></p>
+<p>The following arguments are used to specify the source of the postfwd ruleset. This means
+that at least one of the following is required for postfwd to work.</p>
+<pre>
+        -f, --file &lt;file&gt;
+        Reads rules from &lt;file&gt;. Please see the CONFIGURATION section
+        below for more information.</pre>
+<pre>
+        -r, --rule &lt;rule&gt;
+        Adds &lt;rule&gt; to ruleset. Remember that you might have to quote
+        strings that contain whitespaces or shell characters.</pre>
+<p><em>Scoring</em></p>
+<pre>
+        -s, --scores &lt;val&gt;=&lt;action&gt;
+        Returns &lt;action&gt; to postfix, when the request's score exceeds &lt;val&gt;</pre>
+<p>Multiple usage is allowed. Just chain your arguments, like:</p>
+<pre>
+        postfwd -r &quot;&lt;item&gt;=&lt;value&gt;;action=&lt;result&gt;&quot; -f &lt;file&gt; -f &lt;file&gt; ...
+          or
+        postfwd --scores 4.5=&quot;WARN high score&quot; --scores 5.0=&quot;REJECT postfwd score too high&quot; ...</pre>
+<p>In case of multiple scores, the highest match will count. The order of the arguments will be
+reflected in the postfwd ruleset.</p>
+<p><em>Networking</em></p>
+<p>postfwd can be run as daemon so that it listens on the network for incoming requests.
+The following arguments will control it's behaviour in this case.</p>
+<pre>
+        -d, --daemon
+        postfwd will run as daemon and listen on the network for incoming
+        queries (default 127.0.0.1:10040).</pre>
+<pre>
+        -i, --interface &lt;dev&gt;
+        Bind postfwd to the specified interface (default 127.0.0.1).</pre>
+<pre>
+        -p, --port &lt;port&gt;
+        postfwd listens on the specified port (default tcp/10040).</pre>
+<pre>
+        -u, --user &lt;name&gt;
+        Changes real and effective user to &lt;name&gt;.</pre>
+<pre>
+        -g, --group &lt;name&gt;
+        Changes real and effective group to &lt;name&gt;.</pre>
+<pre>
+        -R, --chroot &lt;path&gt;
+        Chroot the process to the specified path.
+        Test this before using - you might need some libs there.</pre>
+<p><em>Optional arguments</em></p>
+<p>These parameters influence the way postfwd is working. Any of them can be combined.</p>
+<pre>
+        -v, --verbose
+        Verbose logging displays a lot of useful information but can cause
+        your logfiles to grow noticeably. So use it with caution.</pre>
+<pre>
+        -c, --cache &lt;int&gt;
+        Timeout for request cache, results for identical requests will be
+        cached until config is reloaded or this time (in seconds) expired.
+        A setting of 0 disables this feature.</pre>
+<pre>
+        --cache-no-size
+        Ignores size attribute for cache comparisons which will lead to better
+        cache-hit rates. You should set this option, if you don't use the size
+        item in your ruleset.</pre>
+<pre>
+        --cache-rdomain-only 
+        This will strip the localpart of the recipient's address before filling the
+        cache. This may considerably increase cache-hit rates.
+        
+        -S, --summary &lt;int&gt;
+        Shows some usage statistics (program uptime, request counter, matching rules)
+        every &lt;int&gt; seconds (default: 300). This option is included by the -v switch.</pre>
+<pre>
+        -t, --test
+        In test mode postfwd always returns &quot;dunno&quot;, but logs according
+        to it`s ruleset. -v will be set automatically with this option.</pre>
+<pre>
+        -n, --nodns
+        Disables all DNS based checks like RBL checks. Rules containing
+        such elements will be ignored.</pre>
+<pre>
+        -I, --instantcfg
+        The config files, specified by -f will be re-read for every request
+        postfwd receives. This enables on-the-fly configuration changes
+        without restarting. Though files will be read only if necessary
+        (which means their access times changed since last read) this might
+        significantly increase system load.</pre>
+<p><em>Informational arguments</em></p>
+<p>These arguments are for command line usage only. Never ever use them with postfix spawn!</p>
+<pre>
+        -C, --showconfig
+        Displays the current ruleset. Use -v for verbose output.</pre>
+<pre>
+        -P, --perfmon
+        This option turns of any syslogging and output. It is included
+        for performance testing.</pre>
+<pre>
+        -V, --version
+        Displays the program version.</pre>
+<pre>
+        -h, --help
+        Shows program usage.</pre>
+<pre>
+        -m, --manual
+        Displays the program manual.</pre>
+<p>
+</p>
+<h2><a name="refresh">REFRESH</a></h2>
+<p>In daemon mode postfwd reloads it's ruleset after receiving a HUP signal. Please see the description of
+the '-I' switch to have your configuration refreshed for every request postfwd receives.</p>
+<p>
+</p>
+<h2><a name="examples">EXAMPLES</a></h2>
+<pre>
+        ## whitelisting
+        # 1. networks 192.168.1.0/24, 192.168.2.4
+        # 2. client_names *.gmx.net and *.gmx.de
+        # 3. sender *@someshop.com from 11.22.33.44
+        id=WL001; action=dunno ; client_address=192.168.1.0/24, 192.168.2.4
+        id=WL002; action=dunno ; client_name=\.gmx\.(net|de)$
+        id=WL003; action=dunno ; sender=@someshop\.com$ ; client_address=11.22.33.44</pre>
+<pre>
+        ## TLS control
+        # 1. *@authority.com only with correct TLS fingerprint
+        # 2. *@secret.com only with keysizes &gt;=64
+        id=TL001; action=dunno                          ; sender=@authority\.com$ ; ccert_fingerprint=AA:BB:CC..
+        id=TL002; action=REJECT wrong TLS fingerprint   ; sender=@authority\.com$
+        id=TL003; action=REJECT tls keylength &lt; 64      ; sender=@secret\.com$ ; encryption_keysize=64</pre>
+<pre>
+        ## Combined RBL checks
+        # This will reject mail if
+        # 1. listed on ix.dnsbl.manitu.net
+        # 2. listed on zen.spamhaus.org (sbl and xbl, dns cache timeout 1200s instead of 600s)
+        # 3. listed on min 2 of bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
+        # 4. listed on bl.spamcop.net and one of rhsbl.ahbl.org, rhsbl.sorbs.net
+        id=RBL01 ; action=REJECT listed on ix.dnsbl.manitu.net  ; rbl=ix.dnsbl.manitu.net
+        id=RBL02 ; action=REJECT listed on zen.spamhaus.org     ; rbl=zen.spamhaus.org/127.0.0.[2-8]/1200
+        id=RBL03 ; action=REJECT listed on too many RBLs        ; rblcount=2 ; rbl=bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
+        id=RBL04 ; action=REJECT combined RBL+RHSBL check       ; rbl=bl.spamcop.net ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net</pre>
+<pre>
+        ## Message size (requires message_size_limit to be set to 30000000)
+        # 1. 30MB for systems in *.customer1.local
+        # 2. 20MB for SASL user joejob
+        # 3. 10MB default
+        id=SZ001; action=REJECT message too large ; size=30000000 ; client_name=\.customer1.local$
+        id=SZ002; action=REJECT message too large ; size=20000000 ; sasl_username=^joejob$
+        id=SZ003; action=REJECT message too large ; size=10000000</pre>
+<pre>
+        ## Selective Greylisting
+        # 1. if listed on zen.spamhaus.org with results 127.0.0.10 or .11, dns cache timeout 1200s
+        # 2. Client has no rDNS
+        # 3. Client comes from several dialin domains
+        id=GR001; action=greylisting ; rbl=dul.dnsbl.sorbs.net, zen.spamhaus.org/127.0.0.1[01]/1200
+        id=GR002; action=greylisting ; client_name=^unknown$
+        id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$</pre>
+<pre>
+        ## Usage of jump
+        # The following allows a message size of 30MB for different
+        # users/clients while others will only have 10MB.
+        id=R001 ; action=jump(R100) ; sasl_username=^(Alice|Bob|Jane)$
+        id=R002 ; action=jump(R100) ; client_address=192.168.1.0/24
+        id=R003 ; action=jump(R100) ; ccert_fingerprint=AA:BB:CC:DD:...
+        id=R004 ; action=jump(R100) ; ccert_fingerprint=AF:BE:CD:DC:...
+        id=R005 ; action=jump(R100) ; ccert_fingerprint=DD:CC:BB:DD:...
+        id=R099 ; action=REJECT message too big (max. 10MB); size=10000000
+        id=R100 ; action=REJECT message too big (max. 30MB); size=30000000</pre>
+<pre>
+        ## Usage if score
+        # The following rejects a mail, if it client
+        # - is listed on 1 RBL and 1 RHSBL
+        # - is listed in 1 RBL or 1 RHSBL and has no correct rDNS
+        # - other clients without correct rDNS will be greylist-checked
+        # - some whitelists are used to lower the score
+        id=S01 ; score=2.6              ; action=greylisting
+        id=S02 ; score=5.0              ; action=REJECT postfwd score too high
+        id=R00 ; action=score(-1.0)     ; rbl=exemptions.ahbl.org,list.dnswl.org,query.bondedsender.org,spf.trusted-forwarder.org
+        id=R01 ; action=score(2.5)      ; rbl=bl.spamcop.net, list.dsbl.org, dnsbl.sorbs.net
+        id=R02 ; action=score(2.5)      ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
+        id=N01 ; action=score(2.7)      ; client_name=^unknown$
+        ...</pre>
+<p>
+</p>
+<h2><a name="integration">INTEGRATION</a></h2>
+<p><em>Integration via daemon mode</em></p>
+<p>The common way to use postfwd is to start it as daemon, listening at a specified tcp port.
+As postfwd will run in a single instance (multiplexing mode), it will take most benefit of
+it`s internal caching in that case. Start postfwd with the following parameters:</p>
+<pre>
+        postfwd -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10040 -u nobody -g nobody -S</pre>
+<p>Check your syslogs (default facility ``mail'') for a line like:</p>
+<pre>
+        Aug  9 23:00:24 mail postfwd[5158]: postfwd n.nn successfully bound to 127.0.0.1:10040/tcp</pre>
+<p>and use `netstat -an|grep 10040` to check for something like</p>
+<pre>
+        tcp  0  0  127.0.0.1:10040  0.0.0.0:*  LISTEN</pre>
+<p>If everything works, open your postfix main.cf and insert the following</p>
+<pre>
+        smtpd_recipient_restrictions    = permit_mynetworks,                            &lt;--- recommended
+                                          reject_unauth_destination,                    &lt;--- recommended
+                                          ...
+                                          check_policy_service inet:127.0.0.1:10040,    &lt;--- integration
+                                          ...
+        127.0.0.1:10040_time_limit      = 3600                                          &lt;--- integration</pre>
+<p>Reload your configuration with `postfix reload` and watch your logs. In it works you should see
+lines like the following in your mail log:</p>
+<pre>
+        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.org, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno</pre>
+<p>Of course you can also specify a restriction class and use it in your access tables. First create
+a file /etc/postfix/policy containing:</p>
+<pre>
+        domain1.local           postfwdcheck
+        domain2.local           postfwdcheck
+        ...</pre>
+<p>Then postmap that file (`postmap hash:/etc/postfix/policy`), open your main.cf and enter</p>
+<pre>
+        # Restriction Classes
+        smtpd_restriction_classes       = postfwdcheck, &lt;some more&gt;...                          &lt;--- integration
+        postfwdcheck                    = check_policy_service inet:127.0.0.1:10040             &lt;--- integration</pre>
+<pre>
+        127.0.0.1:10040_time_limit      = 3600                                                  &lt;--- integration
+        smtpd_recipient_restrictions    = permit_mynetworks,                                    &lt;--- recommended
+                                          reject_unauth_destination,                            &lt;--- recommended
+                                          ...                                                   &lt;--- optional
+                                          check_recipient_access hash:/etc/postfix/policy,      &lt;--- integration
+                                          ...                                                   &lt;--- optional</pre>
+<p>Reload postfix and watch your logs.</p>
+<p><em>Integration via xinetd</em></p>
+<p>There might be several reasons for you to use postfwd via a tcp wrapper package like xinetd (see <a href="http://www.xinetd.org/">http://www.xinetd.org/</a>).
+I won`t discuss that here. If you plan to do so, just add the following line to your /etc/services file:</p>
+<pre>
+        # postfwd port
+        postfwd     10040/tcp</pre>
+<p>Then create a file '/etc/xinetd.d/postfwd':</p>
+<pre>
+        {
+                interface       = 127.0.0.1
+                socket_type     = stream
+                protocol        = tcp
+                wait            = no
+                user            = nobody
+                server          = /usr/local/bin/postfwd
+                server_args     = -f /etc/postfwd.cf
+                disable         = no
+        }</pre>
+<p>and restart the xinetd daemon (usually a SIGHUP should be fine). If you experience problems
+you might want to check your system's log for xinetd errors like ``socket already in use''.</p>
+<p>The integration with postfix is similar to the <em>Integration via daemon mode</em> section above.
+Reload postfix and watch your logs to see if everything works.</p>
+<p>
+</p>
+<h2><a name="testing">TESTING</a></h2>
+<p>First you have to create a ruleset (see Configuration section). Check it with</p>
+<pre>
+        postfwd -f /etc/postfwd.cf -C</pre>
+<p>There is an example policy request distributed with postfwd, called 'request.small'.
+Simply change it to meet your requirements and use</p>
+<pre>
+        postfwd -f /etc/postfwd.cf &lt;request.small</pre>
+<p>You should get an answer like</p>
+<pre>
+        action=&lt;whateveryouconfigured&gt;</pre>
+<p>For network tests I use netcat:</p>
+<pre>
+        nc 127.0.0.1 10040 &lt;request.small</pre>
+<p>to send a request to postfwd. If you receive nothing, make sure that postfwd is running and
+listening on the specified network settings.</p>
+<p>
+</p>
+<h2><a name="intention">INTENTION</a></h2>
+<p>postfwd is written for all those admins who got confused by their complex
+postfix restrictions setup. Combining recipient restrictions with restriction classes
+can become very complex and hard to maintain. The tool was designed to have a
+ruleset similar to those of the most firewalls - so it might be useful for
+people maintaining bastion systems (mailrelays).</p>
+<p>
+</p>
+<h2><a name="see_also">SEE ALSO</a></h2>
+<p>See <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a> for a description
+of how Postfix policy servers work.</p>
+<p>
+</p>
+<hr />
+<h1><a name="license">LICENSE</a></h1>
+<p>This program is free software; you can redistribute and/or modify
+it in any way you want.</p>
+<p>This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.</p>
+<p>
+</p>
+<hr />
+<h1><a name="author">AUTHOR</a></h1>
+<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;<a&nbsp;href="mailto:postfwd@jpkessler.de">postfwd@jpkessler.de</a>&gt;. Let me know, if you have any suggestions.</p>
+
+</body>
+
+</html>
