@@ -21,12 +21,12 @@
 		<li><a href="#configuration">CONFIGURATION</a></li>
 		<li><a href="#items">ITEMS</a></li>
 		<li><a href="#actions">ACTIONS</a></li>
+		<li><a href="#macros_acls">MACROS/ACLS</a></li>
 		<li><a href="#command_line">COMMAND LINE</a></li>
 		<li><a href="#refresh">REFRESH</a></li>
 		<li><a href="#examples">EXAMPLES</a></li>
 		<li><a href="#integration">INTEGRATION</a></li>
 		<li><a href="#testing">TESTING</a></li>
-		<li><a href="#intention">INTENTION</a></li>
 		<li><a href="#see_also">SEE ALSO</a></li>
 	</ul>
 
@@ -59,7 +59,8 @@
         -p, --port &lt;port&gt;         listen on port &lt;port&gt;
         -u, --user &lt;name&gt;         set uid to user &lt;name&gt;
         -g, --group &lt;name&gt;        set gid to group &lt;name&gt;
-        -R, --chroot &lt;path&gt;       chroot the daemon to &lt;path&gt;</pre>
+        -R, --chroot &lt;path&gt;       chroot the daemon to &lt;path&gt;
+            --pidfile &lt;path&gt;      create pidfile under &lt;path&gt;</pre>
 <pre>
         optional:
         -v, --verbose             verbose logging
@@ -84,17 +85,20 @@
 <p>
 </p>
 <h2><a name="introduction">INTRODUCTION</a></h2>
-<p>postfwd uses the postfix policy delegation protocol to control access to the mail system
-before a message has been accepted (please visit <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a>
-for more information). It allows to choose an action (e.g. reject, dunno) for a combination of
-several smtp parameters (like sender and recipient address, size or the client's TLS fingerprint).</p>
-<p>Additionally you have the possibility to specify different actions for (multiple)
-RBL/RHSBL lookup(s). This allows you to do combined lookups and/or use selective greylisting
-based on it.</p>
-<p>Furthermore postfwd has a scoring system. First you define maximum scores and corresponding
-actions. Then you can specify scoring points for any rule you define. If the rule hits, the
-points will be added to the requests score. If it exceeds the maximum, the correspondig action will
-be returned to postfix.</p>
+<p>postfwd is written to combine complex postfix restrictions in a ruleset similar to those of the most firewalls.
+The program uses the postfix policy delegation protocol to control access to the mail system before a message
+has been accepted (please visit <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a> for more information).</p>
+<p>postfwd allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters
+(like sender and recipient address, size or the client's TLS fingerprint). Also it offers simple macros/acls
+which should allow straightforward and easy-to-read configurations.</p>
+<p><em>Features:</em></p>
+<p>* Complex combinations of smtp parameters</p>
+<p>* Macros/ACLs</p>
+<p>* Combined RBL/RHSBL lookups with arbitrary actions depending on results</p>
+<p>* Scoring system</p>
+<p>* Date/time based rules</p>
+<p>* Internal caching for requests and dns lookups</p>
+<p>* Built in statistics with rule efficiency analysis</p>
 <p>
 </p>
 <h2><a name="configuration">CONFIGURATION</a></h2>
@@ -124,6 +128,8 @@ arguments. Please see the COMMAND LINE section below for more information on thi
         id                      - a unique rule id, which can be used for log analysis
                                   ids also serve as targets for the &quot;jump&quot; command.</pre>
 <pre>
+        date, time              - a time or date range within the specified rule shall hit</pre>
+<pre>
         score                   - when the specified score is hit (see ACTIONS section)
                                   the specified action will be returned to postfix</pre>
 <pre>
@@ -141,6 +147,8 @@ for details:</p>
         # ITEM=VALUE                            TYPE
         # ==========================================================
         id=something                            mask = string
+        date=01.04.2007-22.04.2007              mask = date (DD.MM.YYYY-DD.MM.YYYY)
+        time=08:30-17:00                        mask = time (HH:MM:SS-HH:MM:SS)
         score=5.0                               mask = maximum floating point value
         rbl=zen.spamhaus.org                    mask = &lt;name&gt;/&lt;reply&gt;/&lt;maxcache&gt;[,...]
         rblcount=2                              mask = maximum integer value
@@ -221,6 +229,26 @@ rule containing only an action statement:</p>
         use it with care.</pre>
 <p>
 </p>
+<h2><a name="macros_acls">MACROS/ACLS</a></h2>
+<p>Multiple use of long items or combinations of them may be abbreviated by macros. Those must be prefixed by '&amp;&amp;' (two '&amp;' characters).
+First the macros have to be defined as follows:</p>
+<pre>
+        &amp;&amp;RBLS { rbl=zen.spamhaus.org,list.dsbl.org,bl.spamcop.net,dnsbl.sorbs.net,ix.dnsbl.manitu.net; };</pre>
+<p>Then these may be used in your rules, like:</p>
+<pre>
+        &amp;&amp;RBLS ;  client_name=^unknown$                         ; action=REJECT
+        &amp;&amp;RBLS ;  client_name=(\d+[\.-_]){4}                    ; action=REJECT
+        &amp;&amp;RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]   ; action=REJECT</pre>
+<p>Macros can contain actions, too:</p>
+<pre>
+        # definition
+        &amp;&amp;GONOW { action=REJECT your request caused our spam detection policy to reject this message. More info at <a href="http://www.domain.local">http://www.domain.local</a>; };
+        # rules
+        &amp;&amp;GONOW ;  &amp;&amp;RBLS ;  client_name=^unknown$
+        &amp;&amp;GONOW ;  &amp;&amp;RBLS ;  client_name=(\d+[\.-_]){4}
+        &amp;&amp;GONOW ;  &amp;&amp;RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]</pre>
+<p>
+</p>
 <h2><a name="command_line">COMMAND LINE</a></h2>
 <p><em>Ruleset</em></p>
 <p>The following arguments are used to specify the source of the postfwd ruleset. This means
@@ -267,6 +295,9 @@ The following arguments will control it's behaviour in this case.</p>
         -R, --chroot &lt;path&gt;
         Chroot the process to the specified path.
         Test this before using - you might need some libs there.</pre>
+<pre>
+        --pidfile &lt;path&gt;
+        The process id will be saved in the specified file.</pre>
 <p><em>Optional arguments</em></p>
 <p>These parameters influence the way postfwd is working. Any of them can be combined.</p>
 <pre>
@@ -290,7 +321,17 @@ The following arguments will control it's behaviour in this case.</p>
         
         -S, --summary &lt;int&gt;
         Shows some usage statistics (program uptime, request counter, matching rules)
-        every &lt;int&gt; seconds (default: 300). This option is included by the -v switch.</pre>
+        every &lt;int&gt; seconds (default: 600). This option is included by the -v switch.</pre>
+<pre>
+        Example:
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Counters: 213000 seconds uptime, 39 rules
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Requests: 71643 overall, 49 last interval, 62.88% cache hits
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Averages: 20.18 overall, 4.90 last interval, 557.30 top
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-001   matched: 2704 times
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-002   matched: 9351 times
+        Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
+        ...</pre>
 <pre>
         -t, --test
         In test mode postfwd always returns &quot;dunno&quot;, but logs according
@@ -375,6 +416,12 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=GR002; action=greylisting ; client_name=^unknown$
         id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$</pre>
 <pre>
+        ## Date Time
+        date=24.12.2007-26.12.2007   ; action=450 4.7.1 office closed during christmas
+        time=04:00-05:00             ; action=450 4.7.1 maintenance ongoing, try again later
+        time=07:00- ; sasl_user=jim  ; action=450 4.7.1 to early for you, jim
+        time=-22:00 ; sasl_user=jim  ; action=450 4.7.1 to late now, jim</pre>
+<pre>
         ## Usage of jump
         # The following allows a message size of 30MB for different
         # users/clients while others will only have 10MB.
@@ -386,8 +433,8 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=R099 ; action=REJECT message too big (max. 10MB); size=10000000
         id=R100 ; action=REJECT message too big (max. 30MB); size=30000000</pre>
 <pre>
-        ## Usage if score
-        # The following rejects a mail, if it client
+        ## Usage of score
+        # The following rejects a mail, if the client
         # - is listed on 1 RBL and 1 RHSBL
         # - is listed in 1 RBL or 1 RHSBL and has no correct rDNS
         # - other clients without correct rDNS will be greylist-checked
@@ -399,6 +446,15 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         id=R02 ; action=score(2.5)      ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
         id=N01 ; action=score(2.7)      ; client_name=^unknown$
         ...</pre>
+<pre>
+        ## Macros
+        # definition
+        &amp;&amp;RBLS { rbl=zen.spamhaus.org,list.dsbl.org,bl.spamcop.net,dnsbl.sorbs.net,ix.dnsbl.manitu.net; };
+        &amp;&amp;GONOW { action=REJECT your request caused our spam detection policy to reject this message. More info at <a href="http://www.domain.local">http://www.domain.local</a>; };
+        # rules
+        &amp;&amp;GONOW ;  &amp;&amp;RBLS ;  client_name=^unknown$
+        &amp;&amp;GONOW ;  &amp;&amp;RBLS ;  client_name=(\d+[\.-_]){4}
+        &amp;&amp;GONOW ;  &amp;&amp;RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]</pre>
 <p>
 </p>
 <h2><a name="integration">INTEGRATION</a></h2>
@@ -485,14 +541,6 @@ Simply change it to meet your requirements and use</p>
         nc 127.0.0.1 10040 &lt;request.small</pre>
 <p>to send a request to postfwd. If you receive nothing, make sure that postfwd is running and
 listening on the specified network settings.</p>
-<p>
-</p>
-<h2><a name="intention">INTENTION</a></h2>
-<p>postfwd is written for all those admins who got confused by their complex
-postfix restrictions setup. Combining recipient restrictions with restriction classes
-can become very complex and hard to maintain. The tool was designed to have a
-ruleset similar to those of the most firewalls - so it might be useful for
-people maintaining bastion systems (mailrelays).</p>
 <p>
 </p>
 <h2><a name="see_also">SEE ALSO</a></h2>

@@ -15,7 +15,7 @@ use strict;
 # Includes
 use Sys::Syslog qw(:DEFAULT setlogsock);
 use Getopt::Long 2.25 qw(:config no_ignore_case bundling);
-use POSIX qw(setsid setuid setgid setlocale LC_ALL);
+use POSIX qw(setsid setuid setgid setlocale strftime LC_ALL);
 use Pod::Usage;
 use Net::CIDR::Lite;
 use Net::Server::Multiplex;
@@ -26,7 +26,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '0.99n';
+our($VERSION)			= '0.99o';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -56,7 +56,7 @@ our(%MAX_SCORES)		= ( "5.0"	=> "554 5.7.1 ".$NAME." score exceeded" );
 
 # Status interval, displays stats when using `-S` switch
 # override with `-S <nn>` at command-line
-our($Stat_Interval_Time)	= 300;
+our($Stat_Interval_Time)	= 600;
 
 # Timeout for request cache,  results for identical requests will be
 # cached until config is reloaded or this time (in seconds) expired
@@ -84,6 +84,9 @@ our($COMP_RBL_KEY)		= "rbl";
 our($COMP_RBL_CNT)		= "rblcount";
 our($COMP_RHSBL_KEY)		= "rhsbl";
 our($COMP_RHSBL_CNT)		= "rhsblcount";
+# date checks
+our($COMP_DATE)			= "date";
+our($COMP_TIME)			= "time";
 # always true
 our($COMP_TRUE)			= "(id|action)";
 
@@ -103,15 +106,16 @@ our(@CommandArgs) 		= @ARGV;
 # (strict and tainted perl smells somehow like pascal ;)
 our(@Configs,@Rules)				= ();
 our(%Config_Cache, %RBL_Cache, %Request_Cache)	= ();
-our(%Matches, %attr, %opt_scores)		= ();
+our(%Matches, %attr, %opt_scores, %ACLs)	= ();
 our($Counter_Requests,$Counter_Hits,$Counter_Interval,$Counter_Top)	= 0;
-our($Starttime)		= 0;
+our($Starttime,$Startdate)		= 0;
 use vars qw(
 	$opt_daemon $opt_instantconfig $opt_nodns
 	$opt_summary $net_interface $net_port
 	$net_user $net_group $net_chroot $net_pid
 	$opt_perfmon $opt_test $opt_verbose
 	$opt_cache_domain_only $opt_cache_no_size
+	$opt_showconfig
 );
 
 
@@ -154,7 +158,7 @@ sub myprintf {
 	unless $opt_perfmon;
 }
 sub show_stats {
-    my($now) = time;
+    my($now)  = time;
     my($rblitems) = 0;
     my($totalreqpermin) = ( ((($now - $Starttime) > 0) ? ($Counter_Requests / ($now - $Starttime)) : 0 ) * 60);
     my($lastreqpermin)  = ( (($Stat_Interval_Time > 0) ? ($Counter_Interval / $Stat_Interval_Time) : 0 ) * 60);
@@ -162,11 +166,11 @@ sub show_stats {
     $Counter_Top = $lastreqpermin if ($lastreqpermin > $Counter_Top);
     map ($rblitems += scalar keys %{$RBL_Cache{$_}}, (keys %RBL_Cache));
 
-    mylog "notice", "[STATS] Counters: %d seconds uptime, %d rules",
-	($now - $Starttime), $#Rules;
+    mylog "notice", "[STATS] Counters: %d seconds uptime since %s",
+	($now - $Starttime), $Startdate;
 
-    mylog "notice", "[STATS] Contents: %d cached requests, %d cached dnsbl results",
-	scalar keys %Request_Cache, $rblitems;
+    mylog "notice", "[STATS] Contents: %d rules, %d cached requests, %d cached dnsbl results",
+	$#Rules, scalar keys %Request_Cache, $rblitems;
 
     mylog "notice", "[STATS] Requests: %d overall, %d last interval, %.2f%% cache hits",
 	$Counter_Requests, $Counter_Interval, ($Counter_Requests > 0) ? (($Counter_Hits / $Counter_Requests) * 100) : 0;
@@ -230,40 +234,47 @@ sub modify_score {
 #
 # process configuration
 #
+sub acl_parser {
+    my($myline) = @_;
+    if ( $myline =~ /^\s*(\&\&[\-\w]+)\s*{\s*([^}]+)\s*;\s*}[\s;]*$/ ) {
+	$ACLs{$1} = $2; $myline = "";
+    } else {
+	while ( $myline =~ /(\&\&[\-\w]+)/) {
+		my($acl)  = $1; $myline =~ s/\s*$acl\s*/$ACLs{$acl}/g if exists($ACLs{$acl});
+	};
+    };
+    return $myline;
+}
 sub parse_config_line {
     my($mynum, $myindex, $myline) = @_;
     my(%myrule) = ();
     my($mykey, $myvalue);
 
-    unless ( $myline =~ /^\s*[^=\s]+\s*=\s*([^;\s]+\s*)+(;\s*[^=\s]+\s*=\s*([^;\s]+\s*)+)*[;\s]*$/ ) {
-	warn "warning: ignoring invalid line ".$mynum.": \"".$myline."\"";
-    } else {
-	# separate items
-	foreach (split /;/, $myline) {
-		# remove whitespaces around
-		s/^\s*(.*?)\s*=\s*(.*?)\s*$/$1=$2/;
-		($mykey, $myvalue) = split /=/;
-		if ($mykey =~ /^($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)$/) {
-			@{$myrule{$mykey}} = split /[,\s]+/, $myvalue;
-		} else {
-			$myrule{$mykey} = $myvalue;
+    if ( $myline = acl_parser ($myline) ) {
+	unless ( $myline =~ /^\s*[^=\s]+\s*=\s*([^;\s]+\s*)+(;\s*[^=\s]+\s*=\s*([^;\s]+\s*)+)*[;\s]*$/ ) {
+		warn "warning: ignoring invalid line ".$mynum.": \"".$myline."\"";
+	    } else {
+		# separate items
+		foreach (split /;/, $myline) {
+			# remove whitespaces around
+			s/^\s*(.*?)\s*=\s*(.*?)\s*$/$1=$2/;
+			($mykey, $myvalue) = split /=/;
+			if ($mykey =~ /^($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY)$/) {
+				@{$myrule{$mykey}} = split /[,\s]+/, $myvalue;
+			} else {
+				$myrule{$mykey} = $myvalue;
+			};
 		};
-	};
-	unless (exists($myrule{"action"})) {
-		$myrule{"action"} = "WARN rule found but no action was defined";
-		mylogs "notice", "warning: Rule ".$myindex." (line ".$mynum."): contains no action - default will be used";
-	};
-	unless (exists($myrule{"id"})) {
-		$myrule{"id"} = "R-".$myindex;
-		mylogs "notice", "notice: Rule $myindex (line $mynum): contains no rule identifier - will use \"$myrule{id}\"" if $opt_verbose;
-	};
-	# disabled here, done in compare_rule to add flexibility
-	#if (exists($myrule{"score"})) {
-	#	modify_score ($myrule{"score"}, $myrule{"action"});
-	#	undef(%myrule);
-	#} else {
+		unless (exists($myrule{"action"})) {
+			$myrule{"action"} = "WARN rule found but no action was defined";
+			mylogs "notice", "warning: Rule ".$myindex." (line ".$mynum."): contains no action - default will be used";
+		};
+		unless (exists($myrule{"id"})) {
+			$myrule{"id"} = "R-".$myindex;
+			mylogs "notice", "notice: Rule $myindex (line $mynum): contains no rule identifier - will use \"$myrule{id}\"" if $opt_verbose;
+		};
 		mylogs $syslog_priority, "loaded: Rule $myindex (line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"" if $opt_verbose;
-	#};
+	};
     };
     return %myrule;
 }
@@ -418,6 +429,7 @@ sub get_rule_by_id {
 }
 #
 # compare item
+# use: compare_item ( TYPE, RULEITEM, MIN, REQUESTITEM );
 #
 sub compare_item {
     my($mykey,$mymask,$mymin,$myitem) 	= @_;
@@ -452,6 +464,21 @@ sub compare_item {
 		last RBLS if $myresult;
 	};
     #
+    # date/time check
+    } elsif ( ($mykey eq $COMP_DATE) or ($mykey eq $COMP_TIME) ) {
+	my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
+	my($rmin,$rmax) = split ('-', $mymask); my($idat);
+	if ( $mykey eq $COMP_DATE ) {
+		$idat = ($iyear + 1900) . ((($imon+1) < 10) ? '0'.($imon+1) : ($imon+1)) . (($iday < 10) ? '0'.$iday : $iday);
+		$rmin = ($rmin) ? join ('', reverse split ('\.', $rmin)) : $idat;
+		$rmax = ($rmax) ? join ('', reverse split ('\.', $rmax)) : $idat;
+	} else {
+		$idat = (($ihour < 10) ? '0'.$ihour : $ihour) . (($imin < 10) ? '0'.$imin : $imin) . (($isec < 10) ? '0'.$isec : $isec);
+		$rmin = ($rmin) ? join ('', split ('\:', $rmin)) : $idat;
+		$rmax = ($rmax) ? join ('', split ('\:', $rmax)) : $idat;
+	};
+	$myresult = (($rmin <= $idat) and ($rmax >= $idat));
+    #
     # default: regexp compare
     } else {
 	$myresult = ( $myitem =~ /$mymask/i ) if $myitem;
@@ -463,7 +490,7 @@ sub compare_item {
 # compare request against a single rule
 #
 sub compare_rule {
-    (my($index), my(%request)) = @_;
+    (my($index), my($date), my(%request)) = @_;
     my($mykey,$myresult);
 
     ITEM: for $mykey ( keys %{$Rules[$index]} ) {
@@ -478,6 +505,8 @@ sub compare_rule {
 	} elsif ($mykey eq $COMP_RHSBL_KEY) {
 		$Rules[$index]{$COMP_RHSBL_CNT} = 1 unless $Rules[$index]{$COMP_RHSBL_CNT};
 		$myresult = (compare_item($mykey,$Rules[$index]{$mykey},$Rules[$index]{$COMP_RHSBL_CNT},$request{"client_name"}."[".$request{"client_address"}."]"));
+	} elsif ( ($mykey eq $COMP_DATE) or ($mykey eq $COMP_TIME) ) {
+		$myresult = (compare_item($mykey,$Rules[$index]{$mykey},0,$date));
 	} else {
 		$myresult = (compare_item($mykey,$Rules[$index]{$mykey},0,$request{$mykey}));
 	};
@@ -497,6 +526,7 @@ sub smtpd_access_policy {
     my($myaction)	= $default_action;
     my($index)		= 1;
     my($now)		= time;
+    my($date)		= join(',', localtime($now));
     my($mykey,$cacheid,$myline,$matched,$checkreq) = "";
 
     # Request cache enabled?
@@ -546,6 +576,8 @@ sub smtpd_access_policy {
     } else {
 
 	my($score) = 0;
+
+	# load config if '-I' was set
 	read_config if $opt_instantconfig;
 
 	if ($#Rules < 0) {
@@ -555,9 +587,11 @@ sub smtpd_access_policy {
 
 		RULE: for ($index=0;$index<=$#Rules;$index++) {
 
+			# compare request against rule
 			next unless exists $Rules[$index];
-			$matched = compare_rule ($index, %myattr);
+			$matched = compare_rule ($index, $date, %myattr);
 
+			# matched? prepare logline, increase counters
 			if ($matched) {
 				$myaction = $Rules[$index]{"action"};
 				$Matches{$Rules[$index]{"id"}}++;
@@ -570,6 +604,7 @@ sub smtpd_access_policy {
 					. ", proto=".$myattr{"protocol_name"}
 					. ", state=".$myattr{"protocol_state"};
 
+				# check for postfwd action
 				if ($myaction =~ /^([a-zA-Z]{4,5})\(([^\)]+)\)$/) {
 					my($mycmd,$myarg) = ($1, $2);
 	
@@ -684,6 +719,7 @@ GetOptions (	't|test'		=> \$opt_test,
 		'i|interface=s'		=> \$net_interface,
 		'p|port=s'		=> \$net_port,
 		'R|chroot=s'		=> \$net_chroot,
+		'pid|pidfile=s'		=> \$net_pid,
 		'u|user=s'		=> \$net_user,
 		'g|group=s'		=> \$net_group,
 		'c|cache=i'		=> \$REQUEST_MAX_CACHE,
@@ -694,7 +730,7 @@ GetOptions (	't|test'		=> \$opt_test,
 		'f|file=s'		=> sub{ my($opt,$value) = @_; push (@Configs, $opt.','.$value) },
 		'r|rule=s'		=> sub{ my($opt,$value) = @_; push (@Configs, $opt.','.$value) },
 		'V|version'		=> sub{ print "$NAME $VERSION\n"; exit 1; },
-		'C|showconfig'		=> sub{ read_config; show_config; exit 1; },
+		'C|showconfig'		=> \$opt_showconfig,
 		'h|H|?|help|Help|HELP'	=> sub{ pod2usage (-msg => "\nPlease see \"".$NAME." -m\" for detailed instructions.\n", -verbose => 1); },
 		'm|M|manual'		=> sub{ # contructing command string (de-tainting $0)
 						$cmd_manual .= ($0 =~ /^([-\@\/\w. ]+)$/) ? " \"".$1 : " \"".$NAME;
@@ -709,6 +745,10 @@ openlog $syslog_name, $syslog_options, $syslog_facility;
 
 # read configuration
 read_config;
+if ($opt_showconfig) {
+	show_config;
+	exit 1;
+};
 
 # check modes
 mylogs "notice", "TESTMODE: set - will return ".$default_action." to all requests" if ($opt_test);
@@ -726,6 +766,7 @@ map ( modify_score (each %opt_scores), (keys %opt_scores) );
 # get summary interval time, set next display time
 $Stat_Interval_Time	 = $opt_summary if $opt_summary;
 $Starttime 		 = time;
+$Startdate 		 = strftime("%a, %d %b %Y %T %Z", localtime);
 
 # de-taint arguments
 $net_interface	= ( $net_interface	=~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/ )	? $1 : $def_net_interface;
@@ -866,6 +907,7 @@ postfwd [OPTIONS] SOURCE1, SOURCE2, ...
 	-u, --user <name>         set uid to user <name>
 	-g, --group <name>        set gid to group <name>
 	-R, --chroot <path>       chroot the daemon to <path>
+	    --pidfile <path>      create pidfile under <path>
 
 	optional:
 	-v, --verbose             verbose logging
@@ -884,23 +926,36 @@ postfwd [OPTIONS] SOURCE1, SOURCE2, ...
 	-h, --help                shows usage
 	-m, --manual              shows program manual
 
+
 =head1 DESCRIPTION
+
 
 =head2 INTRODUCTION
 
-postfwd uses the postfix policy delegation protocol to control access to the mail system
-before a message has been accepted (please visit L<http://www.postfix.org/SMTPD_POLICY_README.html>
-for more information). It allows to choose an action (e.g. reject, dunno) for a combination of
-several smtp parameters (like sender and recipient address, size or the client's TLS fingerprint).
+postfwd is written to combine complex postfix restrictions in a ruleset similar to those of the most firewalls.
+The program uses the postfix policy delegation protocol to control access to the mail system before a message
+has been accepted (please visit L<http://www.postfix.org/SMTPD_POLICY_README.html> for more information). 
 
-Additionally you have the possibility to specify different actions for (multiple)
-RBL/RHSBL lookup(s). This allows you to do combined lookups and/or use selective greylisting
-based on it.
+postfwd allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters
+(like sender and recipient address, size or the client's TLS fingerprint). Also it offers simple macros/acls
+which should allow straightforward and easy-to-read configurations.
 
-Furthermore postfwd has a scoring system. First you define maximum scores and corresponding
-actions. Then you can specify scoring points for any rule you define. If the rule hits, the
-points will be added to the requests score. If it exceeds the maximum, the correspondig action will
-be returned to postfix.
+I<Features:>
+
+* Complex combinations of smtp parameters
+
+* Macros/ACLs
+
+* Combined RBL/RHSBL lookups with arbitrary actions depending on results
+
+* Scoring system
+
+* Date/time based rules
+
+* Internal caching for requests and dns lookups
+
+* Built in statistics with rule efficiency analysis
+
 
 =head2 CONFIGURATION
 
@@ -929,10 +984,13 @@ appreciate.
 A ruleset consists of one or multiple rules, which can be loaded from files or passed as command line
 arguments. Please see the COMMAND LINE section below for more information on this topic.
 
+
 =head2 ITEMS
 
 	id			- a unique rule id, which can be used for log analysis
 				  ids also serve as targets for the "jump" command.
+
+	date, time		- a time or date range within the specified rule shall hit
 
 	score			- when the specified score is hit (see ACTIONS section)
 				  the specified action will be returned to postfix
@@ -953,6 +1011,8 @@ for details:
 	# ITEM=VALUE				TYPE
 	# ==========================================================
 	id=something				mask = string
+	date=01.04.2007-22.04.2007		mask = date (DD.MM.YYYY-DD.MM.YYYY)
+	time=08:30-17:00			mask = time (HH:MM:SS-HH:MM:SS)
 	score=5.0				mask = maximum floating point value
 	rbl=zen.spamhaus.org			mask = <name>/<reply>/<maxcache>[,...]
 	rblcount=2				mask = maximum integer value
@@ -985,6 +1045,7 @@ for details:
 	...
 
 the current list can be found at L<http://www.postfix.org/SMTPD_POLICY_README.html>. Pattern matching is performed case insensitive.
+
 
 =head2 ACTIONS
 
@@ -1036,6 +1097,30 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	other result will create a reject. spawning external programs
 	can be very time expensive and open potential security holes -
 	use it with care.
+
+
+=head2 MACROS/ACLS
+
+Multiple use of long items or combinations of them may be abbreviated by macros. Those must be prefixed by '&&' (two '&' characters).
+First the macros have to be defined as follows:
+
+	&&RBLS { rbl=zen.spamhaus.org,list.dsbl.org,bl.spamcop.net,dnsbl.sorbs.net,ix.dnsbl.manitu.net; };
+
+Then these may be used in your rules, like:
+
+	&&RBLS ;  client_name=^unknown$				; action=REJECT
+	&&RBLS ;  client_name=(\d+[\.-_]){4}			; action=REJECT
+	&&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]	; action=REJECT
+
+Macros can contain actions, too:
+
+	# definition
+	&&GONOW { action=REJECT your request caused our spam detection policy to reject this message. More info at http://www.domain.local; };
+	# rules
+	&&GONOW ;  &&RBLS ;  client_name=^unknown$
+	&&GONOW ;  &&RBLS ;  client_name=(\d+[\.-_]){4}
+	&&GONOW ;  &&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
+
 
 =head2 COMMAND LINE
 
@@ -1091,6 +1176,9 @@ The following arguments will control it's behaviour in this case.
 	Chroot the process to the specified path.
 	Test this before using - you might need some libs there.
 
+	--pidfile <path>
+	The process id will be saved in the specified file.
+
 I<Optional arguments>
 
 These parameters influence the way postfwd is working. Any of them can be combined.
@@ -1115,7 +1203,17 @@ These parameters influence the way postfwd is working. Any of them can be combin
 	
 	-S, --summary <int>
 	Shows some usage statistics (program uptime, request counter, matching rules)
-	every <int> seconds (default: 300). This option is included by the -v switch.
+	every <int> seconds (default: 600). This option is included by the -v switch.
+
+	Example:
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Counters: 213000 seconds uptime, 39 rules
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Requests: 71643 overall, 49 last interval, 62.88% cache hits
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Averages: 20.18 overall, 4.90 last interval, 557.30 top
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-001   matched: 2704 times
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-002   matched: 9351 times
+	Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
+	...
 
 	-t, --test
 	In test mode postfwd always returns "dunno", but logs according
@@ -1152,10 +1250,12 @@ These arguments are for command line usage only. Never ever use them with postfi
 	-m, --manual
 	Displays the program manual.
 
+
 =head2 REFRESH
 
 In daemon mode postfwd reloads it's ruleset after receiving a HUP signal. Please see the description of
 the '-I' switch to have your configuration refreshed for every request postfwd receives.
+
 
 =head2 EXAMPLES
 
@@ -1201,6 +1301,12 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=GR002; action=greylisting ; client_name=^unknown$
 	id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$
 
+	## Date Time
+	date=24.12.2007-26.12.2007   ; action=450 4.7.1 office closed during christmas
+	time=04:00-05:00             ; action=450 4.7.1 maintenance ongoing, try again later
+	time=07:00- ; sasl_user=jim  ; action=450 4.7.1 to early for you, jim
+	time=-22:00 ; sasl_user=jim  ; action=450 4.7.1 to late now, jim
+
 	## Usage of jump
 	# The following allows a message size of 30MB for different
 	# users/clients while others will only have 10MB.
@@ -1212,8 +1318,8 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=R099 ; action=REJECT message too big (max. 10MB); size=10000000
 	id=R100 ; action=REJECT message too big (max. 30MB); size=30000000
 
-	## Usage if score
-	# The following rejects a mail, if it client
+	## Usage of score
+	# The following rejects a mail, if the client
 	# - is listed on 1 RBL and 1 RHSBL
 	# - is listed in 1 RBL or 1 RHSBL and has no correct rDNS
 	# - other clients without correct rDNS will be greylist-checked
@@ -1225,6 +1331,16 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
 	id=R02 ; action=score(2.5) 	; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
 	id=N01 ; action=score(2.7) 	; client_name=^unknown$
 	...
+
+	## Macros
+        # definition
+        &&RBLS { rbl=zen.spamhaus.org,list.dsbl.org,bl.spamcop.net,dnsbl.sorbs.net,ix.dnsbl.manitu.net; };
+        &&GONOW { action=REJECT your request caused our spam detection policy to reject this message. More info at http://www.domain.local; };
+        # rules
+        &&GONOW ;  &&RBLS ;  client_name=^unknown$
+        &&GONOW ;  &&RBLS ;  client_name=(\d+[\.-_]){4}
+        &&GONOW ;  &&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
+
 
 =head2 INTEGRATION
 
@@ -1307,6 +1423,7 @@ you might want to check your system's log for xinetd errors like "socket already
 The integration with postfix is similar to the I<Integration via daemon mode> section above.
 Reload postfix and watch your logs to see if everything works.
 
+
 =head2 TESTING
 
 First you have to create a ruleset (see Configuration section). Check it with
@@ -1329,18 +1446,12 @@ For network tests I use netcat:
 to send a request to postfwd. If you receive nothing, make sure that postfwd is running and
 listening on the specified network settings.
 
-=head2 INTENTION
-
-postfwd is written for all those admins who got confused by their complex
-postfix restrictions setup. Combining recipient restrictions with restriction classes
-can become very complex and hard to maintain. The tool was designed to have a
-ruleset similar to those of the most firewalls - so it might be useful for
-people maintaining bastion systems (mailrelays).
 
 =head2 SEE ALSO
 
 See L<http://www.postfix.org/SMTPD_POLICY_README.html> for a description
 of how Postfix policy servers work.
+
 
 =head1 LICENSE
 
@@ -1350,6 +1461,7 @@ it in any way you want.
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 
 =head1 AUTHOR
 

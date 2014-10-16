@@ -1,0 +1,73 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<title>postfwd - postfix firewall daemon</title>
+<link rel="stylesheet" type="text/css" href="http://www.jpkessler.de/css/postfwd.css">
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<meta name="description" content="postfwd a postfix firewall policy daemon">
+<meta name="author" content="jpk">
+<meta name="keywords" content="postfwd, postfwd usage, postfwd manual, postfix, policy, policy delegation, firewall, postfix acl, postfix acls, pfwpolicy, postfw, restrictions, IT-Security, IT-Consulting, Jan, Peter, Kessler">
+</head>
+
+<body>
+	<h1>postfwd page</h1>
+
+	<p><u>News</u><br>
+	New postfwd version 0.99o featuring macros/acls and date/time based rules is out!</p>
+
+	<p><u>Description</u><br>
+	postfwd is written in <a href="http://www.perl.org/">PERL</a> to combine complex <a href="http://www.postfix.org/">postfix</a> restrictions in a ruleset
+	similar to those of the most firewalls. The program uses the postfix policy delegation protocol to control access to the mail system before a message has been
+	accepted (please visit <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a> for more information).
+	It allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters
+	(like sender and recipient address, size or the client's TLS fingerprint). The main intention is the application at multi-customer bastion systems but
+	feel free to use it wherever you find it useful.</p>
+
+	<u>Features</u>
+	<ul>
+	<li>Complex combinations of smtp parameters in a single rule
+	<li>Macros/ACLs for frequently used statements
+	<li>Combined RBL/RHSBL lookups with arbitrary actions depending on the results<br>
+	    (e.g. enables dns whitelists of selective greylisting based on it)
+	<li>Scoring system for fine granular access control
+	<li>Date/time based rules
+	<li>Conditional jumps to certain rules (like iptables -j)
+	<li>Internal caching for requests and dns lookups
+	<li>Runs as network daemon (no need to spawn processes)
+	<li>Built in statistics for rule efficiency analysis
+	</ul>
+
+	<u>Get it</u>
+	<ul>
+		<li><a href="postfwd.html">Documentation</a>
+		<li><a href="postfwd-0.99o.tar.gz">Download postfwd-0.99o.tar.gz [32KB]</a>
+		<li><a href="postfwd-0.99n.tar.gz">Download postfwd-0.99n.tar.gz [29KB]</a>
+	</ul>
+
+	<u>Required PERL modules</u>
+	<ul>
+		<li>Net::Server::Multiplex
+		<li>Net::CIDR::Lite
+	</ul>
+
+	<p>
+	To install them you may either run:
+	<pre>
+	perl -MCPAN -e shell
+	install &lt;Module&gt;
+	</pre>
+	or get them from <a href="http://search.cpan.org">CPAN archive</a> and run:
+	<pre>
+	perl Makefile.pl
+	make
+	make test
+	make install
+	</pre>
+	</p>
+
+	<p>
+	IMPORTANT NOTICE: This software is still under development and therefore it has BETA status. Although it has been tested extensively, I won't give any warranties. Use it at your own risk. Please report problems to <a href="mailto:postfwd@jpkessler.de">postfwd@jpkessler.de</a>.
+	</p>
+
+</body>
+

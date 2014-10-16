@@ -18,6 +18,7 @@ SYNOPSIS
             -u, --user <name>         set uid to user <name>
             -g, --group <name>        set gid to group <name>
             -R, --chroot <path>       chroot the daemon to <path>
+                --pidfile <path>      create pidfile under <path>
 
             optional:
             -v, --verbose             verbose logging
@@ -38,22 +39,33 @@ SYNOPSIS
 
 DESCRIPTION
   INTRODUCTION
-    postfwd uses the postfix policy delegation protocol to control access to
-    the mail system before a message has been accepted (please visit
+    postfwd is written to combine complex postfix restrictions in a ruleset
+    similar to those of the most firewalls. The program uses the postfix
+    policy delegation protocol to control access to the mail system before a
+    message has been accepted (please visit
     <http://www.postfix.org/SMTPD_POLICY_README.html> for more information).
-    It allows to choose an action (e.g. reject, dunno) for a combination of
-    several smtp parameters (like sender and recipient address, size or the
-    client's TLS fingerprint).
 
-    Additionally you have the possibility to specify different actions for
-    (multiple) RBL/RHSBL lookup(s). This allows you to do combined lookups
-    and/or use selective greylisting based on it.
+    postfwd allows you to choose an action (e.g. reject, dunno) for a
+    combination of several smtp parameters (like sender and recipient
+    address, size or the client's TLS fingerprint). Also it offers simple
+    macros/acls which should allow straightforward and easy-to-read
+    configurations.
 
-    Furthermore postfwd has a scoring system. First you define maximum
-    scores and corresponding actions. Then you can specify scoring points
-    for any rule you define. If the rule hits, the points will be added to
-    the requests score. If it exceeds the maximum, the correspondig action
-    will be returned to postfix.
+    *Features:*
+
+    * Complex combinations of smtp parameters
+
+    * Macros/ACLs
+
+    * Combined RBL/RHSBL lookups with arbitrary actions depending on results
+
+    * Scoring system
+
+    * Date/time based rules
+
+    * Internal caching for requests and dns lookups
+
+    * Built in statistics with rule efficiency analysis
 
   CONFIGURATION
     A configuration line consists of optional item=value pairs, separated by
@@ -89,6 +101,8 @@ DESCRIPTION
             id                      - a unique rule id, which can be used for log analysis
                                       ids also serve as targets for the "jump" command.
 
+            date, time              - a time or date range within the specified rule shall hit
+
             score                   - when the specified score is hit (see ACTIONS section)
                                       the specified action will be returned to postfix
 
@@ -109,6 +123,8 @@ DESCRIPTION
             # ITEM=VALUE                            TYPE
             # ==========================================================
             id=something                            mask = string
+            date=01.04.2007-22.04.2007              mask = date (DD.MM.YYYY-DD.MM.YYYY)
+            time=08:30-17:00                        mask = time (HH:MM:SS-HH:MM:SS)
             score=5.0                               mask = maximum floating point value
             rbl=zen.spamhaus.org                    mask = <name>/<reply>/<maxcache>[,...]
             rblcount=2                              mask = maximum integer value
@@ -198,6 +214,28 @@ DESCRIPTION
             can be very time expensive and open potential security holes -
             use it with care.
 
+  MACROS/ACLS
+    Multiple use of long items or combinations of them may be abbreviated by
+    macros. Those must be prefixed by '&&' (two '&' characters). First the
+    macros have to be defined as follows:
+
+            &&RBLS { rbl=zen.spamhaus.org,list.dsbl.org,bl.spamcop.net,dnsbl.sorbs.net,ix.dnsbl.manitu.net; };
+
+    Then these may be used in your rules, like:
+
+            &&RBLS ;  client_name=^unknown$                         ; action=REJECT
+            &&RBLS ;  client_name=(\d+[\.-_]){4}                    ; action=REJECT
+            &&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]   ; action=REJECT
+
+    Macros can contain actions, too:
+
+            # definition
+            &&GONOW { action=REJECT your request caused our spam detection policy to reject this message. More info at http://www.domain.local; };
+            # rules
+            &&GONOW ;  &&RBLS ;  client_name=^unknown$
+            &&GONOW ;  &&RBLS ;  client_name=(\d+[\.-_]){4}
+            &&GONOW ;  &&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
+
   COMMAND LINE
     *Ruleset*
 
@@ -253,6 +291,9 @@ DESCRIPTION
             Chroot the process to the specified path.
             Test this before using - you might need some libs there.
 
+            --pidfile <path>
+            The process id will be saved in the specified file.
+
     *Optional arguments*
 
     These parameters influence the way postfwd is working. Any of them can
@@ -278,7 +319,17 @@ DESCRIPTION
         
             -S, --summary <int>
             Shows some usage statistics (program uptime, request counter, matching rules)
-            every <int> seconds (default: 300). This option is included by the -v switch.
+            every <int> seconds (default: 600). This option is included by the -v switch.
+
+            Example:
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Counters: 213000 seconds uptime, 39 rules
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Contents: 44 cached requests, 239 cached dnsbl results
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Requests: 71643 overall, 49 last interval, 62.88% cache hits
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Averages: 20.18 overall, 4.90 last interval, 557.30 top
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-001   matched: 2704 times
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-002   matched: 9351 times
+            Aug 19 12:39:45 mail1 postfwd[666]: [STATS] Rule ID: R-003   matched: 3116 times
+            ...
 
             -t, --test
             In test mode postfwd always returns "dunno", but logs according
@@ -364,6 +415,12 @@ DESCRIPTION
             id=GR002; action=greylisting ; client_name=^unknown$
             id=GR003; action=greylisting ; client_name=\.(t-ipconnect|alicedsl|ish)\.de$
 
+            ## Date Time
+            date=24.12.2007-26.12.2007   ; action=450 4.7.1 office closed during christmas
+            time=04:00-05:00             ; action=450 4.7.1 maintenance ongoing, try again later
+            time=07:00- ; sasl_user=jim  ; action=450 4.7.1 to early for you, jim
+            time=-22:00 ; sasl_user=jim  ; action=450 4.7.1 to late now, jim
+
             ## Usage of jump
             # The following allows a message size of 30MB for different
             # users/clients while others will only have 10MB.
@@ -375,8 +432,8 @@ DESCRIPTION
             id=R099 ; action=REJECT message too big (max. 10MB); size=10000000
             id=R100 ; action=REJECT message too big (max. 30MB); size=30000000
 
-            ## Usage if score
-            # The following rejects a mail, if it client
+            ## Usage of score
+            # The following rejects a mail, if the client
             # - is listed on 1 RBL and 1 RHSBL
             # - is listed in 1 RBL or 1 RHSBL and has no correct rDNS
             # - other clients without correct rDNS will be greylist-checked
@@ -388,6 +445,15 @@ DESCRIPTION
             id=R02 ; action=score(2.5)      ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
             id=N01 ; action=score(2.7)      ; client_name=^unknown$
             ...
+
+            ## Macros
+            # definition
+            &&RBLS { rbl=zen.spamhaus.org,list.dsbl.org,bl.spamcop.net,dnsbl.sorbs.net,ix.dnsbl.manitu.net; };
+            &&GONOW { action=REJECT your request caused our spam detection policy to reject this message. More info at http://www.domain.local; };
+            # rules
+            &&GONOW ;  &&RBLS ;  client_name=^unknown$
+            &&GONOW ;  &&RBLS ;  client_name=(\d+[\.-_]){4}
+            &&GONOW ;  &&RBLS ;  client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
 
   INTEGRATION
     *Integration via daemon mode*
@@ -496,14 +562,6 @@ DESCRIPTION
 
     to send a request to postfwd. If you receive nothing, make sure that
     postfwd is running and listening on the specified network settings.
-
-  INTENTION
-    postfwd is written for all those admins who got confused by their
-    complex postfix restrictions setup. Combining recipient restrictions
-    with restriction classes can become very complex and hard to maintain.
-    The tool was designed to have a ruleset similar to those of the most
-    firewalls - so it might be useful for people maintaining bastion systems
-    (mailrelays).
 
   SEE ALSO
     See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description
