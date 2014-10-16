@@ -1,15 +1,11 @@
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
-<html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <title>postfwd - postfix firewall daemon</title>
-<link rel="stylesheet" type="text/css" href="http://www.jpkessler.de/css/postfwd.css">
-<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
-<meta name="description" content="postfwd a postfix firewall policy daemon">
-<meta name="author" content="jpk">
-<meta name="keywords" content="postfwd, postfwd usage, postfwd manual, postfix, policy, policy delegation, firewall, postfix acl, postfix acls, pfwpolicy, postfw, restrictions, IT-Security, IT-Consulting, Jan, Peter, Kessler">
+<link rev="made" href="mailto:root@localhost" />
 </head>
 
-<body>
+<body style="background-color: white">
 
 <p><a name="__index__"></a></p>
 <!-- INDEX BEGIN -->
@@ -87,7 +83,9 @@
         -t, --test                  testing, always returns &quot;dunno&quot;
         -v, --verbose               verbose logging, use twice (-vv) to increase level
         -S, --summary &lt;int&gt;         show some usage statistics every &lt;int&gt; seconds
-            --no-rulestats          disables per rule statistics
+            --norulelog             disbles rule logging
+            --norulestats           disables per rule statistics
+            --noidlestats           disables statistics when idle
         -n, --nodns                 disable dns
             --nodnslog              disable dns logging
             --dns_timeout           timeout in seconds for asynchonous dns queries
@@ -352,6 +350,16 @@ rule containing only an action statement:</p>
            # size limit 1.5mb per hour per client
            id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
               action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)</pre>
+<pre>
+        ask (&lt;addr&gt;:&lt;port&gt;[:&lt;ignore&gt;])
+        allows to delegate the policy decision to another policy service (e.g. postgrey). the first
+        and the second argument (address and port) are mandatory. a third optional argument may be
+        specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
+           # example1: query postgrey and return it's answer to postfix
+           id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031)
+           # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
+           # and continue parsing postfwd's ruleset
+           id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031:^dunno$)</pre>
 <pre>
         wait (&lt;delay&gt;)
         pauses the program execution for &lt;delay&gt; seconds. use this for
@@ -854,7 +862,7 @@ The parser stops rule processing and returns the action to postfix. Other rules 
 The parser evaluates the given action and continues with the next rule (except for the <code>jump()</code> or <code>quit()</code> actions - please see the <a href="#actions">ACTIONS</a> section
 for more information). Nothing will be sent to postfix.</p>
 <p>If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
-simply place a last `catch-all´ rule to change that behaviour:</p>
+simply place a last `catch-allÂ´ rule to change that behaviour:</p>
 <pre>
         ... &lt;your rules&gt; ...
         id=DEFAULT ;  action=dunno</pre>
@@ -996,17 +1004,8 @@ POSSIBILITY OF SUCH DAMAGE.</p>
 </p>
 <hr />
 <h1><a name="author">AUTHOR</a></h1>
-<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;info (AT) postfwd (DOT) org&gt;. Let me know, if you have any suggestions.</p>
-
-<p><center>
-<table border="1" color="black" frame="hsides" rules="none" width="100%">
-  <td width="33%" align="left"><small>http://www.postfwd.org/doc.html</small>
-  <td width="34%" align="center"><small>2007 by <a href="http://www.jpkessler.de/">Jan Peter Kessler</a></small>
-  <td width="33%" align="right"><small>info (AT) postfwd (DOT) org</small>
-</table>
-</center></p>
+<p>Jan&nbsp;Peter&nbsp;Kessler&nbsp;&lt;info&nbsp;(AT)&nbsp;postfwd&nbsp;(DOT)&nbsp;org&gt;. Let me know, if you have any suggestions.</p>
 
 </body>
 
 </html>
-

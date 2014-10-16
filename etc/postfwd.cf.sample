@@ -2,8 +2,8 @@
 
 ###################################################################################################
 ##
-##   ATTENTION: This example configuration uses features which require at least postfwd 1.10pre6!
-##              Please see the manual ('postfwd -m') for example syntax for prior versions.
+##   ATTENTION: Do NOT use this configuration without your own customizations!
+##              Please see the manual ('postfwd -m') for more information.
 ##
 ###################################################################################################
 
@@ -11,6 +11,11 @@
 ##
 ## Definitions
 ##
+
+# Greylisting with postgrey @ 127.0.0.1:10031
+&&GREYLIST { \
+	action=ask(127.0.0.1:10031); \
+};
 
 # Maintenance times
 &&MAINTENANCE { \
@@ -124,10 +129,10 @@ id=RATE_002 ;  &&DYNAMIC ; \
 id=GREY_001 ;  action=dunno        ;  &&STATIC
 id=GREY_002 ;  action=dunno        ;  $$client_name~=$$(sender_domain)$
 id=GREY_003 ;  action=dunno        ;  HIT_dnswls>=1
-id=GREY_004 ;  action=greylisting  ;  &&DYNAMIC
-id=GREY_005 ;  action=greylisting  ;  HIT_dnsbls>=1
+id=GREY_004 ;  action=&&GREYLIST   ;  &&DYNAMIC
+id=GREY_005 ;  action=&&GREYLIST   ;  HIT_dnsbls>=1
 
 # Greylisting should be safe during out-of-office times
-id=GREY_006 ;  action=greylisting  ;  days=Sat-Sun
-id=GREY_007 ;  action=greylisting  ;  days=Mon-Fri ; time=!!06:00:00-20:00:00
+id=GREY_006 ;  action=&&GREYLIST   ;  days=Sat-Sun
+id=GREY_007 ;  action=&&GREYLIST   ;  days=Mon-Fri ; time=!!06:00:00-20:00:00
 

@@ -16,6 +16,7 @@ use Sys::Syslog qw(:DEFAULT setlogsock);
 use Getopt::Long 2.25 qw(:config no_ignore_case bundling);
 use POSIX qw(setsid setuid setgid setlocale strftime LC_ALL);
 # Networking
+use IO::Socket qw(SOCK_STREAM);
 use Net::DNS;
 use Net::Server::Multiplex;
 use vars qw(@ISA);
@@ -24,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.10pre8b';
+our($VERSION)			= '1.11';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -184,6 +185,9 @@ our(%weekdays) 					= (
 	"Fri" => 5, "fri" => 5, "FRI" => 5,
 	"Sat" => 6, "sat" => 6, "SAT" => 6,
 );
+our($SepReq)	= '///';
+our($SepLst)	= ':::';
+our($KeyVal)    = qr/^([^=]+)=(.*)$/;
 use vars qw(
 	@Configs @Rules @CacheID @DNSBL_Text @Plugins
 	%Config_Cache %DNS_Cache %Request_Cache %Rule_by_ID
@@ -196,9 +200,9 @@ use vars qw(
 	$Starttime $Startdate $Cleanup_Requests
 	$Cleanup_RBLs $Cleanup_Rates $Cleanup_Timeouts
 	$opt_daemon $opt_instantconfig $opt_nodns $opt_nodnslog
-	$opt_summary $net_interface $net_port
+	$opt_norulelog $opt_summary $net_interface $net_port
 	$net_user $net_group $net_chroot $net_pid
-	$opt_perfmon $opt_test $opt_verbose
+	$opt_perfmon $opt_test $opt_verbose $opt_noidlestats
 	$opt_cache_rdomain_only $opt_cache_no_size
 	$opt_cache_no_sender $opt_no_rulestats
 	$opt_showconfig $opt_stdoutlog $opt_shortlog
@@ -266,6 +270,7 @@ sub fatal_exit {
 # finish program
 #
 sub end_program {
+    undef $opt_noidlestats;
     show_stats() if $opt_summary;
     mylogs "notice", $NAME." ".$VERSION." terminated" if $opt_daemon;
     exit;
@@ -289,6 +294,25 @@ sub exec_cmd {
 sub uniq {
     undef my %uniq;
     return grep(!$uniq{$_}++, @_);
+};
+#
+# hash -> scalar
+#
+sub hash_to_str {
+	my %request = @_; my $result  = '';
+	map { $result .= $SepReq."$_=".((ref $request{$_} eq 'ARRAY') ? (join $SepLst, @{$request{$_}}) : ($request{$_} || '')) } (keys %request);
+	return $result;
+};
+#
+# scalar -> hash
+#
+sub str_to_hash {
+	my $request = shift; my %result  = ();
+	foreach (split $SepReq, $request) {
+		next unless m/$KeyVal/;
+		my @items = split $SepLst, $2;
+		($#items) ? @{$result{$1}} = @items : $result{$1} = $2;
+	}; return %result;
 };
 #
 # get ip and mask
@@ -393,23 +417,24 @@ sub show_stats {
     my($lastreqpermin) = ($Counter_Interval / (((defined $Stat_Interval_Time) and ($Stat_Interval_Time > 0)) ? $Stat_Interval_Time : 1)) * 60;
     $Counter_Top = $lastreqpermin if ($lastreqpermin > $Counter_Top);
 
-    mylog "notice", "[STATS] Counters: %d seconds uptime since %s",
-	($now - $Starttime), $Startdate;
+    if (not($opt_noidlestats) or ($Counter_Interval > 0) ) {
+	mylog "notice", "[STATS] Counters: %d seconds uptime since %s",
+		($now - $Starttime), $Startdate;
 
-    mylog "notice", "[STATS] Requests: %d overall, %d last interval, %.2f%% cache hits, %.2f%% rate hits",
-	$Counter_Requests, $Counter_Interval,
-	($Counter_Requests > 0) ? (($Counter_Hits / $Counter_Requests) * 100) : 0,
-	($Counter_Requests > 0) ? (($Counter_Rates / $Counter_Requests) * 100) : 0;
+	mylog "notice", "[STATS] Requests: %d overall, %d last interval, %.2f%% cache hits, %.2f%% rate hits",
+		$Counter_Requests, $Counter_Interval,
+		($Counter_Requests > 0) ? (($Counter_Hits / $Counter_Requests) * 100) : 0,
+		($Counter_Requests > 0) ? (($Counter_Rates / $Counter_Requests) * 100) : 0;
 
-    mylog "notice", "[STATS] Averages: %.2f overall, %.2f last interval, %.2f top",
-	$totalreqpermin, $lastreqpermin, $Counter_Top;
+	mylog "notice", "[STATS] Averages: %.2f overall, %.2f last interval, %.2f top",
+		$totalreqpermin, $lastreqpermin, $Counter_Top;
 
-    mylog "notice", "[STATS] Contents: %d rules, %d cached requests, %d cached dns results, %d rate limits",
-	$#Rules, scalar keys %Request_Cache, scalar keys %DNS_Cache, scalar keys %Rates;
+	mylog "notice", "[STATS] Contents: %d rules, %d cached requests, %d cached dns results, %d rate limits",
+		$#Rules, scalar keys %Request_Cache, scalar keys %DNS_Cache, scalar keys %Rates;
 
-    # per rule stats
-    map { mylogs "notice", "[STATS] Rule ID: $_   matched: $Matches{$_} times" } (sort keys %Matches)
-	unless $opt_no_rulestats;
+	# per rule stats
+	map { mylogs "notice", "[STATS] Rule ID: $_   matched: $Matches{$_} times" } (sort keys %Matches) unless $opt_no_rulestats;
+    };
 
     $Counter_Interval = 0;
 };
@@ -1087,6 +1112,45 @@ sub postfwd_items {
 		warn "[RULES] ".$myline." - error: command ".$mycmd."() has not been implemented yet - ignoring";
 		return ($stop,$index,$myaction,$myline,%request);
 	},
+	# ask() command
+	"ask"  => sub {
+		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($myaction) = $default_action; my($stop) = 0;
+		mylogs ('info', "Opening socket to '$myarg'") if ($opt_verbose > 1);
+		my($addr,$port,$ignore) = split ':', $myarg;
+		my %orig = str_to_hash ($request{orig});
+		if ( ($addr and $port) and my $socket = new IO::Socket::INET (
+			PeerAddr => $addr,
+			PeerPort => $port,
+			Proto    => 'tcp',
+			Timeout  => 9,
+			Type     => SOCK_STREAM	) ) {
+
+				my $sendstr = '';
+				foreach (keys %orig) {
+					$sendstr .= $_."=".$orig{$_}."\n";
+				};
+				$sendstr .= "\n";
+				mylogs ('info', "Asking service $myarg -> '$sendstr'") if ($opt_verbose > 1);
+				print $socket "$sendstr";
+				$sendstr = <$socket>;
+				chomp($sendstr);
+				mylogs ('info', "Answer from $myarg -> '$sendstr'") if ($opt_verbose > 1);
+				$sendstr =~ s/^(action=)//;
+				if ($1 and $sendstr) {
+					if ($ignore and ($sendstr =~ /$ignore/i)) {
+						mylogs ('info', "ignoring answer '$sendstr' from $myarg") if ($opt_verbose > 1);
+					} else {
+						$stop = $myaction = $sendstr;
+					};
+				} else {
+					mylogs ('notice', "rule: $index got invalid answer '$sendstr' from $myarg");
+				};
+		} else {
+			mylogs ('notice', "Could not open socket to '$myarg'");
+		};
+		return ($stop,$index,$myaction,$myline,%request);
+	},
 	# exec() command
 	"exec"	=> sub { return &{$postfwd_actions{file}}(@_); },
 );
@@ -1425,6 +1489,9 @@ sub smtpd_access_policy {
     my($matched,$rblcnt,$rhlcnt,$t1,$t2,$t3,$stop)      = 0;
     my($mykey,$cacheid,$myline,$checkreq,$var,$ratehit) = "";
 
+    # save original request
+    $request{orig} = hash_to_str (%request);
+
     # replace empty sender with <>
     $request{sender} = '<>' unless ($request{sender});
 
@@ -1497,7 +1564,7 @@ sub smtpd_access_policy {
 	} else {
 		REQITEM: foreach $checkreq (sort keys %request) {
 			next REQITEM unless $request{$checkreq};
-			next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") );
+			next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") or ($checkreq eq "orig") );
 			next REQITEM if ( $opt_cache_no_size and ($checkreq eq "size") );
 			next REQITEM if ( $opt_cache_no_sender and ($checkreq eq "sender") );
 			if ( $opt_cache_rdomain_only and ($checkreq eq "recipient") ) {
@@ -1542,7 +1609,8 @@ sub smtpd_access_policy {
 		. ", action=".$myaction." (item: ".$request{$ratehit}
 		. ", type: ".$Rates{$request{$ratehit}}{type}
 		. ", count: ".$Rates{$request{$ratehit}}{count}."/".$Rates{$request{$ratehit}}{maxcount}
-		. ", time: ".($now - $Rates{$request{$ratehit}}{time})."/".$Rates{$request{$ratehit}}{ttl}."s)";
+		. ", time: ".($now - $Rates{$request{$ratehit}}{time})."/".$Rates{$request{$ratehit}}{ttl}."s)"
+		unless $opt_norulelog;
 
     # check cache
     } elsif ( ($REQUEST_MAX_CACHE > 0)
@@ -1563,7 +1631,8 @@ sub smtpd_access_policy {
 			. ", state=".$request{protocol_state}
 			. ", delay=".(time - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
-			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION};
+			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
+			unless $opt_norulelog;
 	};
 
     # check rules
@@ -1640,7 +1709,7 @@ sub smtpd_access_policy {
 				} else { $stop = 1; };
 				if ($stop) {
 					$myline .= ", delay=".(time - $now)."s, hits=".$request{$COMP_HITS}.", action=".$myaction;
-    					mylogs $syslog_priority, "[RULES] ".$myline;
+    					mylogs $syslog_priority, "[RULES] ".$myline unless $opt_norulelog;
 					last RULE;
 				};
 			} else { undef $myline; };
@@ -1673,6 +1742,9 @@ GetOptions (	't|test'		 => \$opt_test,
 		'loglen=i'		 => \$syslog_maxlen,
 		'n|nodns'		 => \$opt_nodns,
 		'nodnslog'		 => \$opt_nodnslog,
+		'no-dnslog'		 => \$opt_nodnslog,
+		'norulelog'		 => \$opt_norulelog,
+		'no-rulelog'		 => \$opt_norulelog,
 		'shortlog'		 => \$opt_shortlog, # for compatibility
 		'd|daemon'		 => \$opt_daemon,
 		'I|instantcfg'		 => \$opt_instantconfig,
@@ -1700,12 +1772,15 @@ GetOptions (	't|test'		 => \$opt_test,
 		'cleanup-rbls=i'	 => \$CLEANUP_RBL_CACHE,
 		'cleanup-rates=i'	 => \$CLEANUP_RATE_CACHE,
 		'S|summary:i'		 => \$opt_summary,
+		'norulestats'		 => \$opt_no_rulestats,
 		'no-rulestats'		 => \$opt_no_rulestats,
+		'noidlestats'		 => \$opt_noidlestats,
+		'no-idlestats'		 => \$opt_noidlestats,
 		's|scores=s'		 => \%opt_scores,
 		'f|file=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'r|rule=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'plugins=s'	 	=> \@Plugins,
-		'V|version'		 => sub{ print "$NAME $VERSION\n"; exit 1; },
+		'V|version'		 => sub{ print "$NAME $VERSION (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Perl ".$]." on ".$^O.")\n"; exit 1; },
 		'C|showconfig'		 => \$opt_showconfig,
 		'h|H|?|help|Help|HELP'	 => sub{ pod2usage (-msg => "\nPlease see \"".$NAME." -m\" for detailed instructions.\n", -verbose => 1); },
 		'm|M|manual'		 => sub{ # contructing command string (de-tainting $0)
@@ -1926,7 +2001,6 @@ if ($opt_daemon) {
 die "should never see me...";
 ## EOF
 
-
 __END__
 
 =head1 NAME
@@ -1971,7 +2045,9 @@ postfwd [OPTIONS] [SOURCE1, SOURCE2, ...]
 	-t, --test                  testing, always returns "dunno"
 	-v, --verbose               verbose logging, use twice (-vv) to increase level
 	-S, --summary <int>         show some usage statistics every <int> seconds
-	    --no-rulestats          disables per rule statistics
+	    --norulelog             disbles rule logging
+	    --norulestats           disables per rule statistics
+	    --noidlestats           disables statistics when idle
 	-n, --nodns                 disable dns
 	    --nodnslog              disable dns logging
 	    --dns_timeout           timeout in seconds for asynchonous dns queries
@@ -2271,6 +2347,16 @@ postfwd actions control the behaviour of the program. Currently you can specify 
 	   # size limit 1.5mb per hour per client
 	   id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
 	      action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
+
+	ask (<addr>:<port>[:<ignore>])
+	allows to delegate the policy decision to another policy service (e.g. postgrey). the first
+	and the second argument (address and port) are mandatory. a third optional argument may be
+	specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
+	   # example1: query postgrey and return it's answer to postfix
+	   id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031)
+	   # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
+	   # and continue parsing postfwd's ruleset
+	   id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031:^dunno$)
 
 	wait (<delay>)
 	pauses the program execution for <delay> seconds. use this for
@@ -2818,7 +2904,7 @@ The parser evaluates the given action and continues with the next rule (except f
 for more information). Nothing will be sent to postfix.
 
 If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
-simply place a last `catch-all´ rule to change that behaviour:
+simply place a last `catch-allÂ´ rule to change that behaviour:
 
 	... <your rules> ...
 	id=DEFAULT ;  action=dunno

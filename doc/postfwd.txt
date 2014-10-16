@@ -38,7 +38,9 @@ SYNOPSIS
             -t, --test                  testing, always returns "dunno"
             -v, --verbose               verbose logging, use twice (-vv) to increase level
             -S, --summary <int>         show some usage statistics every <int> seconds
-                --no-rulestats          disables per rule statistics
+                --norulelog             disbles rule logging
+                --norulestats           disables per rule statistics
+                --noidlestats           disables statistics when idle
             -n, --nodns                 disable dns
                 --nodnslog              disable dns logging
                 --dns_timeout           timeout in seconds for asynchonous dns queries
@@ -350,6 +352,16 @@ DESCRIPTION
                # size limit 1.5mb per hour per client
                id=SIZE01 ;  state==END_OF_DATA ;  client_address==!!(10.1.1.1); \
                   action==size($$client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
+
+            ask (<addr>:<port>[:<ignore>])
+            allows to delegate the policy decision to another policy service (e.g. postgrey). the first
+            and the second argument (address and port) are mandatory. a third optional argument may be
+            specified to tell postfwd to ignore certain answers and go on parsing the ruleset:
+               # example1: query postgrey and return it's answer to postfix
+               id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031)
+               # example2: query postgrey but ignore it's answer, if it matches 'DUNNO'
+               # and continue parsing postfwd's ruleset
+               id=GREY; client_address==10.1.1.1; ask(127.0.0.1:10031:^dunno$)
 
             wait (<delay>)
             pauses the program execution for <delay> seconds. use this for
@@ -905,7 +917,7 @@ DESCRIPTION
 
     If no rule has matched and the end of the ruleset is reached postfwd
     will return dunno without logging anything unless in verbose mode. You
-    may simply place a last `catch-all´ rule to change that behaviour:
+    may simply place a last `catch-allÂ´ rule to change that behaviour:
 
             ... <your rules> ...
             id=DEFAULT ;  action=dunno

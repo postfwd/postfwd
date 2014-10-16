@@ -1,3 +1,12 @@
+1.11
+=====
+- feature: the ask() action allows to delegate the policy decision to another
+           policy service (like postgrey). a new parameter allows to specify
+           answer patterns which should be ignored by postfwd. please look
+           at the 'ACTIONS' section in the manual (postfwd2 -m) for details.
+- feature: new options --noidlestats and --norulelog
+- feature: documentation updates
+- feature: --version more informative --version
 
 
 **************************************************************************************************
@@ -5,7 +14,6 @@ ATTENTION:  requirements changed - postfwd since v1.10pre8 now uses Net::DNS.
 	    Net::DNS::Async and Net::CIDR::Lite are not required anymore.
 NOTE:       please see the docs ('postfwd -m' or 'perldoc postfwd') for more information
 **************************************************************************************************
-
 
 1.10pre8b
 ==========
