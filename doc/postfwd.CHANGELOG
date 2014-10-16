@@ -1,3 +1,16 @@
+1.33
+====
+- feature: new compare operators *
+        ====================================================================
+         *ITEM > VALUE                true if ITEM > VALUE
+         *ITEM < VALUE                true if ITEM < VALUE
+        ====================================================================
+- bugfix:  fixed bug when computing scores with more than 1 digit after the "." (n.nn)
+- bugfix:  fixed bug when computing negative values with the set action
+- bugfix:  ITEMS plugins returning zero values were handled incorrectly
+- bugfix:  max command recursion was not reset for each rule
+
+
 1.32
 ====
 - feature: new option --save_rates=<file> allows to load and save

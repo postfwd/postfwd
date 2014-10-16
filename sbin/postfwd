@@ -41,7 +41,7 @@ BEGIN {
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.32';
+our($VERSION)			= '1.33';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -155,7 +155,7 @@ our($COMP_HITS)			= "request_hits";
 # item match counter
 our($COMP_MATCHES)		= "matches";
 # separator
-our($COMP_SEPARATOR)		= "[=\~\<\>]=|[=\!][=\~\<\>]|=";
+our($COMP_SEPARATOR)		= "[=\~\<\>]=|[\<\>]|[=\!][=\~\<\>]|=";
 # macros
 our($COMP_ACL)			= "[\&][\&]";
 # negation
@@ -1177,7 +1177,7 @@ sub postfwd_items {
 	%result = (%result, &{$postfwd_items{$_}}((%request,%result)))
 		if (defined $postfwd_items{$_});
     };
-    map { $result{$_} = '' unless $result{$_}; mylogs $syslog_priority, "[PLUGIN]  Added key: $_=$result{$_}" if (wantsdebug(qw[ all thisrequest ])) } (keys %result);
+    map { $result{$_} = '' unless (defined $result{$_}); mylogs $syslog_priority, "[PLUGIN]  Added key: $_=$result{$_}" if (wantsdebug(qw[ all thisrequest ])) } (keys %result);
     return %result;
 };
 #
@@ -1218,6 +1218,10 @@ sub postfwd_items {
 			$myresult = ($myitem <= $val);
 		} elsif ($cmp eq '=>') {
 			$myresult = ($myitem >= $val);
+                } elsif ($cmp eq '<') {
+                        $myresult = ($myitem < $val);
+                } elsif ($cmp eq '>') {
+                        $myresult = ($myitem > $val);
 		} elsif ($cmp eq '!=') {
 			$myresult = not($myitem == $val);
 		} elsif ($cmp eq '!<') {
@@ -1376,10 +1380,14 @@ sub postfwd_items {
 			$myresult = not( lc($myitem) eq lc($val) ) if $myitem;
 		} elsif ($cmp eq '=<') {
 			$myresult = (($myitem || 0) <= $val);
+		} elsif ($cmp eq '<') {
+			$myresult = (($myitem || 0) < $val);
 		} elsif ($cmp eq '!<') {
 			$myresult = not(($myitem || 0) <= $val);
 		} elsif ($cmp eq '=>') {
 			$myresult = (($myitem || 0) >= $val);
+		} elsif ($cmp eq '>') {
+			$myresult = (($myitem || 0) > $val);
 		} elsif ($cmp eq '!>') {
 			$myresult = not(($myitem || 0) >= $val);
 		} elsif ($cmp eq '=~') {
@@ -1442,13 +1450,13 @@ sub postfwd_items {
 					$m_val = $r_val;
 				} elsif ( ($mod eq '.=') or ($mod eq '=.') ) {
 					$m_val .= $r_val;
-				} elsif ( (($mod eq '+=') or ($mod eq '=+')) and (($m_val=~/^\d+(\.\d+)?$/) and ($r_val=~/^\d+(\.\d+)?$/)) ) {
+				} elsif ( (($mod eq '+=') or ($mod eq '=+')) and (($m_val=~/^\-?\d+(\.\d+)?$/) and ($r_val=~/^\-?\d+(\.\d+)?$/)) ) {
 					$m_val += $r_val;
-				} elsif ( (($mod eq '-=') or ($mod eq '=-')) and (($m_val=~/^\d+(\.\d+)?$/) and ($r_val=~/^\d+(\.\d+)?$/)) ) {
+				} elsif ( (($mod eq '-=') or ($mod eq '=-')) and (($m_val=~/^\-?\d+(\.\d+)?$/) and ($r_val=~/^\-?\d+(\.\d+)?$/)) ) {
 					$m_val -= $r_val;
-				} elsif ( (($mod eq '*=') or ($mod eq '=*')) and (($m_val=~/^\d+(\.\d+)?$/) and ($r_val=~/^\d+(\.\d+)?$/)) ) {
+				} elsif ( (($mod eq '*=') or ($mod eq '=*')) and (($m_val=~/^\-?\d+(\.\d+)?$/) and ($r_val=~/^\-?\d+(\.\d+)?$/)) ) {
 					$m_val *= $r_val;
-				} elsif ( (($mod eq '/=') or ($mod eq '=/')) and (($m_val=~/^\d+(\.\d+)?$/) and ($r_val=~/^\d+(\.\d+)?$/)) ) {
+				} elsif ( (($mod eq '/=') or ($mod eq '=/')) and (($m_val=~/^\-?\d+(\.\d+)?$/) and ($r_val=~/^\-?\d+(\.\d+)?$/)) ) {
 					$m_val /= (($r_val == 0) ? 1 : $r_val);
 				} else {
 					$m_val = $r_val;
@@ -1471,7 +1479,7 @@ sub postfwd_items {
 		my($myaction) = $default_action; my($stop) = 0;
 		my($score) = (defined $request{request_score}) ? $request{request_score} : 0;
 		if ($myarg =~/^([\+\-\*\/\=]?)(\d+)([\.,](\d+))?$/) {
-			my($mod, $val) = ($1, $2 + ((defined $4) ? ($4 / 10) : 0));
+			my($mod, $val) = ($1, $2 + ((defined $4) ? "0.$4" : 0));
 			if ($mod eq '-') {
 				$score -= $val;
 			} elsif ($mod eq '*') {
@@ -1732,7 +1740,7 @@ sub compare_item {
     # now compare request to every single item
     ITEM: foreach (@items) {
 	($cmp, $val) = split ";";
-	next ITEM unless ($cmp and $val and $mykey);
+	next ITEM unless ($cmp and (defined $val) and $mykey);
 	# prepare_file
 	if ($val =~ /$COMP_LIVE_FILE_TABLE/) {
 		push @items, prepare_file (0, $1, $cmp, $2);
@@ -1741,7 +1749,7 @@ sub compare_item {
 	mylogs $syslog_priority, "compare $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if (wantsdebug(qw[ all thisrequest ]));
 	$val = $neg if ($neg = deneg_item($val));
 	mylogs $syslog_priority, "deneg $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if ($neg and (wantsdebug(qw[ all thisrequest ])));
-	next ITEM unless $val;
+	next ITEM unless (defined $val);
 	# substitute check for $$vars in rule item
 	if ( $var = devar_item ($cmp,$val,$myitem,%request) ) {
 		$val = $var; $val =~ s/([^-_@\.\w\s])/\\$1/g unless ($cmp eq '==');
@@ -1816,7 +1824,7 @@ sub compare_rule {
 			? $date
 			# default: compare against request attribute
 			: $request{$mykey};
-		$myresult[0] = ($res = compare_item($mykey, $Rules[$index]{$mykey}, $num, ($val || ''), %request)) ? ($myresult[0] + $res) : 0;
+		$myresult[0] = ($res = compare_item($mykey, $Rules[$index]{$mykey}, $num, ((defined $val) ? $val : ''), %request)) ? ($myresult[0] + $res) : 0;
 	};
 	last ITEM unless ($myresult[0] > 0);
     };
@@ -2277,6 +2285,7 @@ sub smtpd_access_policy {
 					. ", state=".$request{protocol_state};
 
 				# check for postfwd action
+				$ai = 0; # (re)set max_command_recursion counter
 				while ($ai++ < $max_command_recursion and $myaction =~ /^(\w[\-\w]+)\s*\(\s*(.*?)\s*\)$/) {
 					my($mycmd,$myarg) = ($1, $2); $stop = 0;
 					if (defined $postfwd_actions{$mycmd}) {
@@ -2875,6 +2884,8 @@ The way how request items are compared to the ruleset can be influenced in the f
 	 ITEM == VALUE                true if ITEM equals VALUE
 	 ITEM => VALUE                true if ITEM >= VALUE
 	 ITEM =< VALUE                true if ITEM <= VALUE
+	 ITEM >  VALUE                true if ITEM >  VALUE
+	 ITEM <  VALUE                true if ITEM <  VALUE
 	 ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
 	 ITEM != VALUE                false if ITEM equals VALUE
 	 ITEM !> VALUE                false if ITEM >= VALUE
@@ -3448,6 +3459,10 @@ will be used.
 					$myresult = ($myitem <= $val);
 				} elsif ($cmp eq '=>') {
 					$myresult = ($myitem >= $val);
+				} elsif ($cmp eq '<') {
+					$myresult = ($myitem < $val);
+				} elsif ($cmp eq '>') {
+					$myresult = ($myitem > $val);
 				} elsif ($cmp eq '!=') {
 					$myresult = not($myitem == $val);
 				} elsif ($cmp eq '!<') {

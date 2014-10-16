@@ -133,6 +133,8 @@ DESCRIPTION
              ITEM == VALUE                true if ITEM equals VALUE
              ITEM => VALUE                true if ITEM >= VALUE
              ITEM =< VALUE                true if ITEM <= VALUE
+             ITEM >  VALUE                true if ITEM >  VALUE
+             ITEM <  VALUE                true if ITEM <  VALUE
              ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
              ITEM != VALUE                false if ITEM equals VALUE
              ITEM !> VALUE                false if ITEM >= VALUE
@@ -724,6 +726,10 @@ DESCRIPTION
                                             $myresult = ($myitem <= $val);
                                     } elsif ($cmp eq '=>') {
                                             $myresult = ($myitem >= $val);
+                                    } elsif ($cmp eq '<') {
+                                            $myresult = ($myitem < $val);
+                                    } elsif ($cmp eq '>') {
+                                            $myresult = ($myitem > $val);
                                     } elsif ($cmp eq '!=') {
                                             $myresult = not($myitem == $val);
                                     } elsif ($cmp eq '!<') {

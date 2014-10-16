@@ -194,6 +194,8 @@ is not important. So the following would lead to the same result as the previous
          ITEM == VALUE                true if ITEM equals VALUE
          ITEM =&gt; VALUE                true if ITEM &gt;= VALUE
          ITEM =&lt; VALUE                true if ITEM &lt;= VALUE
+         ITEM &gt;  VALUE                true if ITEM &gt;  VALUE
+         ITEM &lt;  VALUE                true if ITEM &lt;  VALUE
          ITEM =~ VALUE                true if ITEM ~= /^VALUE$/i
          ITEM != VALUE                false if ITEM equals VALUE
          ITEM !&gt; VALUE                false if ITEM &gt;= VALUE
@@ -700,6 +702,10 @@ will be used.</p>
                                         $myresult = ($myitem &lt;= $val);
                                 } elsif ($cmp eq '=&gt;') {
                                         $myresult = ($myitem &gt;= $val);
+                                } elsif ($cmp eq '&lt;') {
+                                        $myresult = ($myitem &lt; $val);
+                                } elsif ($cmp eq '&gt;') {
+                                        $myresult = ($myitem &gt; $val);
                                 } elsif ($cmp eq '!=') {
                                         $myresult = not($myitem == $val);
                                 } elsif ($cmp eq '!&lt;') {
