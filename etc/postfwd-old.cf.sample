@@ -1,0 +1,135 @@
+
+
+###################################################################################################
+##
+##   ATTENTION: This example configuration uses features which require at least postfwd 1.10pre8!
+##              Please see the manual ('postfwd -m') for example syntax for prior versions.
+##
+##   WARNING:	Only provided to show some capabilities of postfwd. Do NOT use this without
+##		modifications to suit your environment!
+##
+###################################################################################################
+
+
+##
+## Definitions
+##
+
+# Maintenance times
+&&MAINTENANCE { \
+        date=15.01.2007 ; \
+        date=15.04.2007 ; \
+        date=15.10.2007 - 17.10.2007 ; \
+        time=03:00:00 - 04:00:00 ; \
+};
+
+# Whitelists
+&&TRUSTED_NETS { \
+        client_address=192.168.1.0/22 ;   \
+        client_address=172.16.128.32/27 ; \
+};
+&&TRUSTED_HOSTS { \
+        client_name~=\.domain1\.net$ ; \
+        client_name~=\.domain2\.de$ ;  \
+};
+&&TRUSTED_USERS { \
+        sasl_username==bob ; \
+        sasl_username==alice ; \
+};
+&&TRUSTED_TLS { \
+        ccert_fingerprint==11:22:33:44:55:66:AA:BB:CC:DD:EE:FF ; \
+        ccert_fingerprint==AA:BB:CC:DD:EE:FF:11:22:33:44:55:66 ; \
+        encryption_keysize>=64 ; \
+};
+&&FREEMAIL { \
+        client_name~=\.gmx\.net$ ; \
+        client_name~=\.web\.de$ ;  \
+        client_name~=\.(aol|yahoo|h(ush|ot)mail)\.com$ ; \
+};
+&&STATIC { \
+        # contains freemailers
+        &&FREEMAIL ; \
+        client_name~=[\.\-]static[[\.\-] ;               \
+        client_name~=^(mail|smtp|mout|mx)[\-]*[0-9]*\. ; \
+};
+&&DNSWLS { \
+        rbl=list.dnswl.org ;                                             \
+        rbl=exemptions.ahbl.org ;                                        \
+        rbl=query.bondedsender.org ;                                     \
+        rbl=hostkarma.junkemailfilter.com/^127\.0\.0\.1$/3600 ;          \
+        rhsbl_client=hostkarma.junkemailfilter.com/^127\.0\.0\.1$/3600 ; \
+};
+
+# Spamchecks
+&&BADHELO { \
+	client_name==!!($$(helo_name)) ; \
+};
+&&DYNAMIC { \
+        client_name==unknown ; \
+        client_name~=(\-.+){4} ; \
+        client_name~=\d{5} ;     \
+        client_name~=[_\.\-]([axt]{0,1}dsl|br(e|oa)dband|ppp|pppoe|dynamic|dynip|ADSL|dial(up|in)|pool|dhcp|leased)[_\.\-] ; \
+};
+&&DNSBLS { \
+        rbl=zen.spamhaus.org ;     \
+        rbl=list.dsbl.org ;        \
+        rbl=bl.spamcop.net ;       \
+        rbl=dnsbl.sorbs.net ;      \
+        rbl=ix.dnsbl.manitu.net ;  \
+        rhsbl=rddn.dnsbl.net.au ;  \
+        rhsbl=rhsbl.ahbl.org ;     \
+        rhsbl=rhsbl.sorbs.net ;    \
+};
+
+
+##
+## Ruleset
+##
+
+# temporary reject and drop connection during maintenance window
+id=M_001    ;  &&MAINTENANCE      ;  action=421 maintenance - please try again later
+
+# stress-friendly behaviour (will not match on postfix version pre 2.5)
+id=STRESS   ;  stress==yes        ;  action=dunno
+
+# Whitelists
+id=WL_001   ;  &&TRUSTED_NETS     ;  action=dunno
+id=WL_002   ;  &&TRUSTED_HOSTS    ;  action=dunno
+id=WL_003   ;  &&TRUSTED_USERS    ;  action=dunno
+id=WL_004   ;  &&TRUSTED_TLS      ;  action=dunno
+
+# DNSWL checks - lookup
+id=RWL_001  ;  &&DNSWLS ;  rhsblcount=all ; rblcount=all ; \
+	action=set(HIT_dnswls=$$rhsblcount,HIT_dnswls+=$$rblcount,DSWL_text=$$dnsbltext)
+
+# DNSWL - whitelisting
+id=RWL_002  ;  HIT_dnswls>=2 ;  action=PREPEND X-PFW-STATE: INFO: [$$DSWL_text]
+id=RWL_003  ;  HIT_dnswls>=1 ;  action=PREPEND X-PFW-STATE: INFO: [$$DSWL_text] ;  &&STATIC
+id=RWL_004  ;  HIT_dnswls>=1 ;  action=PREPEND X-PFW-STATE: INFO: [$$DSWL_text] ;  $$client_name~=$$(sender_domain)$
+
+# DNSBL checks - lookup
+id=RBL_001  ;  &&DNSBLS ;  rhsblcount=all ; rblcount=all ; \
+        action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,DSBL_text=$$dnsbltext)
+
+# DNSBL checks - evaluation
+id=RBL_002  ;  HIT_dnsbls>=2             ;  action=554 5.7.1 blocked using $$DSBL_count dnsbls, INFO: [$$DSBL_text]
+id=RBL_003  ;  HIT_dnsbls>=1 ; &&DYNAMIC ;  action=REJECT listed on dnsbl and $$client_name looks like dynip, INFO: [$$DSBL_text]
+id=RBL_004  ;  HIT_dnsbls>=1 ; &&BADHELO ;  action=REJECT listed on dnsbl and $$helo_name does not match $$client_name, INFO: [$$DSBL_text]
+
+# Rate limits
+id=RATE_001 ;  HIT_dnsbls>=1; \
+	action=rate($$client_address/1/300/450 4.7.1 please do not try more than once per 5 minutes)
+id=RATE_002 ;  &&DYNAMIC ; \
+	action=rate($$client_address/1/300/450 4.7.1 please do not try more than once per 5 minutes)
+
+# Selective greylisting
+id=GREY_001 ;  action=dunno        ;  &&STATIC
+id=GREY_002 ;  action=dunno        ;  $$client_name~=$$(sender_domain)$
+id=GREY_003 ;  action=dunno        ;  HIT_dnswls>=1
+id=GREY_004 ;  action=greylisting  ;  &&DYNAMIC
+id=GREY_005 ;  action=greylisting  ;  HIT_dnsbls>=1
+
+# Greylisting should be safe during out-of-office times
+id=GREY_006 ;  action=greylisting  ;  days=Sat-Sun
+id=GREY_007 ;  action=greylisting  ;  days=Mon-Fri ; time=!!06:00:00-20:00:00
+

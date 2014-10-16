@@ -1,10 +1,16 @@
-1.30-devel2
-===========
-- feature: Time::HiRes is used if available
-
-1.30-devel1
-===========
+1.30
+====
+- feature: new parser enhancement allows to omit the trailing "\" for multi-line rules,
+	   if the following lines are prefixed by whitespace characters:
+		--------------------------------------
+		 id=RCPTCOUNT
+		    protocol_state  == END-OF-MESSAGE
+		    client_address  != 10.1.1.0/24
+		    recipient_count >= 100
+		    action=REJECT too many recipients
+		--------------------------------------
 - feature: new plugin interface (BETA)
+- feature: Time::HiRes is used if available
 - feature: new $$ratecount variable for rate() actions
 - feature: ported --dumpstats and --dumpcache option from postfwd2
 - bugfix:  fixed program usage statistics (--summary)

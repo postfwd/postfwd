@@ -19,11 +19,19 @@ our @EXPORT_OK = qw(
 	&wantsdebug &hash_to_list
 	&hash_to_str &str_to_hash
 	&check_inet &check_unix
+	&ts $TIMEHIRES
 );
+# use Time::HiRes if available
+our($TIMEHIRES);
+BEGIN {
+	eval { require Time::HiRes };
+	$TIMEHIRES = ($@) ? 0 : (Time::HiRes->VERSION || 'available');
+};
+
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.30-devel2";
+our $VERSION	= "1.30";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -163,6 +171,7 @@ our %postfwd_settings = (
 	verbose    => 0,
 	test	   => 0,
 	keep_rates => 0,
+        timeformat => ( ($TIMEHIRES) ? '%.2f' : '%d' ),
 );
 
 # daemon commands
@@ -204,6 +213,9 @@ our %postfwd_patterns = (
 
 
 ## SUBS
+
+# prints formatted timestamp
+sub ts { return sprintf ($postfwd_settings{timeformat}, $_[0]) };
 
 # takes a list and returns a unified list, keeping given order
 sub uniq {
@@ -354,30 +366,18 @@ sub check_unix {
 ############################
 package postfwd2::cache;
 
+
 ## MODULES
 use warnings;
 use strict;
 use base 'Net::Server::Multiplex';
-import postfwd2::basic qw(:DEFAULT &wantsdebug &hash_to_list &str_to_hash &hash_to_str);
+import postfwd2::basic qw(:DEFAULT &wantsdebug &hash_to_list &str_to_hash &hash_to_str &ts $TIMEHIRES);
 use vars qw( %Cache %Cleanup %Count %Interval %Top $Reload_Conf $Summary $StartTime );
-our($THRS);
-BEGIN {
-    eval { require Time::HiRes };
-    if ($@) {
-        warn "$@";
-        warn "Failed to include optional module Time::HiRes.";
-        $THRS = '%d';
-    } else {
-        Time::HiRes->import( qw(time) );
-        $THRS = '%.2f';
-    };
-};
+# use Time::HiRes if available
+BEGIN { Time::HiRes->import( qw(time) ) if $TIMEHIRES };
 
 
 ## SUBS
-
-# prints formatted timestamp
-sub ts { return sprintf ("$THRS", $_[0]) };
 
 # prepare stats
 sub list_stats {
@@ -549,7 +549,7 @@ sub cleanup_cache {
 		unless ( defined $Cache{$type}{$checkitem}{'list'} ) {
 			# remove incomplete objects
 			if ( !defined($Cache{$type}{$checkitem}{'until'}) or !defined($Cache{$type}{$checkitem}{ttl}) ) {
-				if ( wantsdebug (qw[ all cleanup parentcleanup ]) ) {
+				if ( wantsdebug (qw[ all cleanup parentcleanup devel ]) ) {
 					log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'");
 					map { log_info ("[CLEANUP]  $_") } ( hash_to_list(%{$Cache{$type}{$checkitem}}) );
 				};
@@ -564,7 +564,7 @@ sub cleanup_cache {
 			my @i = ();
 			foreach my $crate (@{$Cache{$type}{$checkitem}{'list'}}) {
 				if ( !(defined $Cache{$type}{$checkitem}{$crate}{'until'}) or !(defined $Cache{$type}{$checkitem}{$crate}{ttl}) ) {
-					if ( wantsdebug (qw[ all cleanup parentcleanup ]) ) {
+					if ( wantsdebug (qw[ all cleanup parentcleanup devel ]) ) {
 						log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'->'$crate'");
 						map { log_info ("[CLEANUP]  $_") } ( hash_to_list(%{$Cache{$type}{$checkitem}{$crate}}) );
 					};
@@ -697,24 +697,14 @@ use strict;
 use IO::Socket qw(SOCK_STREAM);
 use Net::DNS;
 use base 'Net::Server::PreFork';
-import postfwd2::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_str &str_to_hash &hash_to_list);
+import postfwd2::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_str &str_to_hash &hash_to_list &ts $TIMEHIRES);
 # export these functions for '-C' switch
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-	&read_config &show_config &process_input
+	&read_config &show_config &process_input &get_plugins
 );
-our($THRS);
-BEGIN {
-    eval { require Time::HiRes };
-    if ($@) {
-        warn "$@";
-        warn "Failed to include optional module Time::HiRes.";
-        $THRS = '%d';
-    } else {
-        Time::HiRes->import( qw(time) );
-        $THRS = '%.2f';
-    };
-};
+# use Time::HiRes if available
+BEGIN { Time::HiRes->import( qw(time) ) if $TIMEHIRES };
 
 
 # these items have to be compared as...
@@ -840,9 +830,6 @@ use vars qw(
 
 ## SUBS
 
-# prints formatted timestamp
-sub ts { return sprintf ("$THRS", $_[0]) };
-
 # cache query
 sub cache_query { return ( &{$postfwd_settings{cache}{check}}('cache',@_) || '<undef>' ) };
 
@@ -881,6 +868,7 @@ sub deneg_item {
 # resolves $$() variables
 sub devar_item {
 	my($cmp,$val,$myitem,%request) = @_;
+	return '' unless $val and $myitem;
 	my($pre,$post,$var,$myresult) = '';
 	while ( ($val =~ /(.*)$COMP_VAR\s*(\w+)(.*)/g) or ($val =~ /(.*)$COMP_VAR\s*\((\w+)\)(.*)/g) ) {
 		($pre,$var,$post) = ($1,$2,$3);
@@ -901,7 +889,7 @@ sub cleanup_dns_cache {
 		# remove inclomplete objects (dns timeouts)
 		if ( !defined($DNS_Cache{$checkitem}{'until'}) or !defined($DNS_Cache{$checkitem}{ttl}) ) {
 			log_info ("[CLEANUP] deleting incomplete dns-cache item '$checkitem'")
-				if wantsdebug (qw[ all cleanup childcleanup ]);
+				if wantsdebug (qw[ all cleanup childcleanup devel ]);
 			delete $DNS_Cache{$checkitem};
 		# remove timed out objects
 		} elsif ( $now > $DNS_Cache{$checkitem}{'until'} ) {
@@ -919,7 +907,7 @@ sub cleanup_request_cache {
 		next RITEM unless defined $Request_Cache{$checkitem}{'until'};
 		if ( !defined($Request_Cache{$checkitem}{'until'}) or !defined($Request_Cache{$checkitem}{ttl}) ) {
 			log_info ("[CLEANUP] deleting incomplete request-cache item '$checkitem'")
-				if wantsdebug (qw[ all cleanup childcleanup ]);
+				if wantsdebug (qw[ all cleanup childcleanup devel ]);
 			delete $Request_Cache{$checkitem};
 		} elsif ( $now > $Request_Cache{$checkitem}{'until'} ) {
 			log_info ("[CLEANUP] removing request-cache item '$checkitem' after ttl ".$Request_Cache{$checkitem}{ttl}."s")
@@ -935,14 +923,14 @@ sub cleanup_rate_cache {
 	foreach my $checkitem (keys %Rate_Cache) {
 		unless (defined $Rate_Cache{$checkitem}{'list'}) {
 			log_info ("[CLEANUP] deleting incomplete rate-cache item '$checkitem'")
-				if wantsdebug (qw[ all cleanup childcleanup ]);
+				if wantsdebug (qw[ all cleanup childcleanup devel ]);
 			delete $Rate_Cache{$checkitem};
 		} else {
 			my @i = ();
 			foreach my $crate (@{$Rate_Cache{$checkitem}{'list'}}) {
 				if ( not(defined $Rate_Cache{$checkitem}{$crate}{'until'}) or not(defined $Rate_Cache{$checkitem}{$crate}{'ttl'}) ) {
 					log_info ("[CLEANUP] deleting incomplete rate-cache item '$checkitem'->'$crate'")
-						if wantsdebug (qw[ all cleanup childcleanup ]);
+						if wantsdebug (qw[ all cleanup childcleanup devel ]);
 					delete $Rate_Cache{$checkitem}{$crate};
 				} elsif ( $now > $Rate_Cache{$checkitem}{$crate}{'until'} ) {
 					log_info ("[CLEANUP] removing rate-cache item '$checkitem'->'$crate' after ttl ".$Rate_Cache{$checkitem}{$crate}{ttl}."s")
@@ -968,7 +956,7 @@ sub cleanup_rate_cache {
 # preparses configuration line for ACL syntax
 sub acl_parser {
 	my($file,$num,$myline) = @_;
-	if ( $myline =~ /^\s*($COMP_ACL[\-\w]+)\s*{\s*(.*?)\s*;\s*}[\s;]*$/ ) {
+	if ( $myline =~ /^\s*($COMP_ACL[\-\w]+)\s*{\s*(.*?)\s*;?\s*}[\s;]*$/ ) {
 		$ACLs{$1} = $2; $myline = "";
 	} else {
 		while ( $myline =~ /($COMP_ACL[\-\w]+)/) {
@@ -1116,7 +1104,7 @@ sub parse_config_line {
 # parses configuration file
 sub read_config_file {
 	my($forced_reload, $myindex, $myfile) = @_;
-	my(%myrule, @myruleset) = ();
+	my(%myrule, @myruleset, @lines) = ();
 	my($mybuffer) = ""; undef my $fh;
 
 	unless (-e $myfile) {
@@ -1130,11 +1118,21 @@ sub read_config_file {
 				chomp;
 				s/(\"|#.*)//g;
 				next if /^\s*$/;
-				if (/(.*)\\\s*$/) { $mybuffer = $mybuffer.$1; next; };
+				if ( /(.*)\\\s*$/ or /(.*\{)\s*$/ ) { $mybuffer = $mybuffer.$1; next; };
+				$mybuffer .= $_;
+				if ( $lines[0] and $mybuffer =~ /^(\}|\s+\S)/ ) {
+					my $last = pop(@lines); $last .= ';' unless $last =~ /;\s*$/;
+					$mybuffer = $last.$mybuffer;
+				};
+				push @lines, $mybuffer;
+				$mybuffer = "";
+			};
+			map {
+				log_info ("parsing line: '$_'") if wantsdebug (qw[ all config ]);
 				%myrule = parse_config_line ($forced_reload, $myfile, $., ($#myruleset+$myindex+1), $mybuffer.$_);
 				push ( @myruleset, { %myrule } ) if (%myrule);
 				$mybuffer = "";
-			};
+			} @lines;
 			close ($fh);
 			log_info ("loaded: Rules $myindex - ".($myindex + $#myruleset)." from file \"$myfile\"") if wantsdebug (qw[ all config verbose ]);
 		};
@@ -1256,7 +1254,7 @@ sub rbl_read_dns {
 				push @texts, $res;
 				$ttl = $_->ttl;
 				log_info ("[GETDNST1] type=$typ, query=$que, ttl=$ttl, answer='$res'") if wantsdebug (qw[ all dns getdns ]);
-			} elsif (wantsdebug (qw[ all dns getdns devel ])) {
+			} elsif (wantsdebug (qw[ all dns getdns ])) {
 				log_info ("[GETDNS??] received answer type=".$typ." for query $que");
 			};
 		};
@@ -1432,7 +1430,7 @@ sub dns_query_net_dns {
 	# send queries
 	} else {
 	    log_info ("[DNS] dnsquery: item=$item, type=$type")
-		if ($postfwd_settings{dns}{anylog} or wantsdebug (qw[ all dns getdns devel ]));
+		if ($postfwd_settings{dns}{anylog} or wantsdebug (qw[ all dns getdns ]));
 	    $DNS_Cache{$item}{delay} = $now;
 	    $bgsock = $dns->bgsend ($item, $type);
 	    $ownsel->add($bgsock);
@@ -1469,7 +1467,7 @@ sub dns_query_net_dns {
 		    unless ($postfwd_settings{dns}{noparent});
 		$DNS_Cache{$item}{'log'} = 1;
 		log_info ("[DNS] dnsanswers: item=$item, type=$type -> $rname=".((@{$DNS_Cache{$item}{$type}}) ? join ',', @{$DNS_Cache{$item}{$type}} : '')." (delay: ".ts($DNS_Cache{$item}{delay}).", ttl: $ttl)")
-		    if ($postfwd_settings{dns}{anylog} or wantsdebug (qw[ all verbose dns setdns devel ]));
+		    if ($postfwd_settings{dns}{anylog} or wantsdebug (qw[ all verbose dns setdns ]));
 		delete $ownsock{$sock};
 	    } else {
 		$ownsel->remove($sock);
@@ -1729,10 +1727,14 @@ sub postfwd_items {
 			$myresult = (($myitem || 0) >= $val);
 		} elsif ($cmp eq '!>') {
 			$myresult = not(($myitem || 0) >= $val);
+		} elsif ($cmp eq '=~') {
+			$myresult = ($myitem =~ /$val/i);
+		} elsif ($cmp eq '!~') {
+			$myresult = ($myitem !~ /$val/i);
 		} else {
 			# allow // regex
 			$val =~ s/^\/?(.*?)\/?$/$1/;
-			$myresult = ( ($cmp eq '!~') ? $myitem !~ /$val/i : $myitem =~ /$val/i );
+			$myresult = $myitem =~ /$val/i;
 		};
 		return $myresult;
 	},
@@ -2806,11 +2808,12 @@ use Pod::Usage;
 use Net::Server::Daemonize qw(daemonize);
 # own modules
 # program settings, syslogging
-import postfwd2::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_list);
+import postfwd2::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_list $TIMEHIRES);
 # cache daemon (requests, dns, limits), Net::Server::Multiplex
 import postfwd2::cache qw();
 # policy daemon, Net::Server::PreFork 
-import postfwd2::server qw(&read_config &show_config &process_input);
+import postfwd2::server qw(&read_config &show_config &process_input &get_plugins);
+
 
 # functions to start, override with '--daemons' at command line
 my @daemons = qw[ cache server ];
@@ -2820,6 +2823,7 @@ use vars qw(
 );
 
 # parse command-line
+my $Commandline = "$0 ".(join ' ', @ARGV);
 GetOptions( \%options,
 	# Ruleset
 	'rule|r=s'		  => sub{ my($opt,$value) = @_; push (@{$postfwd_settings{Configs}}, $opt.$postfwd_settings{sepreq}.$value) },
@@ -2881,7 +2885,7 @@ GetOptions( \%options,
 	"cleanup-rates=i"	  => \$postfwd_settings{rate}{cleanup},
 	"keep_rates|keep_limits|keep_rates_on_reload" => \$postfwd_settings{keep_rates},
 	# Control
-	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", Perl ".$]." on ".$^O.")\n"; exit 1; },
+	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '')."Perl ".$]." on ".$^O.")\n"; exit 1; },
 	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit 1; },
 	'manual|m'		  => sub{ # contructing command string (de-tainting $0)
                                           $postfwd_settings{manual} .= ($0 =~ /^([-\@\/\w. ]+)$/) ? " \"".$1 : " \"".$postfwd_settings{name};
@@ -3000,14 +3004,13 @@ unless ($postfwd_settings{daemon}) {
 };
 
 # daemonize master
-my $arg0 = $0; my $argv = join (' ', @ARGV);
 log_info ($postfwd_settings{name}." "
 	.$postfwd_settings{version}." starting"
 	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : ''));
-log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
+log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
 umask oct($postfwd_settings{base}{umask});
 daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file});
-$0 = $arg0." ".$argv;
+$0 = $Commandline;
 
 # prepare shared SIG handlers
 $SIG{__WARN__} = sub { log_warn("warning: $_[0]") };
@@ -3330,10 +3333,20 @@ appreciate.
 A ruleset consists of one or multiple rules, which can be loaded from files or passed as command line
 arguments. Please see the COMMAND LINE section below for more information on this topic.
 
-Rules can span multiple lines by adding a trailing backslash "\" character:
+Since postfwd version 1.30 rules spanning span multiple lines can be defined by prefixing the following
+lines with one or multiple whitespace characters (or '}' for macros):
 
-	id=R_001 ;  client_address=192.168.1.0/24; sender==no@bad.local; \
-		    action=REJECT please use your relay from there
+	id=RULE001
+		client_address=192.168.1.0/24
+		sender==no@bad.local
+		action=REJECT no access
+
+postfwd versions prior to 1.30 require trailing ';' and '\'-characters:
+
+	id=RULE001; \
+		client_address=192.168.1.0/24; \
+		sender==no@bad.local; \
+		action=REJECT no access
 
 
 =head2 ITEMS
@@ -3464,19 +3477,18 @@ Pattern matching is performed case insensitive.
 
 Multiple use of the same item is allowed and will compared as logical OR, which means that this will work as expected:
 
-	id=TRUST001; action=OK; encryption_keysize=64;		\
-		ccert_fingerprint=11:22:33:44:55:66:77:88:99;	\
-		ccert_fingerprint=22:33:44:55:66:77:88:99:00;	\
-		ccert_fingerprint=33:44:55:66:77:88:99:00:11;	\
+	id=TRUST001; action=OK; encryption_keysize=64
+		ccert_fingerprint=11:22:33:44:55:66:77:88:99
+		ccert_fingerprint=22:33:44:55:66:77:88:99:00
+		ccert_fingerprint=33:44:55:66:77:88:99:00:11
 		sender=@domain\.local$
 
 client_address, rbl and rhsbl items may also be specified as whitespace-or-comma-separated values:
 
-	id=SKIP01; action=dunno; \
+	id=SKIP01; action=dunno
 		client_address=192.168.1.0/24, 172.16.254.23
-	id=SKIP02; action=dunno; \
-		client_address=	10.10.3.32       \
-				10.216.222.0/27
+	id=SKIP02; action=dunno
+		client_address=	10.10.3.32 10.216.222.0/27
 
 The following items must be unique:
 
@@ -3484,15 +3496,15 @@ The following items must be unique:
 
 Any item can be negated by preceeding '!!' to it, e.g.:
 
-	id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please
+	id=HOST001 ;  hostname == !!secure.trust.local ;  action=REJECT only secure.trust.local please
 
 or using the right compare operator:
 
-	id=USER01 ;  sasl_username !~ /^(bob|alice)$/ ;  action=REJECT who is that?
+	id=HOST001 ;  hostname != secure.trust.local ;  action=REJECT only secure.trust.local please
 
 To avoid confusion with regexps or simply for better visibility you can use '!!(...)':
 
-	id=USER01 ;  sasl_username=!!( /^(bob|alice)$/ )  ;  action=REJECT who is that?
+	id=USER01 ;  sasl_username =~ !!( /^(bob|alice)$/ )  ;  action=REJECT who is that?
 
 Request attributes can be compared by preceeding '$$' characters, e.g.:
 
@@ -3518,10 +3530,10 @@ These special items will be changed for any matching rule:
 This means that it might be necessary to save them, if you plan to use these values in later rules:
 
 	# set vals
-	id=RBL01 ; rhsblcount=all; rblcount=all; \
-		action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext); \
-		rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org; \
-		rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net; \
+	id=RBL01 ; rhsblcount=all; rblcount=all
+		action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)
+		rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org
+		rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
 		rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
 
 	# compare
@@ -3551,16 +3563,16 @@ To use existing tables in key=value format, you can use:
 
 This will ignore the right-hand value. Items can be mixed:
 
-	id=R002 ;  action=REJECT \
-		client_name==unknown; \
+	id=R002 ;  action=REJECT
+		client_name==unknown
 		client_name==file:/etc/postfwd/blacklisted
 
 and for non pcre (comma separated) items:
 
-	id=R003 ;  action=REJECT \
+	id=R003 ;  action=REJECT
 		client_address==10.1.1.1, file:/etc/postfwd/blacklisted
 
-	id=R004 ;  action=REJECT \
+	id=R004 ;  action=REJECT
 		rbl=myrbl.home.local, zen.spamhaus.org, file:/etc/postfwd/rbls_changing
 
 You can check your configuration with the --show_config option at the command line:
@@ -3674,7 +3686,7 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 	please note that <action> is currently limited to postfix actions (no postfwd actions)!
 	    # no more than 3 requests per 5 minutes
 	    # from the same "unknown" client
-	    id=RATE01 ;  client_name==unknown ; \
+	    id=RATE01 ;  client_name==unknown
 	       action=rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
 
 	size (<item>/<max>/<time>/<action>)
@@ -3682,7 +3694,7 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 	increased by the request's size attribute. to do this reliably you should call postfwd2 from
 	smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
 	   # size limit 1.5mb per hour per client
-	   id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1); \
+	   id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
 	      action=size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 
 	rcpt (<item>/<max>/<time>/<action>)
@@ -3691,7 +3703,7 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 	from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
 	check it within the ruleset:
 	   # recipient count limit 3 per hour per client
-	   id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1); \
+	   id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
 	      action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 
 	ask (<addr>:<port>[:<ignore>])
@@ -3745,18 +3757,18 @@ Macros can contain actions, too:
 
 Macros can contain macros, too:
 
-	# definition (note the trailing "\" characters)
-	&&RBLS { 						\
-		rbl=zen.spamhaus.org ;				\
-		rbl=list.dsbl.org ;				\
-		rbl=bl.spamcop.net ;				\
-		rbl=dnsbl.sorbs.net ;				\
-		rbl=ix.dnsbl.manitu.net ;			\
+	# definition
+	&&RBLS{
+		rbl=zen.spamhaus.org
+		rbl=list.dsbl.org
+		rbl=bl.spamcop.net
+		rbl=dnsbl.sorbs.net
+		rbl=ix.dnsbl.manitu.net
 	};
-	&&DYNAMIC { 						\
-		client_name=^unknown$ ; 			\
-		client_name=(\d+[\.-_]){4} ; 			\
-		client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;	\
+	&&DYNAMIC{
+		client_name=^unknown$
+		client_name=(\d+[\.-_]){4}
+		client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
 	};
 	&&GOAWAY { &&RBLS; &&DYNAMIC; };
 	# rules
@@ -4262,9 +4274,9 @@ the '-I' switch to have your configuration refreshed for every request postfwd2 
 	# The following temporary rejects requests from "unknown" clients, if they
 	# 1. exceeded 30 requests per hour or
 	# 2. tried to send more than 1.5mb within 10 minutes
-	id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT ; \
+	id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT
 		action=rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
-	id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE ; \
+	id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE
 		action=size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
 
 	## Macros
@@ -4278,34 +4290,34 @@ the '-I' switch to have your configuration refreshed for every request postfwd2 
 
 	## Groups
 	# definition
-        &&RBLS { \
-		rbl=zen.spamhaus.org ;		\
-		rbl=list.dsbl.org ;		\
-		rbl=bl.spamcop.net ;		\
-		rbl=dnsbl.sorbs.net ;		\
-		rbl=ix.dnsbl.manitu.net ;	\
+        &&RBLS{
+		rbl=zen.spamhaus.org
+		rbl=list.dsbl.org
+		rbl=bl.spamcop.net
+		rbl=dnsbl.sorbs.net
+		rbl=ix.dnsbl.manitu.net
 	};
-	&&RHSBLS { \
+	&&RHSBLS{
 		...
 	};
-	&&DYNAMIC { \
-        	client_name==unknown ;				\
-        	client_name~=(\d+[\.-_]){4} ;			\
-        	client_name~=[\.-_](adsl|dynamic|ppp|)[\.-_] ;	\
+	&&DYNAMIC{
+        	client_name==unknown
+        	client_name~=(\d+[\.-_]){4}
+        	client_name~=[\.-_](adsl|dynamic|ppp|)[\.-_]
 		...
 	};
-	&&BAD_HELO { \
-		helo_name==my.name.tld;		\
-		helo_name~=^([^\.]+)$;		\
-		helo_name~=\.(local|lan)$;	\
+	&&BAD_HELO{
+		helo_name==my.name.tld
+		helo_name~=^([^\.]+)$
+		helo_name~=\.(local|lan)$
 		...
 	};
-	&&MAINTENANCE { \
-		date=15.01.2007 ; \
-		date=15.04.2007 ; \
-		date=15.07.2007 ; \
-		date=15.10.2007 ; \
-		time=03:00:00 - 04:00:00 ; \
+	&&MAINTENANCE{
+		date=15.01.2007
+		date=15.04.2007
+		date=15.07.2007
+		date=15.10.2007
+		time=03:00:00 - 04:00:00
 	};
 	# rules
 	id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
@@ -4322,7 +4334,7 @@ the '-I' switch to have your configuration refreshed for every request postfwd2 
 
 	## combined with enhanced rbl features
 	#
-	id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS ; \
+	id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS
 	     action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,HIT_dnstxt=$$dnsbltext)
 	id=RBL02 ; HIT_dnsbls>=2  ; action=554 5.7.1 blocked using $$HIT_dnsbls DNSBLs [INFO: $$HIT_dnstxt]
 

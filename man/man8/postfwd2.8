@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD2-ALL-IN-ONE 1"
-.TH POSTFWD2-ALL-IN-ONE 1 "2011-08-18" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD2-ALL-IN-ONE 1 "2011-08-21" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd2 \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -334,11 +334,23 @@ appreciate.
 A ruleset consists of one or multiple rules, which can be loaded from files or passed as command line
 arguments. Please see the \s-1COMMAND\s0 \s-1LINE\s0 section below for more information on this topic.
 .PP
-Rules can span multiple lines by adding a trailing backslash \*(L"\e\*(R" character:
+Since postfwd version 1.30 rules spanning span multiple lines can be defined by prefixing the following
+lines with one or multiple whitespace characters (or '}' for macros):
 .PP
-.Vb 2
-\&        id=R_001 ;  client_address=192.168.1.0/24; sender==no@bad.local; \e
-\&                    action=REJECT please use your relay from there
+.Vb 4
+\&        id=RULE001
+\&                client_address=192.168.1.0/24
+\&                sender==no@bad.local
+\&                action=REJECT no access
+.Ve
+.PP
+postfwd versions prior to 1.30 require trailing ';' and '\e'\-characters:
+.PP
+.Vb 4
+\&        id=RULE001; \e
+\&                client_address=192.168.1.0/24; \e
+\&                sender==no@bad.local; \e
+\&                action=REJECT no access
 .Ve
 .Sh "\s-1ITEMS\s0"
 .IX Subsection "ITEMS"
@@ -499,21 +511,20 @@ Pattern matching is performed case insensitive.
 Multiple use of the same item is allowed and will compared as logical \s-1OR\s0, which means that this will work as expected:
 .PP
 .Vb 5
-\&        id=TRUST001; action=OK; encryption_keysize=64;          \e
-\&                ccert_fingerprint=11:22:33:44:55:66:77:88:99;   \e
-\&                ccert_fingerprint=22:33:44:55:66:77:88:99:00;   \e
-\&                ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \e
+\&        id=TRUST001; action=OK; encryption_keysize=64
+\&                ccert_fingerprint=11:22:33:44:55:66:77:88:99
+\&                ccert_fingerprint=22:33:44:55:66:77:88:99:00
+\&                ccert_fingerprint=33:44:55:66:77:88:99:00:11
 \&                sender=@domain\e.local$
 .Ve
 .PP
 client_address, rbl and rhsbl items may also be specified as whitespace-or-comma-separated values:
 .PP
-.Vb 5
-\&        id=SKIP01; action=dunno; \e
+.Vb 4
+\&        id=SKIP01; action=dunno
 \&                client_address=192.168.1.0/24, 172.16.254.23
-\&        id=SKIP02; action=dunno; \e
-\&                client_address= 10.10.3.32       \e
-\&                                10.216.222.0/27
+\&        id=SKIP02; action=dunno
+\&                client_address= 10.10.3.32 10.216.222.0/27
 .Ve
 .PP
 The following items must be unique:
@@ -525,19 +536,19 @@ The following items must be unique:
 Any item can be negated by preceeding '!!' to it, e.g.:
 .PP
 .Vb 1
-\&        id=TLS001 ;  hostname=!!^secure\e.trust\e.local$ ;  action=REJECT only secure.trust.local please
+\&        id=HOST001 ;  hostname == !!secure.trust.local ;  action=REJECT only secure.trust.local please
 .Ve
 .PP
 or using the right compare operator:
 .PP
 .Vb 1
-\&        id=USER01 ;  sasl_username !~ /^(bob|alice)$/ ;  action=REJECT who is that?
+\&        id=HOST001 ;  hostname != secure.trust.local ;  action=REJECT only secure.trust.local please
 .Ve
 .PP
 To avoid confusion with regexps or simply for better visibility you can use '!!(...)':
 .PP
 .Vb 1
-\&        id=USER01 ;  sasl_username=!!( /^(bob|alice)$/ )  ;  action=REJECT who is that?
+\&        id=USER01 ;  sasl_username =~ !!( /^(bob|alice)$/ )  ;  action=REJECT who is that?
 .Ve
 .PP
 Request attributes can be compared by preceeding '$$' characters, e.g.:
@@ -571,10 +582,10 @@ This means that it might be necessary to save them, if you plan to use these val
 .PP
 .Vb 6
 \&        # set vals
-\&        id=RBL01 ; rhsblcount=all; rblcount=all; \e
-\&                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext); \e
-\&                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org; \e
-\&                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net; \e
+\&        id=RBL01 ; rhsblcount=all; rblcount=all
+\&                action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)
+\&                rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org
+\&                rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
 \&                rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
 .Ve
 .PP
@@ -612,20 +623,20 @@ To use existing tables in key=value format, you can use:
 This will ignore the right-hand value. Items can be mixed:
 .PP
 .Vb 3
-\&        id=R002 ;  action=REJECT \e
-\&                client_name==unknown; \e
+\&        id=R002 ;  action=REJECT
+\&                client_name==unknown
 \&                client_name==file:/etc/postfwd/blacklisted
 .Ve
 .PP
 and for non pcre (comma separated) items:
 .PP
 .Vb 2
-\&        id=R003 ;  action=REJECT \e
+\&        id=R003 ;  action=REJECT
 \&                client_address==10.1.1.1, file:/etc/postfwd/blacklisted
 .Ve
 .PP
 .Vb 2
-\&        id=R004 ;  action=REJECT \e
+\&        id=R004 ;  action=REJECT
 \&                rbl=myrbl.home.local, zen.spamhaus.org, file:/etc/postfwd/rbls_changing
 .Ve
 .PP
@@ -769,7 +780,7 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 \&        please note that <action> is currently limited to postfix actions (no postfwd actions)!
 \&            # no more than 3 requests per 5 minutes
 \&            # from the same "unknown" client
-\&            id=RATE01 ;  client_name==unknown ; \e
+\&            id=RATE01 ;  client_name==unknown
 \&               action=rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
 .Ve
 .PP
@@ -779,7 +790,7 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 \&        increased by the request's size attribute. to do this reliably you should call postfwd2 from
 \&        smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
 \&           # size limit 1.5mb per hour per client
-\&           id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1); \e
+\&           id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
 \&              action=size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 .Ve
 .PP
@@ -790,7 +801,7 @@ postfwd2 actions control the behaviour of the program. Currently you can specify
 \&        from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
 \&        check it within the ruleset:
 \&           # recipient count limit 3 per hour per client
-\&           id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1); \e
+\&           id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
 \&              action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 .Ve
 .PP
@@ -860,18 +871,18 @@ Macros can contain actions, too:
 Macros can contain macros, too:
 .PP
 .Vb 16
-\&        # definition (note the trailing "\e" characters)
-\&        &&RBLS {                                                \e
-\&                rbl=zen.spamhaus.org ;                          \e
-\&                rbl=list.dsbl.org ;                             \e
-\&                rbl=bl.spamcop.net ;                            \e
-\&                rbl=dnsbl.sorbs.net ;                           \e
-\&                rbl=ix.dnsbl.manitu.net ;                       \e
+\&        # definition
+\&        &&RBLS{
+\&                rbl=zen.spamhaus.org
+\&                rbl=list.dsbl.org
+\&                rbl=bl.spamcop.net
+\&                rbl=dnsbl.sorbs.net
+\&                rbl=ix.dnsbl.manitu.net
 \&        };
-\&        &&DYNAMIC {                                             \e
-\&                client_name=^unknown$ ;                         \e
-\&                client_name=(\ed+[\e.-_]){4} ;                    \e
-\&                client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;   \e
+\&        &&DYNAMIC{
+\&                client_name=^unknown$
+\&                client_name=(\ed+[\e.-_]){4}
+\&                client_name=[\e.-_](adsl|dynamic|ppp|)[\e.-_]
 \&        };
 \&        &&GOAWAY { &&RBLS; &&DYNAMIC; };
 \&        # rules
@@ -1533,9 +1544,9 @@ the '\-I' switch to have your configuration refreshed for every request postfwd2
 \&        # The following temporary rejects requests from "unknown" clients, if they
 \&        # 1. exceeded 30 requests per hour or
 \&        # 2. tried to send more than 1.5mb within 10 minutes
-\&        id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT ; \e
+\&        id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT
 \&                action=rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
-\&        id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE ; \e
+\&        id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE
 \&                action=size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
 .Ve
 .PP
@@ -1553,34 +1564,34 @@ the '\-I' switch to have your configuration refreshed for every request postfwd2
 .Vb 34
 \&        ## Groups
 \&        # definition
-\&        &&RBLS { \e
-\&                rbl=zen.spamhaus.org ;          \e
-\&                rbl=list.dsbl.org ;             \e
-\&                rbl=bl.spamcop.net ;            \e
-\&                rbl=dnsbl.sorbs.net ;           \e
-\&                rbl=ix.dnsbl.manitu.net ;       \e
+\&        &&RBLS{
+\&                rbl=zen.spamhaus.org
+\&                rbl=list.dsbl.org
+\&                rbl=bl.spamcop.net
+\&                rbl=dnsbl.sorbs.net
+\&                rbl=ix.dnsbl.manitu.net
 \&        };
-\&        &&RHSBLS { \e
+\&        &&RHSBLS{
 \&                ...
 \&        };
-\&        &&DYNAMIC { \e
-\&                client_name==unknown ;                          \e
-\&                client_name~=(\ed+[\e.-_]){4} ;                   \e
-\&                client_name~=[\e.-_](adsl|dynamic|ppp|)[\e.-_] ;  \e
+\&        &&DYNAMIC{
+\&                client_name==unknown
+\&                client_name~=(\ed+[\e.-_]){4}
+\&                client_name~=[\e.-_](adsl|dynamic|ppp|)[\e.-_]
 \&                ...
 \&        };
-\&        &&BAD_HELO { \e
-\&                helo_name==my.name.tld;         \e
-\&                helo_name~=^([^\e.]+)$;          \e
-\&                helo_name~=\e.(local|lan)$;      \e
+\&        &&BAD_HELO{
+\&                helo_name==my.name.tld
+\&                helo_name~=^([^\e.]+)$
+\&                helo_name~=\e.(local|lan)$
 \&                ...
 \&        };
-\&        &&MAINTENANCE { \e
-\&                date=15.01.2007 ; \e
-\&                date=15.04.2007 ; \e
-\&                date=15.07.2007 ; \e
-\&                date=15.10.2007 ; \e
-\&                time=03:00:00 - 04:00:00 ; \e
+\&        &&MAINTENANCE{
+\&                date=15.01.2007
+\&                date=15.04.2007
+\&                date=15.07.2007
+\&                date=15.10.2007
+\&                time=03:00:00 - 04:00:00
 \&        };
 \&        # rules
 \&        id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
@@ -1601,7 +1612,7 @@ the '\-I' switch to have your configuration refreshed for every request postfwd2
 .Vb 5
 \&        ## combined with enhanced rbl features
 \&        #
-\&        id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS ; \e
+\&        id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS
 \&             action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,HIT_dnstxt=$$dnsbltext)
 \&        id=RBL02 ; HIT_dnsbls>=2  ; action=554 5.7.1 blocked using $$HIT_dnsbls DNSBLs [INFO: $$HIT_dnstxt]
 .Ve

@@ -178,11 +178,21 @@ DESCRIPTION
     files or passed as command line arguments. Please see the COMMAND LINE
     section below for more information on this topic.
 
-    Rules can span multiple lines by adding a trailing backslash "\"
-    character:
+    Since postfwd version 1.30 rules spanning span multiple lines can be
+    defined by prefixing the following lines with one or multiple whitespace
+    characters (or '}' for macros):
 
-            id=R_001 ;  client_address=192.168.1.0/24; sender==no@bad.local; \
-                        action=REJECT please use your relay from there
+            id=RULE001
+                    client_address=192.168.1.0/24
+                    sender==no@bad.local
+                    action=REJECT no access
+
+    postfwd versions prior to 1.30 require trailing ';' and '\'-characters:
+
+            id=RULE001; \
+                    client_address=192.168.1.0/24; \
+                    sender==no@bad.local; \
+                    action=REJECT no access
 
   ITEMS
             id                      - a unique rule id, which can be used for log analysis
@@ -315,20 +325,19 @@ DESCRIPTION
     Multiple use of the same item is allowed and will compared as logical
     OR, which means that this will work as expected:
 
-            id=TRUST001; action=OK; encryption_keysize=64;          \
-                    ccert_fingerprint=11:22:33:44:55:66:77:88:99;   \
-                    ccert_fingerprint=22:33:44:55:66:77:88:99:00;   \
-                    ccert_fingerprint=33:44:55:66:77:88:99:00:11;   \
+            id=TRUST001; action=OK; encryption_keysize=64
+                    ccert_fingerprint=11:22:33:44:55:66:77:88:99
+                    ccert_fingerprint=22:33:44:55:66:77:88:99:00
+                    ccert_fingerprint=33:44:55:66:77:88:99:00:11
                     sender=@domain\.local$
 
     client_address, rbl and rhsbl items may also be specified as
     whitespace-or-comma-separated values:
 
-            id=SKIP01; action=dunno; \
+            id=SKIP01; action=dunno
                     client_address=192.168.1.0/24, 172.16.254.23
-            id=SKIP02; action=dunno; \
-                    client_address= 10.10.3.32       \
-                                    10.216.222.0/27
+            id=SKIP02; action=dunno
+                    client_address= 10.10.3.32 10.216.222.0/27
 
     The following items must be unique:
 
@@ -336,16 +345,16 @@ DESCRIPTION
 
     Any item can be negated by preceeding '!!' to it, e.g.:
 
-            id=TLS001 ;  hostname=!!^secure\.trust\.local$ ;  action=REJECT only secure.trust.local please
+            id=HOST001 ;  hostname == !!secure.trust.local ;  action=REJECT only secure.trust.local please
 
     or using the right compare operator:
 
-            id=USER01 ;  sasl_username !~ /^(bob|alice)$/ ;  action=REJECT who is that?
+            id=HOST001 ;  hostname != secure.trust.local ;  action=REJECT only secure.trust.local please
 
     To avoid confusion with regexps or simply for better visibility you can
     use '!!(...)':
 
-            id=USER01 ;  sasl_username=!!( /^(bob|alice)$/ )  ;  action=REJECT who is that?
+            id=USER01 ;  sasl_username =~ !!( /^(bob|alice)$/ )  ;  action=REJECT who is that?
 
     Request attributes can be compared by preceeding '$$' characters, e.g.:
 
@@ -373,10 +382,10 @@ DESCRIPTION
     these values in later rules:
 
             # set vals
-            id=RBL01 ; rhsblcount=all; rblcount=all; \
-                    action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext); \
-                    rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org; \
-                    rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net; \
+            id=RBL01 ; rhsblcount=all; rblcount=all
+                    action=set(HIT_rhls=$$rhsblcount,HIT_rbls=$$rblcount,HIT_txt=$$dnsbltext)
+                    rbl=list.dsbl.org, bl.spamcop.net, dnsbl.sorbs.net, zen.spamhaus.org
+                    rhsbl_client=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
                     rhsbl_sender=rddn.dnsbl.net.au, rhsbl.ahbl.org, rhsbl.sorbs.net
 
             # compare
@@ -406,16 +415,16 @@ DESCRIPTION
 
     This will ignore the right-hand value. Items can be mixed:
 
-            id=R002 ;  action=REJECT \
-                    client_name==unknown; \
+            id=R002 ;  action=REJECT
+                    client_name==unknown
                     client_name==file:/etc/postfwd/blacklisted
 
     and for non pcre (comma separated) items:
 
-            id=R003 ;  action=REJECT \
+            id=R003 ;  action=REJECT
                     client_address==10.1.1.1, file:/etc/postfwd/blacklisted
 
-            id=R004 ;  action=REJECT \
+            id=R004 ;  action=REJECT
                     rbl=myrbl.home.local, zen.spamhaus.org, file:/etc/postfwd/rbls_changing
 
     You can check your configuration with the --show_config option at the
@@ -537,7 +546,7 @@ DESCRIPTION
             please note that <action> is currently limited to postfix actions (no postfwd actions)!
                 # no more than 3 requests per 5 minutes
                 # from the same "unknown" client
-                id=RATE01 ;  client_name==unknown ; \
+                id=RATE01 ;  client_name==unknown
                    action=rate(client_address/3/300/450 4.7.1 sorry, max 3 requests per 5 minutes)
 
             size (<item>/<max>/<time>/<action>)
@@ -545,7 +554,7 @@ DESCRIPTION
             increased by the request's size attribute. to do this reliably you should call postfwd2 from
             smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
                # size limit 1.5mb per hour per client
-               id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1); \
+               id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
                   action=size(client_address/1572864/3600/450 4.7.1 sorry, max 1.5mb per hour)
 
             rcpt (<item>/<max>/<time>/<action>)
@@ -554,7 +563,7 @@ DESCRIPTION
             from smtpd_data_restrictions or smtpd_end_of_data_restrictions. if you want to be sure, you could
             check it within the ruleset:
                # recipient count limit 3 per hour per client
-               id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1); \
+               id=RCPT01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
                   action=rcpt(client_address/3/3600/450 4.7.1 sorry, max 3 recipients per hour)
 
             ask (<addr>:<port>[:<ignore>])
@@ -607,18 +616,18 @@ DESCRIPTION
 
     Macros can contain macros, too:
 
-            # definition (note the trailing "\" characters)
-            &&RBLS {                                                \
-                    rbl=zen.spamhaus.org ;                          \
-                    rbl=list.dsbl.org ;                             \
-                    rbl=bl.spamcop.net ;                            \
-                    rbl=dnsbl.sorbs.net ;                           \
-                    rbl=ix.dnsbl.manitu.net ;                       \
+            # definition
+            &&RBLS{
+                    rbl=zen.spamhaus.org
+                    rbl=list.dsbl.org
+                    rbl=bl.spamcop.net
+                    rbl=dnsbl.sorbs.net
+                    rbl=ix.dnsbl.manitu.net
             };
-            &&DYNAMIC {                                             \
-                    client_name=^unknown$ ;                         \
-                    client_name=(\d+[\.-_]){4} ;                    \
-                    client_name=[\.-_](adsl|dynamic|ppp|)[\.-_] ;   \
+            &&DYNAMIC{
+                    client_name=^unknown$
+                    client_name=(\d+[\.-_]){4}
+                    client_name=[\.-_](adsl|dynamic|ppp|)[\.-_]
             };
             &&GOAWAY { &&RBLS; &&DYNAMIC; };
             # rules
@@ -1124,9 +1133,9 @@ DESCRIPTION
             # The following temporary rejects requests from "unknown" clients, if they
             # 1. exceeded 30 requests per hour or
             # 2. tried to send more than 1.5mb within 10 minutes
-            id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT ; \
+            id=RATE01 ;  client_name==unknown ;  protocol_state==RCPT
                     action=rate(client_address/30/3600/450 4.7.1 sorry, max 30 requests per hour)
-            id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE ; \
+            id=SIZE01 ;  client_name==unknown ;  protocol_state==END-OF-MESSAGE
                     action=size(client_address/1572864/600/450 4.7.1 sorry, max 1.5mb per 10 minutes)
 
             ## Macros
@@ -1140,34 +1149,34 @@ DESCRIPTION
 
             ## Groups
             # definition
-            &&RBLS { \
-                    rbl=zen.spamhaus.org ;          \
-                    rbl=list.dsbl.org ;             \
-                    rbl=bl.spamcop.net ;            \
-                    rbl=dnsbl.sorbs.net ;           \
-                    rbl=ix.dnsbl.manitu.net ;       \
+            &&RBLS{
+                    rbl=zen.spamhaus.org
+                    rbl=list.dsbl.org
+                    rbl=bl.spamcop.net
+                    rbl=dnsbl.sorbs.net
+                    rbl=ix.dnsbl.manitu.net
             };
-            &&RHSBLS { \
+            &&RHSBLS{
                     ...
             };
-            &&DYNAMIC { \
-                    client_name==unknown ;                          \
-                    client_name~=(\d+[\.-_]){4} ;                   \
-                    client_name~=[\.-_](adsl|dynamic|ppp|)[\.-_] ;  \
+            &&DYNAMIC{
+                    client_name==unknown
+                    client_name~=(\d+[\.-_]){4}
+                    client_name~=[\.-_](adsl|dynamic|ppp|)[\.-_]
                     ...
             };
-            &&BAD_HELO { \
-                    helo_name==my.name.tld;         \
-                    helo_name~=^([^\.]+)$;          \
-                    helo_name~=\.(local|lan)$;      \
+            &&BAD_HELO{
+                    helo_name==my.name.tld
+                    helo_name~=^([^\.]+)$
+                    helo_name~=\.(local|lan)$
                     ...
             };
-            &&MAINTENANCE { \
-                    date=15.01.2007 ; \
-                    date=15.04.2007 ; \
-                    date=15.07.2007 ; \
-                    date=15.10.2007 ; \
-                    time=03:00:00 - 04:00:00 ; \
+            &&MAINTENANCE{
+                    date=15.01.2007
+                    date=15.04.2007
+                    date=15.07.2007
+                    date=15.10.2007
+                    time=03:00:00 - 04:00:00
             };
             # rules
             id=COMBINED    ;  &&RBLS ;  &&DYNAMIC ;  action=REJECT dynamic client and listed on RBL
@@ -1184,7 +1193,7 @@ DESCRIPTION
 
             ## combined with enhanced rbl features
             #
-            id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS ; \
+            id=RBL01 ; rhsblcount=all ; rblcount=all ; &&RBLS ; &&RHSBLS
                  action=set(HIT_dnsbls=$$rhsblcount,HIT_dnsbls+=$$rblcount,HIT_dnstxt=$$dnsbltext)
             id=RBL02 ; HIT_dnsbls>=2  ; action=554 5.7.1 blocked using $$HIT_dnsbls DNSBLs [INFO: $$HIT_dnstxt]
 
