@@ -95,6 +95,8 @@
             --dns_timeout           timeout in seconds for asynchonous dns queries
             --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
             --dns_timeout_interval  interval in seconds for dns timeout maximum counter
+            --dns_max_ns_lookups    max names to look up with sender_ns_addrs
+            --dns_max_mx_lookups    max names to look up with sender_mx_addrs
         -I, --instantcfg            re-reads rulefiles for every new request</pre>
 <pre>
         Informational (use only at command-line!):
@@ -632,9 +634,15 @@ The following arguments will control it's behaviour in this case.</p>
         in conjunction with the --dns_timeout_max parameter.</pre>
 <pre>
         --dns_async_txt
-        Perform dnsbl A and TXT lookups in parallel (otherwise only for listings with at least
-        one A record). This needs more network bandwidth due to increased queries but
-        might also increase throughput because the lookups can be parallelized that way.</pre>
+        Perform dnsbl A and TXT lookups simultaneously (otherwise only for listings with at
+        least one A record). This needs more network bandwidth due to increased queries but
+        might increase throughput because the lookups can be parallelized.</pre>
+<pre>
+        --dns_max_ns_lookups     (default=0)
+        maximum ns names to lookup up with sender_ns_addrs item. use 0 for no maximum.</pre>
+<pre>
+        --dns_max_mx_lookups     (default=0)
+        maximum mx names to lookup up with sender_mx_addrs item. use 0 for no maximum.</pre>
 <pre>
         -I, --instantcfg
         The config files, specified by -f will be re-read for every request

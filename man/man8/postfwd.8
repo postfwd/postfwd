@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "MANUAL1 8"
-.TH MANUAL1 8 "2009-06-22" "perl v5.8.8" "User Contributed Perl Documentation"
+.TH MANUAL1 8 "2009-06-27" "perl v5.8.8" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -175,7 +175,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --cleanup-rates         cleanup interval in seconds for rate cache
 .Ve
 .PP
-.Vb 14
+.Vb 16
 \&        Optional:
 \&        -t, --test                  testing, always returns "dunno"
 \&        -v, --verbose               verbose logging, use twice (-vv) to increase level
@@ -189,6 +189,8 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --dns_timeout           timeout in seconds for asynchonous dns queries
 \&            --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
 \&            --dns_timeout_interval  interval in seconds for dns timeout maximum counter
+\&            --dns_max_ns_lookups    max names to look up with sender_ns_addrs
+\&            --dns_max_mx_lookups    max names to look up with sender_mx_addrs
 \&        -I, --instantcfg            re-reads rulefiles for every new request
 .Ve
 .PP
@@ -936,9 +938,19 @@ These parameters influence the way postfwd is working. Any of them can be combin
 .PP
 .Vb 4
 \&        --dns_async_txt
-\&        Perform dnsbl A and TXT lookups in parallel (otherwise only for listings with at least
-\&        one A record). This needs more network bandwidth due to increased queries but
-\&        might also increase throughput because the lookups can be parallelized that way.
+\&        Perform dnsbl A and TXT lookups simultaneously (otherwise only for listings with at
+\&        least one A record). This needs more network bandwidth due to increased queries but
+\&        might increase throughput because the lookups can be parallelized.
+.Ve
+.PP
+.Vb 2
+\&        --dns_max_ns_lookups     (default=0)
+\&        maximum ns names to lookup up with sender_ns_addrs item. use 0 for no maximum.
+.Ve
+.PP
+.Vb 2
+\&        --dns_max_mx_lookups     (default=0)
+\&        maximum mx names to lookup up with sender_mx_addrs item. use 0 for no maximum.
 .Ve
 .PP
 .Vb 6

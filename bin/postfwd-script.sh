@@ -36,22 +36,10 @@ case "$1" in
 			${PFWCMD} ${PFWARG} -vv --daemon --file=${PFWCFG} --interface=${PFWINET} --port=${PFWPORT} --user=${PFWUSER} --group=${PFWGROUP} --pidfile=${PFWPID};
 			;;
 
-	stop*)		if [ -f "${PFWPID}" ]; then
-				echo "Stopping ${P1}...";
-				kill `cat ${PFWPID}`;
-			else
-				echo "Pidfile \"${PFWPID}\" not found" ;
-				false;
-			fi ;
+	stop*)		${PFWCMD} --interface=${PFWINET} --port=${PFWPORT} --pidfile=${PFWPID} --kill;
 			;;
 
-	reload*)	if [ -f "${PFWPID}" ]; then
-				echo "Stopping ${P1}...";
-				kill -HUP `cat ${PFWPID}`;
-			else
-				echo "Pidfile \"${PFWPID}\" not found" ;
-				false;
-			fi ;
+	reload*)	${PFWCMD} --interface=${PFWINET} --port=${PFWPORT} --pidfile=${PFWPID} -- reload;
 			;;
 
 	restart*)	$0 stop;
@@ -60,7 +48,7 @@ case "$1" in
 			;;
 
 	*)		echo "Unknown argument \"$1\"" >&2;
-			echo "Usage: `basename $0` {start|stop|reload|restart}" >&2;
+			echo "Usage: `basename $0` {start|stop|debug|reload|restart}" >&2;
 			exit 1;;
 esac
 exit $?

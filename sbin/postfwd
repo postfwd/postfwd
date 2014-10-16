@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.12';
+our($VERSION)			= '1.13';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -196,7 +196,7 @@ use vars qw(
 	%postfwd_items %postfwd_items_plugin
 	%postfwd_compare %postfwd_compare_plugin
 	%postfwd_actions %postfwd_actions_plugin
-	$Counter_Requests $Counter_Hits
+	$Counter_Requests $Counter_Hits $opt_max_ns_lookups $opt_max_mx_lookups
 	$Counter_Interval $Counter_Top $Counter_Rates
 	$Starttime $Startdate $Cleanup_Requests
 	$Cleanup_RBLs $Cleanup_Rates $Cleanup_Timeouts
@@ -814,9 +814,17 @@ sub dns_query {
     # send queries
     foreach (@queries) {
 	my ($item, $type) = split ','; $type ||= 'A';
-	$bgsock = $dns->bgsend ($item, $type);
-	$ownsel->add($bgsock);
-	$ownsock{$bgsock} = $item.','.$type;
+        # query child cache
+        if ( (defined $DNS_Cache{$item}{$type}) and (defined $DNS_Cache{$item}{'until'}) and ($DNS_Cache{$item}{'until'} >= time()) ) {
+            $DNS_Cache{$item}{$type} = [ $DNS_Cache{$item}{$type} ] unless (ref $DNS_Cache{$item}{$type} eq 'ARRAY');
+            mylogs $syslog_priority, "dnsccache: item=$item, type=$type -> ".(join ',', @{$DNS_Cache{$item}{$type}})." (ttl: ".($DNS_Cache{$item}{ttl} || 0).")" if ($opt_verbose);
+            push @result, @{$DNS_Cache{$item}{$type}};
+	} else {
+            mylogs $syslog_priority, "dnsquery: item=$item, type=$type" if ($opt_verbose);
+	    $bgsock = $dns->bgsend ($item, $type);
+	    $ownsel->add($bgsock);
+	    $ownsock{$bgsock} = $item.','.$type;
+	};
     };
     # retrieve answers
     while ((scalar keys %ownsock) and (@ownready = $ownsel->can_read($dns_timeout))) {
@@ -826,12 +834,21 @@ sub dns_query {
 		my ($item, $type) = split ',', $ownsock{$sock};
 		my $rname = $DNS_REPNAMES{$type};
 		my @rrs = (grep { $_->type eq $type } $packet->answer);
-		# sort MX records by preference
-		@rrs = sort { $a->preference <=> $b->preference } @rrs if ($type eq 'MX');
-		foreach my $rr (@rrs) {
-		    mylogs $syslog_priority, "dnsquery: item=$item, type=$type -> $rname=".$rr->$rname." (ttl: ".$rr->ttl.")" if $opt_verbose;
-		    push @result, $rr->$rname;
+		my $ttl = 0; my @ans = ();
+		if (@rrs) {
+		    # sort MX records by preference
+		    @rrs = sort { $a->preference <=> $b->preference } @rrs if ($type eq 'MX');
+		    foreach my $rr (@rrs) {
+			mylogs $syslog_priority, "dnsanswer: item=$item, type=$type -> $rname=".$rr->$rname." (ttl: ".$rr->ttl.")" if $opt_verbose;
+			push @ans, $rr->$rname;
+		    };
+		    push @result, @ans;
 		};
+		# add to dns cache
+		$ttl ||= $DNS_MIN_CACHE;
+		@{$DNS_Cache{$item}{$type}} = @ans;
+		$DNS_Cache{$item}{ttl} = $ttl;
+		$DNS_Cache{$item}{'until'} = time() + $ttl;
 		delete $ownsock{$sock};
 	    } else {
 		$ownsel->remove($sock);
@@ -1021,9 +1038,12 @@ sub postfwd_items {
 		my($myresult) = undef;
 		return $myresult if $opt_nodns;
 		return $myresult unless $myitem =~ /\./;
-		if ( my @answers = dns_query (dns_query ("$myitem,NS")) ) {
-			mylogs $syslog_priority, "type $COMP_NS_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
-			map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+		if ( my @answers = dns_query ("$myitem,NS") ) {
+			splice (@answers, $opt_max_ns_lookups) if $opt_max_ns_lookups;
+			if ( @answers = dns_query (@answers) ) {
+				mylogs $syslog_priority, "type $COMP_NS_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
+				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+			};
 		};
 		return $myresult;
 	},
@@ -1032,9 +1052,12 @@ sub postfwd_items {
 		my($myresult) = undef;
 		return $myresult if $opt_nodns;
 		return $myresult unless $myitem =~ /\./;
-		if ( my @answers = dns_query (dns_query ("$myitem,MX")) ) {
-			mylogs $syslog_priority, "type $COMP_MX_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
-			map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+		if ( my @answers = dns_query ("$myitem,MX") ) {
+			splice (@answers, $opt_max_mx_lookups) if $opt_max_mx_lookups;
+			if ( @answers = dns_query (@answers) ) {
+				mylogs $syslog_priority, "type $COMP_MX_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
+				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+			};
 		};
 		return $myresult;
 	},
@@ -1900,6 +1923,8 @@ GetOptions (	"term|kill|k"		 => \$opt_kill,
 		'dns_timeout_max=i'	 => \$MAX_DNSBL_TIMEOUTS,
 		'dns_timeout_interval=i' => \$MAX_DNSBL_INTERVAL,
 		'dns_async_txt'		 => \$dns_async_txt,
+		'dns_max_ns_lookups=i'	 => \$opt_max_ns_lookups,
+		'dns_max_mx_lookups=i'	 => \$opt_max_mx_lookups,
 		'c|cache=i'		 => \$REQUEST_MAX_CACHE,
 		'cacheid=s'		 => sub { @CacheID = ( @CacheID, (split /[,\s]+/, $_[1]) ) },
 		'cache-rdomain-only'	 => \$opt_cache_rdomain_only,
@@ -1989,7 +2014,7 @@ $dns_retries	||= $def_dns_retries;
 $dns_timeout	||= $def_dns_timeout;
 $syslog_name	||= $NAME;
 $net_interface	= ( $net_interface	=~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/ )	? $1 : $def_net_interface;
-$net_port 	= ( $net_port		=~ /^(\d+|[-\@\/\w. ]+)$/ )			? $1 : $def_net_port;
+$net_port 	= ( $net_port		=~ /^(\d+|[-\|\@\/\w. ]+)$/ )			? $1 : $def_net_port;
 $net_proto 	= ( $net_proto		=~ /^(tcp|unix)$/i )				? $1 : $def_net_proto;
 $net_user 	= ( $net_user		=~ /^([\w]+)$/ ) 				? $1 : $def_net_user;
 $net_group 	= ( $net_group		=~ /^([\w]+)$/ ) 				? $1 : $def_net_group;
@@ -2016,7 +2041,8 @@ if ($opt_daemon) {
 	my $server = bless {
 		server => {
 			commandline      => [$0, @CommandArgs],
-			port             => $net_port,
+			# Net::Server dies when a unix domain socket without dot (".") is used
+			port             => (($net_proto eq 'unix') and not($net_port =~ /\|unix$/)) ? "$net_port|unix" : $net_port,
 			host             => ($net_proto eq 'unix') ? '' : $net_interface,
 			proto            => $net_proto,
 			user             => $net_user,
@@ -2206,6 +2232,8 @@ postfwd [OPTIONS] [SOURCE1, SOURCE2, ...]
 	    --dns_timeout           timeout in seconds for asynchonous dns queries
 	    --dns_timeout_max       maximum of dns timeouts until a dnsbl will be deactivated
 	    --dns_timeout_interval  interval in seconds for dns timeout maximum counter
+	    --dns_max_ns_lookups    max names to look up with sender_ns_addrs
+	    --dns_max_mx_lookups    max names to look up with sender_mx_addrs
 	-I, --instantcfg            re-reads rulefiles for every new request
 
 	Informational (use only at command-line!):
@@ -2798,9 +2826,15 @@ These parameters influence the way postfwd is working. Any of them can be combin
 	in conjunction with the --dns_timeout_max parameter.
 
 	--dns_async_txt
-	Perform dnsbl A and TXT lookups in parallel (otherwise only for listings with at least
-	one A record). This needs more network bandwidth due to increased queries but
-	might also increase throughput because the lookups can be parallelized that way.
+	Perform dnsbl A and TXT lookups simultaneously (otherwise only for listings with at
+	least one A record). This needs more network bandwidth due to increased queries but
+	might increase throughput because the lookups can be parallelized.
+
+	--dns_max_ns_lookups     (default=0)
+	maximum ns names to lookup up with sender_ns_addrs item. use 0 for no maximum.
+
+	--dns_max_mx_lookups     (default=0)
+	maximum mx names to lookup up with sender_mx_addrs item. use 0 for no maximum.
 
 	-I, --instantcfg
 	The config files, specified by -f will be re-read for every request
