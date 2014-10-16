@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.17';
+our($VERSION)			= '1.18';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -1471,7 +1471,7 @@ sub compare_item {
 	next ITEM unless $val;
 	# substitute check for $$vars in rule item
 	if ( $var = devar_item ($cmp,$val,$myitem,%request) ) {
-		$val = $var; $val =~ s/([^-_\.\w\s])/\\$1/g;
+		$val = $var; $val =~ s/([^-_@\.\w\s])/\\$1/g unless ($cmp eq '==');
 	};
 	$myresult = &{$postfwd_compare{$postfwd_compare_proc}}($cmp,$val,$myitem,%request);
 	mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if ($opt_verbose > 1);
