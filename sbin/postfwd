@@ -25,7 +25,7 @@ use vars qw(@ISA);
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.16';
+our($VERSION)			= '1.17';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -38,6 +38,8 @@ our($def_net_group)		= "nobody";
 our($def_dns_queuesize)		= "300";
 our($def_dns_retries)		= "3";
 our($def_dns_timeout)		= "14";
+our($def_dns_max_ns_a_lookups)  = "100";
+our($def_dns_max_mx_a_lookups)  = "100";
 our($def_config_timeout)	= "3";
 our($reply_maxlen)		= "512";
 
@@ -478,10 +480,7 @@ sub devar_item {
 	if ($var eq $COMP_DNSBL_TEXT) {
 		$myresult=$val=$pre.(join "; ", uniq(@DNSBL_Text)).$post;
 	} elsif (defined $request{$var}) {
-		$var = $request{$var};
-		# substitute dangerous characters
-		$var =~ s/([^-\w\s])/\\$1/g if ( $cmp =~ /~/ );
-		$myresult=$val=$pre.$var.$post;
+		$myresult=$val=$pre.$request{$var}.$post;
 	};
 	mylogs $syslog_priority, "substitute :  \"$myitem\"  \"$cmp\"  \"$val\""
 		if ($opt_verbose > 1);
@@ -881,9 +880,20 @@ sub rbl_check {
     return $myresult;
 }
 #
-# resolves dns queries
+# dns resolver wrapper
 #
 sub dns_query {
+    my (@queries) = @_; undef my @result;
+    eval {
+	local $SIG{__DIE__} = sub { mylogs 'notice', "dns err: \"$!\", detail: \"@_\""; };
+	@result = dns_query_net_dns(@queries);
+    };
+    return @result;
+};
+#
+# resolves dns queries using Net::DNS
+#
+sub dns_query_net_dns {
     my (@queries) = @_; undef my @result;
     my %ownsock  = (); my @ownready = (); undef my $bgsock;
     my $ownsel   = IO::Select->new();
@@ -1140,7 +1150,7 @@ sub postfwd_items {
 		return $myresult if $opt_nodns;
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,NS") ) {
-			splice (@answers, $opt_max_ns_lookups) if $opt_max_ns_lookups;
+			splice (@answers, $opt_max_ns_lookups) if $opt_max_ns_lookups and $#answers > $opt_max_ns_lookups;
 			if ( @answers = dns_query (@answers) ) {
 				mylogs $syslog_priority, "type $COMP_NS_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
 				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
@@ -1154,7 +1164,7 @@ sub postfwd_items {
 		return $myresult if $opt_nodns;
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,MX") ) {
-			splice (@answers, $opt_max_mx_lookups) if $opt_max_mx_lookups;
+			splice (@answers, $opt_max_mx_lookups) if $opt_max_mx_lookups and $#answers > $opt_max_mx_lookups;
 			if ( @answers = dns_query (@answers) ) {
 				mylogs $syslog_priority, "type $COMP_MX_ADDR : \"".(join ',', @answers)."\" \"$cmp\" \"$val\"" if ($opt_verbose > 1);
 				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
@@ -1459,8 +1469,10 @@ sub compare_item {
 	$val = $neg if ($neg = deneg_item($val));
 	mylogs $syslog_priority, "deneg $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"" if ($neg and ($opt_verbose > 1));
 	next ITEM unless $val;
-	# substitute check for $$vars in action
-	$val = $var if ( $var = devar_item ($cmp,$val,$myitem,%request) );
+	# substitute check for $$vars in rule item
+	if ( $var = devar_item ($cmp,$val,$myitem,%request) ) {
+		$val = $var; $val =~ s/([^-_\.\w\s])/\\$1/g;
+	};
 	$myresult = &{$postfwd_compare{$postfwd_compare_proc}}($cmp,$val,$myitem,%request);
 	mylogs $syslog_priority, "match $mykey:  ".($myresult ? "TRUE" : "FALSE") if ($opt_verbose > 1);
 	if ($neg) {
@@ -2089,7 +2101,7 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 		'f|file=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'r|rule=s'		 => sub{ my($opt,$value) = @_; push (@Configs, $opt.'::'.$value) },
 		'plugins=s'	 	=> \@Plugins,
-		'V|version'		 => sub{ print "$NAME $VERSION (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Perl ".$]." on ".$^O.")\n"; exit 1; },
+		'V|version'		 => sub{ print "$NAME $VERSION (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", Perl ".$]." on ".$^O.")\n"; exit 1; },
 		'C|showconfig'		 => \$opt_showconfig,
 		'h|H|?|help|Help|HELP'	 => sub{ pod2usage (-msg => "\nPlease see \"".$NAME." -m\" for detailed instructions.\n", -verbose => 1); },
 		'm|M|manual'		 => sub{ # contructing command string (de-tainting $0)
@@ -2117,6 +2129,7 @@ $syslog_options = 'cons,pid' unless $opt_daemon;
 openlog $syslog_name, $syslog_options, $syslog_facility;
 
 mylogs "notice", $NAME." ".$VERSION." starting" if $opt_daemon;
+mylogs "notice", "Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", Perl ".$]." on ".$^O if ($opt_verbose);
 
 # read configuration
 read_config(1);
@@ -2134,6 +2147,10 @@ if ($opt_verbose) {
 
 # -n - skip dns based checks
 mylogs "notice", "NODNS: set - will skip all dns based checks" if $opt_nodns;
+
+# set max lookups to default (set to 0 to disable)
+$opt_max_ns_lookups = $def_dns_max_ns_a_lookups unless defined $opt_max_ns_lookups;
+$opt_max_mx_lookups = $def_dns_max_mx_a_lookups unless defined $opt_max_mx_lookups;
 
 # init scores from command-line
 map ( modify_score (each %opt_scores), (keys %opt_scores) );

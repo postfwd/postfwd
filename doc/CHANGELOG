@@ -1,3 +1,11 @@
+1.17
+=====
+- bugfix:  Invalid characters in variable substitutions were not correctly catched when
+           the '=' operator was used, like "client_name=$$helo_name". If you can not
+           upgrade for some reason change your rule to "client_name=~$$helo_name"
+- code:    Net::DNS internal errors will now be handled gracefully
+- code:    default for options --dns_max_ns_a_lookups and --dns_max_mx_a_lookups of 100
+
 1.16
 =====
 - bugfix:  this is a bugfix release for 1.15. anyone affected is encouraged to upgrade.
@@ -21,7 +29,6 @@
 	   * parser timeout skips loading a rule after 4s, to prevent problems with
 	     large files or loops. use --config_timeout to override
 - bugfix:  documentation fixed (missing "action=" in ask() examples)
-
 
 1.14
 =====
