@@ -18,6 +18,7 @@ SYNOPSIS
                 --proto <proto>         socket type (tcp or unix)
             -u, --user <name>           set uid to user <name>
             -g, --group <name>          set gid to group <name>
+                --umask <mask>          set umask for file permissions
             -R, --chroot <path>         chroot the daemon to <path>
                 --pidfile <path>        create pidfile under <path>
             -l, --logname <label>       label for syslog messages
@@ -648,6 +649,11 @@ DESCRIPTION
             -g, --group <name>
             Changes real and effective group to <name>.
 
+            --umask <mask>
+            Changes the umask for filepermissions (unix domain sockets, pidfiles).
+            Attention: This is umask, not chmod - you have to specify the bits that
+            should NOT apply. E.g.: umask 077 equals to chmod 700.
+
             -R, --chroot <path>
             Chroot the process to the specified path.
             Test this before using - you might need some libs there.
@@ -847,9 +853,10 @@ DESCRIPTION
             # 1. 30MB for systems in *.customer1.tld
             # 2. 20MB for SASL user joejob
             # 3. 10MB default
-            id=SZ001; state==END-OF-MESSAGE; action=REJECT message too large; size=30000000 ; client_name=\.customer1.tld$
-            id=SZ002; state==END-OF-MESSAGE; action=REJECT message too large; size=20000000 ; sasl_username==joejob
-            id=SZ003; state==END-OF-MESSAGE; action=REJECT message too large; size=10000000
+            id=SZ001; state==END-OF-MESSAGE; action=DUNNO; size<=30000000 ; client_name=\.customer1.tld$
+            id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=20000000 ; sasl_username==joejob
+            id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=10000000
+            id=SZ100; state==END-OF-MESSAGE; action=REJECT message too large
 
             ## Selective Greylisting
             # 1. if listed on zen.spamhaus.org with results 127.0.0.10 or .11, dns cache timeout 1200s

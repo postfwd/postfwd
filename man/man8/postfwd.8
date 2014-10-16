@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD 1"
-.TH POSTFWD 1 "2009-09-03" "perl v5.8.5" "User Contributed Perl Documentation"
+.TH POSTFWD 1 "2010-11-07" "perl v5.8.5" "User Contributed Perl Documentation"
 .SH "NAME"
 postfwd \- postfix firewall daemon
 .SH "SYNOPSIS"
@@ -147,7 +147,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&        -s, --scores <v>=<r>        returns <r> when score exceeds <v>
 .Ve
 .PP
-.Vb 11
+.Vb 12
 \&        Networking:
 \&        -d, --daemon                run postfwd as daemon
 \&        -i, --interface <dev>       listen on interface <dev>
@@ -155,6 +155,7 @@ postfwd [\s-1OPTIONS\s0] [\s-1SOURCE1\s0, \s-1SOURCE2\s0, ...]
 \&            --proto <proto>         socket type (tcp or unix)
 \&        -u, --user <name>           set uid to user <name>
 \&        -g, --group <name>          set gid to group <name>
+\&            --umask <mask>          set umask for file permissions
 \&        -R, --chroot <path>         chroot the daemon to <path>
 \&            --pidfile <path>        create pidfile under <path>
 \&        -l, --logname <label>       label for syslog messages
@@ -911,6 +912,13 @@ The following arguments will control it's behaviour in this case.
 \&        Changes real and effective group to <name>.
 .Ve
 .PP
+.Vb 4
+\&        --umask <mask>
+\&        Changes the umask for filepermissions (unix domain sockets, pidfiles).
+\&        Attention: This is umask, not chmod - you have to specify the bits that
+\&        should NOT apply. E.g.: umask 077 equals to chmod 700.
+.Ve
+.PP
 .Vb 3
 \&        -R, --chroot <path>
 \&        Chroot the process to the specified path.
@@ -1179,14 +1187,15 @@ the '\-I' switch to have your configuration refreshed for every request postfwd 
 \&        id=RBL04 ; action=REJECT combined RBL+RHSBL check       ; rbl=bl.spamcop.net ; rhsbl=rhsbl.ahbl.org, rhsbl.sorbs.net
 .Ve
 .PP
-.Vb 7
+.Vb 8
 \&        ## Message size (requires message_size_limit to be set to 30000000)
 \&        # 1. 30MB for systems in *.customer1.tld
 \&        # 2. 20MB for SASL user joejob
 \&        # 3. 10MB default
-\&        id=SZ001; state==END-OF-MESSAGE; action=REJECT message too large; size=30000000 ; client_name=\e.customer1.tld$
-\&        id=SZ002; state==END-OF-MESSAGE; action=REJECT message too large; size=20000000 ; sasl_username==joejob
-\&        id=SZ003; state==END-OF-MESSAGE; action=REJECT message too large; size=10000000
+\&        id=SZ001; state==END-OF-MESSAGE; action=DUNNO; size<=30000000 ; client_name=\e.customer1.tld$
+\&        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=20000000 ; sasl_username==joejob
+\&        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size<=10000000
+\&        id=SZ100; state==END-OF-MESSAGE; action=REJECT message too large
 .Ve
 .PP
 .Vb 7

@@ -64,6 +64,7 @@
             --proto &lt;proto&gt;         socket type (tcp or unix)
         -u, --user &lt;name&gt;           set uid to user &lt;name&gt;
         -g, --group &lt;name&gt;          set gid to group &lt;name&gt;
+            --umask &lt;mask&gt;          set umask for file permissions
         -R, --chroot &lt;path&gt;         chroot the daemon to &lt;path&gt;
             --pidfile &lt;path&gt;        create pidfile under &lt;path&gt;
         -l, --logname &lt;label&gt;       label for syslog messages
@@ -610,6 +611,11 @@ The following arguments will control it's behaviour in this case.</p>
         -g, --group &lt;name&gt;
         Changes real and effective group to &lt;name&gt;.</pre>
 <pre>
+        --umask &lt;mask&gt;
+        Changes the umask for filepermissions (unix domain sockets, pidfiles).
+        Attention: This is umask, not chmod - you have to specify the bits that
+        should NOT apply. E.g.: umask 077 equals to chmod 700.</pre>
+<pre>
         -R, --chroot &lt;path&gt;
         Chroot the process to the specified path.
         Test this before using - you might need some libs there.</pre>
@@ -805,9 +811,10 @@ the '-I' switch to have your configuration refreshed for every request postfwd r
         # 1. 30MB for systems in *.customer1.tld
         # 2. 20MB for SASL user joejob
         # 3. 10MB default
-        id=SZ001; state==END-OF-MESSAGE; action=REJECT message too large; size=30000000 ; client_name=\.customer1.tld$
-        id=SZ002; state==END-OF-MESSAGE; action=REJECT message too large; size=20000000 ; sasl_username==joejob
-        id=SZ003; state==END-OF-MESSAGE; action=REJECT message too large; size=10000000</pre>
+        id=SZ001; state==END-OF-MESSAGE; action=DUNNO; size&lt;=30000000 ; client_name=\.customer1.tld$
+        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size&lt;=20000000 ; sasl_username==joejob
+        id=SZ002; state==END-OF-MESSAGE; action=DUNNO; size&lt;=10000000
+        id=SZ100; state==END-OF-MESSAGE; action=REJECT message too large</pre>
 <pre>
         ## Selective Greylisting
         # 1. if listed on zen.spamhaus.org with results 127.0.0.10 or .11, dns cache timeout 1200s

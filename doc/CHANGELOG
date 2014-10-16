@@ -1,3 +1,9 @@
+1.19
+=====
+- code:    Rate limit code rewritten
+- code:    new --umask setting allows to set filepermissions for pidfiles
+	   and unix domain sockets. Default is 0117 (owner and group rw).
+
 1.18
 =====
 - bugfix:  Fixed bug when comparing sender and recipient addresses, like
