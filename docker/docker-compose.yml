@@ -10,7 +10,7 @@ version: '2'
 
 services:
 
-  testing:
+  postfwd:
     build:
       context: ./build
       dockerfile: Dockerfile
