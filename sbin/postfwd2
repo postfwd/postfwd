@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.35";
+our $VERSION	= "1.36-devel1";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -59,6 +59,7 @@ our %postfwd_settings = (
 		log_file         => 'Sys::Syslog',
 		syslog_ident     => "$NAME",
 		umask		 => "0177",
+		no_client_stdout => '1',
 	},
 	master => {
 		pid_file         => "/var/tmp/$NAME-master.pid",
@@ -285,30 +286,35 @@ sub hash_to_list {
 
 # Sys::Syslog < 0.15
 sub mylogs_old {
-	my($prio,$msg) = @_;
-	eval { local $SIG{'__DIE__'}; syslog ($prio,$msg) };
+	my $prio = shift @_;
+	my $msg  = shift @_;
+	eval { local $SIG{'__DIE__'}; syslog ($prio,$msg,@_) };
 };
 
 # Sys::Syslog >= 0.15
 sub mylogs_new {
-	my($prio,$msg) = @_;
-	syslog ($prio,$msg);
+	my $prio = shift @_;
+	my $msg  = shift @_;
+	syslog ($prio,$msg,@_);
 };
 
 # Syslog to stdout
 sub mylogs_stdout {
-	my($prio,$msg) = @_; $msg =~ /^(.*)$/;
-	printf STDOUT "[LOG $prio]: $1\n", @_;
+	my $prio = shift @_;
+	my $msg  = shift @_;
+	$msg =~ s/\%/%%/g; $msg =~ /^(.*)$/;
+	printf STDERR "[".$postfwd_settings{name}."][LOG $prio]: $1\n", @_;
 };
 
 # send log message
 sub mylogs {
-	my($prio,$msg) = @_;
+	my $prio = shift @_;
+	my $msg  = shift @_;
 	return if $postfwd_settings{syslog}{nolog};
 	# escape unsafe characters
 	$msg =~ s/$postfwd_settings{syslog}{unsafe_charset}/?/g;
 	$msg =~ s/\%/%%/g;
-	&{$postfwd_settings{syslog}{logger}} ($prio,$msg);
+	&{$postfwd_settings{syslog}{logger}} ($prio,$msg,@_);
 };
 
 # short versions
@@ -325,12 +331,14 @@ sub init_log {
 	$postfwd_settings{syslog}{socktype} = ( $postfwd_settings{syslog}{socktype} || (($postfwd_settings{syslog}{unsafe_version}) ? (($nounixsock) ? 'inet' : 'unix') : 'native') );
 	if ($postfwd_settings{syslog}{stdout}) {
 		$postfwd_settings{syslog}{logger}   = \&mylogs_stdout;
+		$postfwd_settings{syslog}{socktype} = 'console';
+		$postfwd_settings{syslog}{options} = 'cons,pid';
+		$postfwd_settings{base}{log_file} = undef;
 	} else {
-		# syslog init
 		$postfwd_settings{syslog}{logger}   = ($postfwd_settings{syslog}{unsafe_version}) ? \&mylogs_old : \&mylogs_new;
-		setlogsock $postfwd_settings{syslog}{socktype};
-		openlog $postfwd_settings{syslog}{name}, $postfwd_settings{syslog}{options}, $postfwd_settings{syslog}{facility};
 	};
+	setlogsock $postfwd_settings{syslog}{socktype};
+	openlog $postfwd_settings{syslog}{name}, $postfwd_settings{syslog}{options}, $postfwd_settings{syslog}{facility};
 	log_info ("set up syslogging Sys::Syslog".((defined $Sys::Syslog::VERSION) ? " version $Sys::Syslog::VERSION" : '') ) if wantsdebug (qw[ all verbose ]);
 };
 
@@ -682,6 +690,7 @@ sub pre_loop_hook() {
 	# change cache name
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::cache';
 	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/cache";
+	$postfwd_settings{name} .= "/cache";
 	init_log ($self->{server}->{syslog_ident});
 	load_rates();
 	$StartTime = $Summary = $Cleanup{request} = $Cleanup{rate} = $Cleanup{dns} = time();
@@ -2853,6 +2862,7 @@ sub pre_loop_hook {
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::policy';
 	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
 	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
+	$postfwd_settings{name} .= "/policy";
 	init_log ($self->{server}->{syslog_ident});
 	# load plugin-items
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
@@ -2978,7 +2988,7 @@ sub process_request {
 	my($client) = $self->{server}->{client};
 	my($parent) = $self->{server}->{parent_sock};
 	my(%attr) = ();
-	while (<STDIN>) {
+	while (<$client>) {
 		s/\r?\n$//;
 		# respond to masters ping
 		if ($_ eq $postfwd_patterns{ping}) {
@@ -3164,6 +3174,9 @@ map { $postfwd_settings{debug}{$_} = 1 } uniq(@{$options{debug}});
 map { $postfwd_settings{daemons}{$_} = 1 } ((defined $options{daemons}) ? uniq(@{$options{daemons}}) : uniq(@daemons));
 map { $postfwd_settings{$_}{check} = ($postfwd_settings{$_}{proto} eq 'unix') ? \&check_unix : \&check_inet } @daemons;
 
+# de-taint command-line
+%postfwd_settings = detaint_hash (%postfwd_settings);
+
 # terminate at -k or --kill
 if (defined $options{'term'}) {
 	kill "TERM", get_master_pid();
@@ -3233,31 +3246,16 @@ if (defined $options{'delcache'} or defined $options{'delrate'}) {
 # -n - skip dns based checks
 log_note ("NODNS: set - will skip all dns based checks") if $postfwd_settings{dns}{disabled};
 
-# de-taint command-line
-%postfwd_settings = detaint_hash (%postfwd_settings);
-
-# check for --nodaemon option
-unless ($postfwd_settings{daemon}) {
-	log_note ("NODAEMON: Please note that rate() commands do not work with postfwd2 and --nodaemon option due to the missing cache daemon");
-	my(%attr) = ();
-	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
-	read_config(1);
-	map { $postfwd_settings{daemons}{$_} = 0 } (keys %{$postfwd_settings{daemons}});
-	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1;
-	while (<>) {
-		chomp;
-		process_input (undef, undef, $_, \%attr);
-	};
-	exit;
-};
-
 # daemonize master
+unless ($postfwd_settings{daemon}) {
+	$postfwd_settings{base}{setsid} = 0;
+};
 log_info ($postfwd_settings{name}." "
 	.$postfwd_settings{version}." starting"
 	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : ''));
 log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
 umask oct($postfwd_settings{base}{umask});
-daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file});
+daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file}) if $postfwd_settings{daemon};
 $0 = $Commandline;
 
 # prepare shared SIG handlers
@@ -3272,6 +3270,7 @@ foreach my $daemon (sort keys %{$postfwd_settings{daemons}}) {
 		$children{$daemon} = $pid;
 	};
 };
+$postfwd_settings{name} .= "/master";
 umask oct($postfwd_settings{base}{umask});
 
 # prepare master SIG handlers and enter main loop
@@ -3509,7 +3508,7 @@ B<postfwd2> [OPTIONS] [SOURCE1, SOURCE2, ...]
 	-V, --version			output version information and exit
 	-D, --defaults			show postfwd2 settings and exit
         -C, --showconfig		show postfwd2 ruleset and exit (-v allowed)
-        -L, --stdout			redirect syslog messages to stdout
+        -L, --stdout			redirect syslog messages to stdout (--stdoutlog works for compatibility)
         -q, --quiet			no syslogging, no stdout (-P works for compatibility)
 
 	Obsolete (only for compatibility with postfwd v1):

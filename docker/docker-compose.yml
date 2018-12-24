@@ -1,0 +1,17 @@
+version: '2' 
+
+# Simple docker compose file for testing
+#
+# Use with
+# 	docker-compose build --pull
+#	docker-compose up
+#
+# Don't forget to edit build/postfwd.cf!
+
+services:
+
+  testing:
+    build: ./build
+    restart: always
+    ports:
+      - 127.0.0.1:10040:10040
