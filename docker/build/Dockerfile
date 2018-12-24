@@ -3,11 +3,12 @@ FROM debian:stretch-slim
 LABEL maintainer="Postfwd Docker Testing <http://postfwd.org>"
 
 # use 'postfwd1' or 'postfwd2' to switch between versions
+# go to http://postfwd.org/versions.html for more info
 ARG PROG=postfwd2
-# name of config file
-ARG CONF=postfwd.cf
 # port for postfwd
 ARG PORT=10040
+# name of config file
+ARG CONF=postfwd.cf
 # request cache in seconds. use '0' to disable
 ARG CACHE=600
 # GitHub postfwd branch (currently needs 'testing' for docker)

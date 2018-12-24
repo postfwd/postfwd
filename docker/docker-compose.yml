@@ -11,7 +11,18 @@ version: '2'
 services:
 
   testing:
-    build: ./build
+    build:
+      context: ./build
+      dockerfile: Dockerfile
+      args:
+        # use 'postfwd1' or 'postfwd2' to switch between versions
+        # go to http://postfwd.org/versions.html for more info
+        PROG: postfwd1
+        # currently required for docker
+        BRANCH: testing
+        # port for postfwd
+        PORT: 10040
     restart: always
     ports:
       - 127.0.0.1:10040:10040
+
