@@ -15,13 +15,20 @@ services:
       context: ./build
       dockerfile: Dockerfile
       args:
-        # use 'postfwd1' or 'postfwd2' to switch between versions
-        # go to http://postfwd.org/versions.html for more info
-        PROG: postfwd1
-        # currently required for docker
+        # GitHub postfwd branch (currently needs 'testing' for docker)
         BRANCH: testing
-        # port for postfwd
-        PORT: 10040
+    environment:
+      # use 'postfwd1' or 'postfwd2' to switch between versions
+      # go to http://postfwd.org/versions.html for more info
+      - PROG=postfwd1
+      # port for postfwd
+      - PORT=10040
+      # request cache in seconds. use '0' to disable
+      - CACHE=0
+      # name of config file
+      - CONF=postfwd.cf
+      # additional arguments, see postfwd -h or man page for more
+      - EXTRA=--no_parent_dns_cache --noidlestats
     restart: always
     ports:
       - 127.0.0.1:10040:10040
