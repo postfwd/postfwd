@@ -10,7 +10,7 @@ ARG CONF=postfwd.cf
 ARG PORT=10040
 # request cache in seconds. use '0' to disable
 ARG CACHE=600
-# GitHub postfwd branch (currently needs 'testing' for docker
+# GitHub postfwd branch (currently needs 'testing' for docker)
 ARG BRANCH=testing
 
 # install stuff
