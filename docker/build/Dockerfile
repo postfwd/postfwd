@@ -1,6 +1,6 @@
 FROM debian:stretch-slim
 
-LABEL maintainer="Postfwd Docker Testing <http://postfwd.org>"
+LABEL maintainer="Postfwd Docker Testing - http://postfwd.org/docker"
 
 ## BUILD ARGS
 # GitHub postfwd branch (currently needs 'testing' for docker)
