@@ -268,7 +268,7 @@ sub mylog {
 				syslog $prio, "$msg", @_;
 			};
 		} else { syslog $prio, "$msg", @_; };
-	} else { $msg =~ s/\%/%%/g; $msg =~ /^(.*)$/; printf STDERR "[$NAME][LOG $prio]: $1\n", @_; };
+	} else { $msg =~ s/\%/%%/g; $msg =~ /^(.*)$/; printf STDERR "[$NAME][$$][LOG $prio]: $1\n", @_; };
     };
 };
 #

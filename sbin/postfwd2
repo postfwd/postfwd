@@ -303,7 +303,7 @@ sub mylogs_stdout {
 	my $prio = shift @_;
 	my $msg  = shift @_;
 	$msg =~ s/\%/%%/g; $msg =~ /^(.*)$/;
-	printf STDERR "[".$postfwd_settings{name}."][LOG $prio]: $1\n", @_;
+	printf STDERR "[".$postfwd_settings{name}."][$$][LOG $prio]: $1\n", @_;
 };
 
 # send log message
