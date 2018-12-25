@@ -20,7 +20,7 @@ services:
     environment:
       # use 'postfwd1' or 'postfwd2' to switch between versions
       # go to http://postfwd.org/versions.html for more info
-      - PROG=postfwd2
+      - PROG=postfwd1
       # port for postfwd
       - PORT=10040
       # request cache in seconds. use '0' to disable
