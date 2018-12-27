@@ -33,7 +33,7 @@ EXPOSE ${PORT}
 
 # start postfwd - don't worry about versions: postfwd1 will silently ignore postfwd2-specific arguments
 ENTRYPOINT exec /opt/postfwd/sbin/${PROG} --file /etc/postfwd/${CONF} --user postfw --group postfw \
-	--server_socket tcp:0.0.0.0:${PORT} --cache_socket=unix::/var/lib/postfwd.cache \
+	--server_socket tcp:0.0.0.0:${PORT} --cache_socket=unix::/var/lib/postfwd/postfwd.cache \
 	--pidfile=/var/lib/postfwd/postfwd.pid --save_rates=/var/lib/postfwd/postfwd.rates \
 	--cache=${CACHE} ${EXTRA} \
 	--stdout --nodaemon
