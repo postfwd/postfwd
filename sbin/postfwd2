@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.36-devel1";
+our $VERSION	= "1.36-devel2";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -48,6 +48,7 @@ my $sepreq	= '///';
 my $seplst	= ':::';
 my $seplim	= '~~~';
 my $nounixsock	= ($^O eq 'solaris');
+my $terminating = 0;
 
 # program settings
 our %postfwd_settings = (
@@ -354,12 +355,12 @@ sub check_inet {
 		$socket->print("$send\n");
 		$send = $socket->getline();
 		$socket->close();
-		chomp($send);
+		chomp($send) if $send;
 	} else {
-		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n");
+		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n") unless $terminating;
 		undef $send;
 	};
-	return $send;
+	return $send || '';
 };
 
 # check: UNIX
@@ -372,12 +373,12 @@ sub check_unix {
 		$socket->print("$send\n");
 		$send = $socket->getline();
 		$socket->close();
-		chomp($send);
+		chomp($send) if $send;
 	} else {
-		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n");
+		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n") unless $terminating;
 		undef $send;
 	};
-	return $send;
+	return $send || '';
 };
 
 1; # EOF postfwd2::basic
@@ -3275,6 +3276,7 @@ umask oct($postfwd_settings{base}{umask});
 
 # prepare master SIG handlers and enter main loop
 $SIG{TERM} = sub { end_program(); };
+$SIG{INT} = sub { end_program(); } unless ($postfwd_settings{daemon});
 $SIG{HUP} = sub { reload_program(); };
 if ($postfwd_settings{summary}) {
 	$SIG{ALRM} = sub {
@@ -3320,7 +3322,7 @@ die "master-daemon: should never see me!\n";
 # cleanup children and files and terminate
 sub end_program {
 	# ignore further TERM signals
-	$SIG{TERM} = 'IGNORE';
+	$SIG{TERM} = 'IGNORE'; $terminating = 1;
 	if ($postfwd_settings{summary}) {
 		undef $postfwd_settings{syslog}{noidlestats};
 		log_stats();

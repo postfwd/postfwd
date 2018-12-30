@@ -2,11 +2,17 @@ FROM debian:stretch-slim
 
 LABEL maintainer="Postfwd Docker Testing - http://postfwd.org/docker"
 
+##
 ## BUILD ARGS
+##
+# GitHub postfwd url
+ARG URL=https://github.com/postfwd/postfwd
 # GitHub postfwd branch (currently needs 'testing' for docker)
 ARG BRANCH=testing
 
+##
 ## RUNTIME ARGS
+##
 # use 'postfwd1' or 'postfwd2' to switch between versions
 # go to http://postfwd.org/versions.html for more info
 ENV PROG=postfwd1
@@ -17,24 +23,44 @@ ENV CONF=postfwd.cf
 # request cache in seconds. use '0' to disable
 ENV CACHE=0
 # additional arguments, see postfwd -h or man page for more
-ENV EXTRA="--no_parent_dns_cache --noidlestats"
+ENV EXTRA="--no_parent_dns_cache --noidlestats --summary=600"
+
+##
+## CONTAINER ARGS
+##
+# configuration directory
+ENV ETC=/etc/postfwd
+# target for postfwd distribution
+ENV TARGET=/opt/postfwd
+# data directory
+ENV HOME=/var/lib/postfwd
+# user and group for execution
+ENV USER=postfw
+ENV GROUP=postfw
 
 # install stuff
-RUN apt-get update && apt-get install -y git postfwd
-RUN git clone https://github.com/postfwd/postfwd --branch ${BRANCH} --single-branch /opt/postfwd
+RUN apt-get update && apt-get install -y \
+    libnet-dns-perl libnet-server-perl \
+    libtime-hires-perl libstorable-perl \
+    git
+RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}
+RUN apt-get purge -y --auto-remove git
 
 # create stuff
-RUN mkdir -p /etc/postfwd && chown root:postfw /etc/postfwd && chmod 0750 /etc/postfwd
-RUN mkdir -p /var/lib/postfwd && chown postfw:postfw /var/lib/postfwd && chmod 0700 /var/lib/postfwd
-COPY ${CONF} /etc/postfwd/${CONF}
+RUN addgroup --quiet --system ${GROUP}
+RUN adduser --quiet --system --no-create-home --disabled-login --disabled-password \
+    --ingroup ${GROUP} --home ${HOME} --shell /bin/false ${USER}
+RUN mkdir -p ${ETC} && chown root:${GROUP} ${ETC} && chmod 0750 ${ETC}
+RUN mkdir -p ${HOME} && chown ${USER}:${GROUP} ${HOME} && chmod 0700 ${HOME}
+COPY ${CONF} ${ETC}/${CONF}
 
 # open port
 EXPOSE ${PORT}
 
 # start postfwd - don't worry about versions: postfwd1 will silently ignore postfwd2-specific arguments
-ENTRYPOINT exec /opt/postfwd/sbin/${PROG} --file /etc/postfwd/${CONF} --user postfw --group postfw \
-	--server_socket tcp:0.0.0.0:${PORT} --cache_socket=unix::/var/lib/postfwd/postfwd.cache \
-	--pidfile=/var/lib/postfwd/postfwd.pid --save_rates=/var/lib/postfwd/postfwd.rates \
+ENTRYPOINT exec ${TARGET}/sbin/${PROG} --file ${ETC}/${CONF} --user ${USER} --group ${GROUP} \
+	--server_socket tcp:0.0.0.0:${PORT} --cache_socket=unix::${HOME}/postfwd.cache \
+	--pidfile=${HOME}/postfwd.pid --save_rates=${HOME}/postfwd.rates \
 	--cache=${CACHE} ${EXTRA} \
 	--stdout --nodaemon
 
