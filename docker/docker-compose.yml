@@ -1,8 +1,9 @@
 version: '2' 
 
-# Simple docker compose file for testing
+# Sample postfwd docker compose file - http://postfwd.org/docker
 #
-# Use with
+# Use with:
+#
 # 	docker-compose build --pull
 #	docker-compose up
 #
@@ -28,7 +29,7 @@ services:
       # name of config file
       - CONF=postfwd.cf
       # additional arguments, see postfwd -h or man page for more
-      - EXTRA=--no_parent_dns_cache --noidlestats
+      - EXTRA=--no_parent_dns_cache --noidlestats --summmary=600
     restart: always
     ports:
       - 127.0.0.1:10040:10040

@@ -1,10 +1,13 @@
 #
-# Sample Dockerfile for postfwd.
+# Sample Dockerfile for postfwd - http://postfwd.org/docker
 #
 # Use with:
+#
 #   docker build -t postfwd:testing .
 #   docker run -it postfwd:testing
+#
 # or with more options:
+#
 #   docker run -e PROG=postfwd2 -e PORT=10050 -it postfwd:testing
 #
 FROM debian:stretch-slim
