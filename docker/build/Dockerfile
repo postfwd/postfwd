@@ -56,7 +56,7 @@ RUN apt-get update && apt-get install -y \
     libtime-hires-perl libstorable-perl \
     git
 RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}
-RUN apt-get purge -y --auto-remove git
+RUN apt-get purge -y --auto-remove git && rm -fR /var/lib/apt/lists/*
 
 # create stuff
 RUN addgroup --quiet --system ${GROUP}
