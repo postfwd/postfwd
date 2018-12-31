@@ -41,7 +41,7 @@ BEGIN {
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.36-devel2';
+our($VERSION)			= '1.36-devel3';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -1159,6 +1159,10 @@ sub dns_query_net_dns {
 		my(%request) = @_; my(%result) = ();
 		# postfwd version
 		$result{version} = $NAME." ".$VERSION;
+		# postfwd interface
+		$result{postfwd_interface} = $net_interface;
+		# postfwd port
+		$result{postfwd_port} = $net_port;
 		# sender info
 		$request{sender} =~ /(.*)@([^@]*)$/;
 		( $result{sender_localpart}, $result{sender_domain} ) = ( $1, $2 );
@@ -3023,6 +3027,13 @@ postfwd versions prior to 1.30 require trailing ';' and '\'-characters:
 				  # version >= 1.10
 				  id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
 				  	; action=REJECT sorry no access
+
+	postfwd_port		- postfwd server port, allows to use the same ruleset different
+				  instances:
+				  # rule only hits for instance at port 10045
+				  id=PORT10045; postfwd_port==10045; action=DUNNO
+
+	postfwd_interface	- postfwd server initerface, see postfwd_port
 
 	ratecount		- only available for rate(), size() and rcpt() actions.
 				  contains the actual limit counter:
