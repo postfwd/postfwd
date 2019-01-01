@@ -1,14 +1,14 @@
 #
 # Sample Dockerfile for postfwd - http://postfwd.org/docker
 #
-# Edit postfwd.cf and use with:
+# Edit ruleset/postfwd.cf and use with:
 #
 #   docker build -t postfwd:testing .
-#   docker run -it postfwd:testing
+#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -it postfwd:testing
 #
-# or with more options:
+# or with more options (postfwd2 on post 10050):
 #
-#   docker run -e PROG=postfwd2 -e PORT=10050 -it postfwd:testing
+#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -e PROG=postfwd2 -e PORT=10050 -it postfwd:testing
 #
 FROM debian:stretch-slim
 
@@ -21,8 +21,6 @@ LABEL maintainer="Postfwd Docker Testing - http://postfwd.org/docker"
 ARG URL=https://github.com/postfwd/postfwd
 # GitHub postfwd branch (currently needs 'testing' for docker)
 ARG BRANCH=testing
-# name of config file
-ARG CONF=postfwd.cf
 
 ##
 ## RUNTIME ARGS
@@ -37,7 +35,7 @@ ENV CACHE=0
 # additional arguments, see postfwd -h or man page for more
 ENV EXTRA="--no_parent_dns_cache --noidlestats --summary=600"
 # get config file from ARG
-ENV CONF=${CONF:-postfwd.cf}
+ENV CONF=postfwd.cf
 
 ##
 ## CONTAINER ARGS
@@ -66,7 +64,6 @@ RUN adduser --quiet --system --no-create-home --disabled-login --disabled-passwo
     --ingroup ${GROUP} --home ${HOME} --shell /bin/false ${USER}
 RUN mkdir -p ${ETC} && chown root:${GROUP} ${ETC} && chmod 0750 ${ETC}
 RUN mkdir -p ${HOME} && chown ${USER}:${GROUP} ${HOME} && chmod 0700 ${HOME}
-COPY ${CONF} ${ETC}/${CONF}
 
 # open port
 EXPOSE ${PORT}

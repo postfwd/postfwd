@@ -2,35 +2,30 @@ version: '2'
 
 # Sample postfwd docker compose file - http://postfwd.org/docker
 #
-# Use with:
+# Edit ruleset/postfwd.cf and use with:
 #
 # 	docker-compose build --pull
 #	docker-compose up
-#
-# Don't forget to edit build/postfwd.cf!
 
 services:
 
   postfwd:
-    build:
-      context: ./build
-      dockerfile: Dockerfile
-      args:
-        # GitHub postfwd branch (currently needs 'testing' for docker)
-        BRANCH: testing
+    build: .
     environment:
       # use 'postfwd1' or 'postfwd2' to switch between versions
       # go to http://postfwd.org/versions.html for more info
       - PROG=postfwd1
       # port for postfwd
       - PORT=10040
+      # configuration file
+      - CONF=postfwd.cf
       # request cache in seconds. use '0' to disable
       - CACHE=0
-      # name of config file
-      - CONF=postfwd.cf
       # additional arguments, see postfwd -h or man page for more
       - EXTRA=--no_parent_dns_cache --noidlestats --summary=600
     restart: always
     ports:
       - 127.0.0.1:10040:10040
+    volumes:
+      - ./ruleset:/etc/postfwd:ro
 
