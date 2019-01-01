@@ -4,45 +4,39 @@ To run postfwd in a docker container you will need at least version 1.36-devel2.
 
 ### Get the postfwd docker files:
 
-    * via GitHub:
+* via GitHub:
 ```bash
-    git clone https://github.com/postfwd/postfwd --branch testing --single-branch postfwd
+git clone https://github.com/postfwd/postfwd --branch testing --single-branch postfwd
 ```
 
-    * via postfwd.org:
+* via postfwd.org:
 ```bash
-    wget https://postfwd.org/DEVEL/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz
+wget https://postfwd.org/DEVEL/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz
 ```
-
 
 ### Configure your postfwd ruleset:
 
-    Change to the postfwd docker sample sub-directory:
-
+Change to the postfwd docker sample sub-directory:
 ```bash
-    cd postfwd/docker
+cd postfwd/docker
 ```
 
-    Edit the ruleset postfwd.cf
-
+Edit the ruleset postfwd.cf
 ```bash
-    For reasonable operation the default ruleset should be edited. Refer to the postfwd manual for more information.
+For reasonable operation the default ruleset should be edited. Refer to the postfwd manual for more information.
 ```
-
 
 ### Build and run the container:
 
-    Edit the Dockerfile and run:
-
+Edit the Dockerfile and run:
 ```bash
-    docker build -t postfwd:testing .
-    docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
+docker build -t postfwd:testing .
+docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
 ```
 
-    Edit the docker-compose.yml file and run:
-
+Edit the docker-compose.yml file and run:
 ```bash
-    docker-compose build --pull
-    docker-compose up
+docker-compose build --pull
+docker-compose up
 ```
 
