@@ -1,11 +1,12 @@
-version: '2' 
-
+#
 # Sample postfwd docker compose file - http://postfwd.org/docker
 #
 # Edit ruleset/postfwd.cf and use with:
 #
 # 	docker-compose build --pull
 #	docker-compose up
+
+version: '2' 
 
 services:
 
