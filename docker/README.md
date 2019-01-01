@@ -23,8 +23,10 @@ cd postfwd/docker
 
 Edit the ruleset postfwd.cf
 
-For reasonable operation the default ruleset should be edited. Refer to the [postfwd manual](https://postfwd.org/doc.html) for more information.
-
+For reasonable operation the default ruleset should be edited. Refer to the [postfwd manual](https://postfwd.org/doc.html) for more information. The default contains only a single rule:
+```bash
+id=DEFAULT; action=DUNNO
+```
 
 ### Build and run the container:
 
