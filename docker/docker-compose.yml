@@ -27,5 +27,5 @@ services:
     ports:
       - 127.0.0.1:10040:10040
     volumes:
-      - ./ruleset:/etc/postfwd:ro
+      - ./postfwd.cf:/etc/postfwd/postfwd.cf:ro
 

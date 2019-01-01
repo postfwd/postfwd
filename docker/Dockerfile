@@ -1,10 +1,10 @@
 #
 # Sample Dockerfile for postfwd - http://postfwd.org/docker
 #
-# Edit ruleset/postfwd.cf and use with:
+# Edit postfwd.cf and use with:
 #
 #   docker build -t postfwd:testing .
-#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -it postfwd:testing
+#   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
 #
 # or with more options (postfwd2 on post 10050):
 #
