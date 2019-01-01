@@ -4,12 +4,12 @@ To run postfwd in a docker container you will need at least version 1.36-devel2.
 
 ### Get the postfwd docker files:
 
-* via GitHub:
+via GitHub:
 ```bash
 git clone https://github.com/postfwd/postfwd --branch testing --single-branch postfwd
 ```
 
-* via postfwd.org:
+via postfwd.org:
 ```bash
 wget https://postfwd.org/DEVEL/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz
 ```
@@ -22,9 +22,9 @@ cd postfwd/docker
 ```
 
 Edit the ruleset postfwd.cf
-```bash
-For reasonable operation the default ruleset should be edited. Refer to the postfwd manual for more information.
-```
+
+For reasonable operation the default ruleset should be edited. Refer to the [postfwd manual](https://postfwd.org/doc.html) for more information.
+
 
 ### Build and run the container:
 
