@@ -1,5 +1,7 @@
-1.36-devel1
+1.36-devel3
 ===========
+- feature: new items postfwd_port and postfwd_interface, allow to use the same
+           ruleset for different instances of postfwd
 - code:    code changes for --stdout and --nodaemon options allow to run postfwd in a
 	   docker container. An example can be found in the ../docker folder of the
 	   main distribution or at http://postfwd.org/docker
