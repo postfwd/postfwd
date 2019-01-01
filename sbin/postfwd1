@@ -4119,7 +4119,7 @@ The parser evaluates the given action and continues with the next rule (except f
 for more information). Nothing will be sent to postfix.
 
 If no rule has matched and the end of the ruleset is reached postfwd will return dunno without logging anything unless in verbose mode. You may
-simply place a last `catch-all´ rule to change that behaviour:
+simply place a last "catch-all" rule to change that behaviour:
 
 	... <your rules> ...
 	id=DEFAULT ;  action=dunno
@@ -4209,6 +4209,10 @@ you might want to check your system's log for xinetd errors like "socket already
 
 The integration with postfix is similar to the I<Integration via daemon mode> section above.
 Reload postfix and watch your logs to see if everything works.
+
+I<Integration via docker>
+
+postfwd can be run in a docker container. More information can be found in the included docker.html or at L<http://postfwd.org/docker>.
 
 
 =head2 TESTING

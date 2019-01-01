@@ -4255,7 +4255,8 @@ The following arguments will control it's behaviour in this case.
 
 	-d, --daemon
 	postfwd2 will run as daemon and listen on the network for incoming
-	queries (default 127.0.0.1:10045).
+	queries (default 127.0.0.1:10045). Use --nodaemon to keep postfwd2
+	running in foreground.
 
 	-i, --interface <dev>
 	Bind postfwd2 to the specified interface (default 127.0.0.1).
@@ -4392,7 +4393,7 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 	This option has no effect without --summary or --verbose set.
 
 	-L, --stdout
-	Redirects all syslog messages to stdout for debugging. Never use this with postfix!
+	Redirects all syslog messages to stdout for debugging. Do not use this in daemon mode!
 
 	-t, --test
 	In test mode postfwd2 always returns "dunno", but logs according
@@ -4834,6 +4835,11 @@ Then postmap that file (`postmap hash:/etc/postfix/policy`), open your main.cf a
 				  	  ...							<--- optional
 
 Reload postfix and watch your logs.
+
+I<Integration via docker>
+
+postfwd can be run in a docker container. The relevant options are --nodaemon and --stdout.
+More information can be found in the included doc/docker.html or at L<http://postfwd.org/docker>.
 
 
 =head2 TESTING
