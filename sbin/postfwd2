@@ -409,6 +409,7 @@ sub list_stats {
 	my @output = (); my $line = ''; my $now = time();
 	my $uptime  = $now - $StartTime;
 	return @output unless $uptime and (%Count or %Cache);
+	return @output if $postfwd_settings{syslog}{noidlestats} and ((($Interval{request_set} || 0) + ($Interval{request_get} || 0)) <= 0);
 	push ( @output, sprintf (
 		"[STATS] %s::cache %s: %d queries since %d days, %02d:%02d:%02d hours",
 		$postfwd_settings{name},
