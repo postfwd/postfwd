@@ -54,9 +54,9 @@ ENV GROUP=postfw
 RUN apt-get update && apt-get install --no-install-recommends -y \
     libnet-dns-perl libnet-server-perl \
     libtime-hires-perl libstorable-perl \
-    git
+    git ca-certificates
 RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}
-RUN apt-get purge -y --auto-remove git && apt-get autoremove -y && rm -fR /var/lib/apt/lists/*
+RUN apt-get purge -y --auto-remove git ca-certificates && apt-get autoremove -y && rm -fR /var/lib/apt/lists/*
 
 # create stuff
 RUN addgroup --quiet --system ${GROUP}
