@@ -2501,8 +2501,9 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 						$cmd_manual .= ($0 =~ /^([-\@\/\w. ]+)$/) ? " \"".$1 : " \"".$NAME;
 						$cmd_manual .= "\" | ".$cmd_pager;
 						exec_cmd ($cmd_manual); exit; },
-		'cache_socket=s', 'cache_interface=s', 'cache_port=s', 'cache_proto=s', 'cache_umask=s',
-		'no_parent_request_cache', 'no_parent_rate_cache', 'no_parent_dns_cache', 'watchdog=i',
+		'cache_socket=s', 'cache_interface=s', 'cache_port=s', 'cache_proto=s', 'cache_umask=s', 'watchdog=i',
+		'no_parent_request_cache', 'no_parent_rate_cache', 'no_parent_dns_cache',
+		'parent_request_cache', 'parent_rate_cache', 'parent_dns_cache',
 		'min_servers=i', 'min_spare_servers=i', 'max_servers=i', 'max_spare_servers=i',
 ) or pod2usage (-msg => "\nPlease see \"".$NAME." -m\" for detailed instructions.\n", -verbose => 1);
 
