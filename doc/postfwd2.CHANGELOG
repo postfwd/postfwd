@@ -1,4 +1,4 @@
-postfwd2 1.36-devel3
+postfwd2 1.36-devel4
 ====================
 - feature: new items postfwd_port and postfwd_interface, allow to use the same
            ruleset for different instances of postfwd
