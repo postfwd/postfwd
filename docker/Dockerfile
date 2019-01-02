@@ -3,7 +3,7 @@
 #
 # Edit postfwd.cf and use with:
 #
-#   docker build -t postfwd:testing .
+#   docker build --pull --no-cache -t postfwd:testing .
 #   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
 #
 # or with more options (postfwd2 on post 10050):
@@ -51,12 +51,12 @@ ENV USER=postfw
 ENV GROUP=postfw
 
 # install stuff
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install --no-install-recommends -y \
     libnet-dns-perl libnet-server-perl \
     libtime-hires-perl libstorable-perl \
     git
 RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}
-RUN apt-get purge -y --auto-remove git && rm -fR /var/lib/apt/lists/*
+RUN apt-get purge -y --auto-remove git && apt-get autoremove -y && rm -fR /var/lib/apt/lists/*
 
 # create stuff
 RUN addgroup --quiet --system ${GROUP}

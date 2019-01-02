@@ -43,21 +43,24 @@ docker-compose up
 
 ## 2 Building your own image
 
-### 2.1 Get the postfwd docker files:
+### 2.1 Get the postfwd docker files
 
-2.1.1 via [GitHub](https://github.com/postfwd/postfwd/tree/testing):
+The files "Dockerfile" and "docker-compose.yml" which were used to build the images at DockerHub can be found within the
+"docker"-subfolder of the postfwd distribution. You can find it at:
+
+2.1.1 [GitHub](https://github.com/postfwd/postfwd/tree/testing):
 ```bash
 git clone https://github.com/postfwd/postfwd --branch testing --single-branch postfwd
 ```
 
-2.1.2 via [postfwd.org/DEVEL](https://postfwd.org/DEVEL/?C=M;O=D):
+2.1.2 [postfwd.org/DEVEL](https://postfwd.org/DEVEL/?C=M;O=D):
 ```bash
 wget https://postfwd.org/DEVEL/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz
 ```
 
 ### 2.2 docker
 
-2.2.1 Edit the Dockerfile build the image:
+2.2.1 Edit the Dockerfile and build the image:
 ```bash
 docker build --no-cache --pull -t postfwd:testing .
 ```
@@ -68,7 +71,7 @@ docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
 
 ### 2.3 docker-compose
 
-2.3.1 Edit the Dockerfile and the docker-compose.yml file build the image:
+2.3.1 Edit the Dockerfile and the docker-compose.yml file and build the image:
 ```bash
 docker-compose build --no-cache --pull
 ```
@@ -77,3 +80,4 @@ docker-compose build --no-cache --pull
 ```bash
 docker-compose up
 ```
+
