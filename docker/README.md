@@ -87,9 +87,9 @@ For reasonable operation you should configure postfwd. First you should create y
 /path/to/ruleset
 ```
 
-```bash
 Now specify the program options via the container environment. The following settings are available:
 
+```bash
     # use 'postfwd1' or 'postfwd2' to switch between versions
     # go to http://postfwd.org/versions.html for more info
     - PROG=postfwd1
@@ -117,7 +117,7 @@ Now specify the program options via the container environment. The following set
     docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e CACHE=0 -e EXTRA="-v" -it postfwd:testing
 ```
 
-b.) docker-compose
+#### 3.2 docker-compose
 
     Run postfwd2 instead of postfwd1, disable cache, enable verbose logging (docker-compose.yml):
 
