@@ -102,7 +102,7 @@ SYNOPSIS
             -V, --version                   output version information and exit
             -D, --defaults                  show postfwd2 settings and exit
             -C, --showconfig                show postfwd2 ruleset and exit (-v allowed)
-            -L, --stdout                    redirect syslog messages to stdout
+            -L, --stdout                    redirect syslog messages to stdout (--stdoutlog works for compatibility)
             -q, --quiet                     no syslogging, no stdout (-P works for compatibility)
 
             Obsolete (only for compatibility with postfwd v1):
@@ -268,6 +268,13 @@ DESCRIPTION
                                       # version >= 1.10
                                       id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
                                             ; action=REJECT sorry no access
+
+            postfwd_port            - postfwd server port, allows to use the same ruleset different
+                                      instances:
+                                      # rule only hits for instance at port 10045
+                                      id=PORT10045; postfwd_port==10045; action=DUNNO
+
+            postfwd_interface       - postfwd server initerface, see postfwd_port
 
             ratecount               - only available for rate(), size() and rcpt() actions.
                                       contains the actual limit counter:
@@ -854,7 +861,8 @@ DESCRIPTION
 
             -d, --daemon
             postfwd2 will run as daemon and listen on the network for incoming
-            queries (default 127.0.0.1:10045).
+            queries (default 127.0.0.1:10045). Use --nodaemon to keep postfwd2
+            running in foreground.
 
             -i, --interface <dev>
             Bind postfwd2 to the specified interface (default 127.0.0.1).
@@ -992,7 +1000,7 @@ DESCRIPTION
             This option has no effect without --summary or --verbose set.
 
             -L, --stdout
-            Redirects all syslog messages to stdout for debugging. Never use this with postfix!
+            Redirects all syslog messages to stdout for debugging. Do not use this in daemon mode!
 
             -t, --test
             In test mode postfwd2 always returns "dunno", but logs according
@@ -1444,6 +1452,12 @@ DESCRIPTION
                                               ...                                                   <--- optional
 
     Reload postfix and watch your logs.
+
+    *Integration via docker*
+
+    postfwd can be run in a docker container. The relevant options are
+    --nodaemon and --stdout. More information can be found in the included
+    doc/docker.html or at <http://postfwd.org/docker>.
 
   TESTING
     First you have to create a ruleset (see Configuration section). Check it

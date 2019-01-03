@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.35";
+our $VERSION	= "1.36";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -48,6 +48,7 @@ my $sepreq	= '///';
 my $seplst	= ':::';
 my $seplim	= '~~~';
 my $nounixsock	= ($^O eq 'solaris');
+my $terminating = 0;
 
 # program settings
 our %postfwd_settings = (
@@ -59,6 +60,7 @@ our %postfwd_settings = (
 		log_file         => 'Sys::Syslog',
 		syslog_ident     => "$NAME",
 		umask		 => "0177",
+		no_client_stdout => '1',
 	},
 	master => {
 		pid_file         => "/var/tmp/$NAME-master.pid",
@@ -285,30 +287,35 @@ sub hash_to_list {
 
 # Sys::Syslog < 0.15
 sub mylogs_old {
-	my($prio,$msg) = @_;
-	eval { local $SIG{'__DIE__'}; syslog ($prio,$msg) };
+	my $prio = shift @_;
+	my $msg  = shift @_;
+	eval { local $SIG{'__DIE__'}; syslog ($prio,$msg,@_) };
 };
 
 # Sys::Syslog >= 0.15
 sub mylogs_new {
-	my($prio,$msg) = @_;
-	syslog ($prio,$msg);
+	my $prio = shift @_;
+	my $msg  = shift @_;
+	syslog ($prio,$msg,@_);
 };
 
 # Syslog to stdout
 sub mylogs_stdout {
-	my($prio,$msg) = @_; $msg =~ /^(.*)$/;
-	printf STDOUT "[LOG $prio]: $1\n", @_;
+	my $prio = shift @_;
+	my $msg  = shift @_;
+	$msg =~ s/\%/%%/g; $msg =~ /^(.*)$/;
+	printf STDERR "[".$postfwd_settings{name}."][$$][LOG $prio]: $1\n", @_;
 };
 
 # send log message
 sub mylogs {
-	my($prio,$msg) = @_;
+	my $prio = shift @_;
+	my $msg  = shift @_;
 	return if $postfwd_settings{syslog}{nolog};
 	# escape unsafe characters
 	$msg =~ s/$postfwd_settings{syslog}{unsafe_charset}/?/g;
 	$msg =~ s/\%/%%/g;
-	&{$postfwd_settings{syslog}{logger}} ($prio,$msg);
+	&{$postfwd_settings{syslog}{logger}} ($prio,$msg,@_);
 };
 
 # short versions
@@ -325,12 +332,14 @@ sub init_log {
 	$postfwd_settings{syslog}{socktype} = ( $postfwd_settings{syslog}{socktype} || (($postfwd_settings{syslog}{unsafe_version}) ? (($nounixsock) ? 'inet' : 'unix') : 'native') );
 	if ($postfwd_settings{syslog}{stdout}) {
 		$postfwd_settings{syslog}{logger}   = \&mylogs_stdout;
+		$postfwd_settings{syslog}{socktype} = 'console';
+		$postfwd_settings{syslog}{options} = 'cons,pid';
+		$postfwd_settings{base}{log_file} = undef;
 	} else {
-		# syslog init
 		$postfwd_settings{syslog}{logger}   = ($postfwd_settings{syslog}{unsafe_version}) ? \&mylogs_old : \&mylogs_new;
-		setlogsock $postfwd_settings{syslog}{socktype};
-		openlog $postfwd_settings{syslog}{name}, $postfwd_settings{syslog}{options}, $postfwd_settings{syslog}{facility};
 	};
+	setlogsock $postfwd_settings{syslog}{socktype};
+	openlog $postfwd_settings{syslog}{name}, $postfwd_settings{syslog}{options}, $postfwd_settings{syslog}{facility};
 	log_info ("set up syslogging Sys::Syslog".((defined $Sys::Syslog::VERSION) ? " version $Sys::Syslog::VERSION" : '') ) if wantsdebug (qw[ all verbose ]);
 };
 
@@ -346,12 +355,12 @@ sub check_inet {
 		$socket->print("$send\n");
 		$send = $socket->getline();
 		$socket->close();
-		chomp($send);
+		chomp($send) if $send;
 	} else {
-		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n");
+		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n") unless $terminating;
 		undef $send;
 	};
-	return $send;
+	return $send || '';
 };
 
 # check: UNIX
@@ -364,12 +373,12 @@ sub check_unix {
 		$socket->print("$send\n");
 		$send = $socket->getline();
 		$socket->close();
-		chomp($send);
+		chomp($send) if $send;
 	} else {
-		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n");
+		warn("can not open socket to $postfwd_settings{$type}{host}:$postfwd_settings{$type}{port}: '$!' '$@'\n") unless $terminating;
 		undef $send;
 	};
-	return $send;
+	return $send || '';
 };
 
 1; # EOF postfwd2::basic
@@ -400,6 +409,10 @@ sub list_stats {
 	my @output = (); my $line = ''; my $now = time();
 	my $uptime  = $now - $StartTime;
 	return @output unless $uptime and (%Count or %Cache);
+	return @output if $postfwd_settings{syslog}{noidlestats}
+		and ((($Interval{request_set} || 0) + ($Interval{request_get} || 0)) <= 0)
+		and ((($Interval{rate_set} || 0) + ($Interval{rate_get} || 0)) <= 0)
+		and ((($Interval{dns_set} || 0) + ($Interval{dns_get} || 0)) <= 0);
 	push ( @output, sprintf (
 		"[STATS] %s::cache %s: %d queries since %d days, %02d:%02d:%02d hours",
 		$postfwd_settings{name},
@@ -682,6 +695,7 @@ sub pre_loop_hook() {
 	# change cache name
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::cache';
 	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/cache";
+	$postfwd_settings{name} .= "/cache";
 	init_log ($self->{server}->{syslog_ident});
 	load_rates();
 	$StartTime = $Summary = $Cleanup{request} = $Cleanup{rate} = $Cleanup{dns} = time();
@@ -924,7 +938,7 @@ use vars qw(
 	%Rule_by_ID %Matches %ACLs %Timeouts %Hits %Count
 	%postfwd_items %postfwd_compare %postfwd_actions
 	%postfwd_items_plugin %postfwd_compare_plugin %postfwd_actions_plugin
-	%Request_Cache %Config_Cache %DNS_Cache %Rate_Cache
+	%Request_Cache %AutoCacheID %Config_Cache %DNS_Cache %Rate_Cache
 	$Cleanup_Requests $Cleanup_RBLs $Cleanup_Rates $Cleanup_Timeouts
 	%Cache %Cleanup $StartTime $Summary
 );
@@ -1277,8 +1291,11 @@ sub read_config {
 	if ($#Rules < 0) {
 		log_warn("critical: no rules found - i feel useless (have you set -f or -r?)");
 	} else {
-		# update Rule by ID hash
-		map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
+		# update Rule by ID and AutoCacheID hashes
+		my @myautocacheid = ();
+		map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_; push @myautocacheid, keys %{$Rules[$_]} } (0 .. $#Rules);
+		map { $AutoCacheID{lc($_)} = 1 } uniq(@myautocacheid);
+		log_info ("Setting AutoCacheID to '".(join ',', (sort keys %AutoCacheID))."'") if wantsdebug(qw[ all verbose thisrequest config cache ]);
 		if ( @Rate_Items ) {
 			@Rate_Items = uniq(@Rate_Items);
 			log_info ("rate items: ".(join ', ', @Rate_Items)) if wantsdebug (qw[ all thisrequest verbose rates ]);
@@ -1602,6 +1619,10 @@ sub dns_query_net_dns {
 		my(%request) = @_; my(%result) = ();
 		# postfwd version
 		$result{version} = $postfwd_settings{name}." ".$postfwd_settings{version};
+		# postfwd server interface
+		$result{postfwd_interface} = $postfwd_settings{server}{interface};
+		# postfwd server port
+		$result{postfwd_port} = $postfwd_settings{server}{port};
 		# sender info
 		$request{sender} =~ /(.*)@([^@]*)$/;
 		( $result{sender_localpart}, $result{sender_domain} ) = ( $1, $2 );
@@ -2618,6 +2639,7 @@ sub smtpd_access_policy {
 	} else {
 		REQITEM: foreach $checkreq (sort keys %request) {
 			next REQITEM unless $request{$checkreq};
+			next REQITEM unless defined $AutoCacheID{lc($checkreq)};
 			next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") or ($checkreq eq "orig"));
 			next REQITEM if ( $postfwd_settings{request}{no_size} and ($checkreq eq "size") );
 			next REQITEM if ( $postfwd_settings{request}{no_sender} and ($checkreq eq "sender") );
@@ -2628,7 +2650,7 @@ sub smtpd_access_policy {
 			};
 		};
 	};
-	log_info ("created cache-id: $cacheid") if wantsdebug (qw[ all thisrequest ]);
+	log_info ("created cache-id: $cacheid") if wantsdebug (qw[ all thisrequest cache ]);
 
     	# wipe out old cache entries
 	if ( $Cleanup_Requests and (scalar keys %Request_Cache > 0) and (($now - $Cleanup_Requests) > $postfwd_settings{request}{cleanup}) ) {
@@ -2853,6 +2875,7 @@ sub pre_loop_hook {
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::policy';
 	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
 	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
+	$postfwd_settings{name} .= "/policy";
 	init_log ($self->{server}->{syslog_ident});
 	# load plugin-items
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
@@ -2978,7 +3001,7 @@ sub process_request {
 	my($client) = $self->{server}->{client};
 	my($parent) = $self->{server}->{parent_sock};
 	my(%attr) = ();
-	while (<STDIN>) {
+	while (<$client>) {
 		s/\r?\n$//;
 		# respond to masters ping
 		if ($_ eq $postfwd_patterns{ping}) {
@@ -3164,6 +3187,9 @@ map { $postfwd_settings{debug}{$_} = 1 } uniq(@{$options{debug}});
 map { $postfwd_settings{daemons}{$_} = 1 } ((defined $options{daemons}) ? uniq(@{$options{daemons}}) : uniq(@daemons));
 map { $postfwd_settings{$_}{check} = ($postfwd_settings{$_}{proto} eq 'unix') ? \&check_unix : \&check_inet } @daemons;
 
+# de-taint command-line
+%postfwd_settings = detaint_hash (%postfwd_settings);
+
 # terminate at -k or --kill
 if (defined $options{'term'}) {
 	kill "TERM", get_master_pid();
@@ -3233,31 +3259,16 @@ if (defined $options{'delcache'} or defined $options{'delrate'}) {
 # -n - skip dns based checks
 log_note ("NODNS: set - will skip all dns based checks") if $postfwd_settings{dns}{disabled};
 
-# de-taint command-line
-%postfwd_settings = detaint_hash (%postfwd_settings);
-
-# check for --nodaemon option
-unless ($postfwd_settings{daemon}) {
-	log_note ("NODAEMON: Please note that rate() commands do not work with postfwd2 and --nodaemon option due to the missing cache daemon");
-	my(%attr) = ();
-	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
-	read_config(1);
-	map { $postfwd_settings{daemons}{$_} = 0 } (keys %{$postfwd_settings{daemons}});
-	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1;
-	while (<>) {
-		chomp;
-		process_input (undef, undef, $_, \%attr);
-	};
-	exit;
-};
-
 # daemonize master
+unless ($postfwd_settings{daemon}) {
+	$postfwd_settings{base}{setsid} = 0;
+};
 log_info ($postfwd_settings{name}." "
 	.$postfwd_settings{version}." starting"
 	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : ''));
 log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
 umask oct($postfwd_settings{base}{umask});
-daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file});
+daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file}) if $postfwd_settings{daemon};
 $0 = $Commandline;
 
 # prepare shared SIG handlers
@@ -3272,10 +3283,12 @@ foreach my $daemon (sort keys %{$postfwd_settings{daemons}}) {
 		$children{$daemon} = $pid;
 	};
 };
+$postfwd_settings{name} .= "/master";
 umask oct($postfwd_settings{base}{umask});
 
 # prepare master SIG handlers and enter main loop
 $SIG{TERM} = sub { end_program(); };
+$SIG{INT} = sub { end_program(); } unless ($postfwd_settings{daemon});
 $SIG{HUP} = sub { reload_program(); };
 if ($postfwd_settings{summary}) {
 	$SIG{ALRM} = sub {
@@ -3321,7 +3334,7 @@ die "master-daemon: should never see me!\n";
 # cleanup children and files and terminate
 sub end_program {
 	# ignore further TERM signals
-	$SIG{TERM} = 'IGNORE';
+	$SIG{TERM} = 'IGNORE'; $terminating = 1;
 	if ($postfwd_settings{summary}) {
 		undef $postfwd_settings{syslog}{noidlestats};
 		log_stats();
@@ -3509,7 +3522,7 @@ B<postfwd2> [OPTIONS] [SOURCE1, SOURCE2, ...]
 	-V, --version			output version information and exit
 	-D, --defaults			show postfwd2 settings and exit
         -C, --showconfig		show postfwd2 ruleset and exit (-v allowed)
-        -L, --stdout			redirect syslog messages to stdout
+        -L, --stdout			redirect syslog messages to stdout (--stdoutlog works for compatibility)
         -q, --quiet			no syslogging, no stdout (-P works for compatibility)
 
 	Obsolete (only for compatibility with postfwd v1):
@@ -3673,6 +3686,13 @@ postfwd versions prior to 1.30 require trailing ';' and '\'-characters:
 				  # version >= 1.10
 				  id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
 				  	; action=REJECT sorry no access
+
+	postfwd_port		- postfwd server port, allows to use the same ruleset different
+				  instances:
+				  # rule only hits for instance at port 10045
+				  id=PORT10045; postfwd_port==10045; action=DUNNO
+
+	postfwd_interface	- postfwd server initerface, see postfwd_port
 
 	ratecount		- only available for rate(), size() and rcpt() actions.
 				  contains the actual limit counter:
@@ -4243,7 +4263,8 @@ The following arguments will control it's behaviour in this case.
 
 	-d, --daemon
 	postfwd2 will run as daemon and listen on the network for incoming
-	queries (default 127.0.0.1:10045).
+	queries (default 127.0.0.1:10045). Use --nodaemon to keep postfwd2
+	running in foreground.
 
 	-i, --interface <dev>
 	Bind postfwd2 to the specified interface (default 127.0.0.1).
@@ -4380,7 +4401,7 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 	This option has no effect without --summary or --verbose set.
 
 	-L, --stdout
-	Redirects all syslog messages to stdout for debugging. Never use this with postfix!
+	Redirects all syslog messages to stdout for debugging. Do not use this in daemon mode!
 
 	-t, --test
 	In test mode postfwd2 always returns "dunno", but logs according
@@ -4822,6 +4843,11 @@ Then postmap that file (`postmap hash:/etc/postfix/policy`), open your main.cf a
 				  	  ...							<--- optional
 
 Reload postfix and watch your logs.
+
+I<Integration via docker>
+
+postfwd can be run in a docker container. The relevant options are --nodaemon and --stdout.
+More information can be found in the included doc/docker.html or at L<http://postfwd.org/docker>.
 
 
 =head2 TESTING

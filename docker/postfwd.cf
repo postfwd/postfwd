@@ -1,0 +1,7 @@
+#
+# Sample ruleset for postfwd
+#
+
+# default: log the request and finish
+id=DEFAULT; action=DUNNO
+

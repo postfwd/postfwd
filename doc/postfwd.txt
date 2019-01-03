@@ -73,7 +73,7 @@ SYNOPSIS
 
             Informational (use only at command-line!):
             -C, --showconfig            shows ruleset summary, -v for verbose
-            -L, --stdoutlog             redirect syslog messages to stdout
+            -L, --stdout                redirect syslog messages to stdout (--stdoutlog works for compatibility)
             -P, --perfmon               no syslogging, no stdout
             -V, --version               shows program version
             -h, --help                  shows usage
@@ -239,6 +239,13 @@ DESCRIPTION
                                       # version >= 1.10
                                       id=R01; version~=1\.[1-9][0-9]; sender_domain==some.org \
                                             ; action=REJECT sorry no access
+
+            postfwd_port            - postfwd server port, allows to use the same ruleset different
+                                      instances:
+                                      # rule only hits for instance at port 10045
+                                      id=PORT10045; postfwd_port==10045; action=DUNNO
+
+            postfwd_interface       - postfwd server initerface, see postfwd_port
 
             ratecount               - only available for rate(), size() and rcpt() actions.
                                       contains the actual limit counter:
@@ -1348,7 +1355,7 @@ DESCRIPTION
 
     If no rule has matched and the end of the ruleset is reached postfwd
     will return dunno without logging anything unless in verbose mode. You
-    may simply place a last `catch-all´ rule to change that behaviour:
+    may simply place a last "catch-all" rule to change that behaviour:
 
             ... <your rules> ...
             id=DEFAULT ;  action=dunno
@@ -1444,6 +1451,11 @@ DESCRIPTION
     The integration with postfix is similar to the *Integration via daemon
     mode* section above. Reload postfix and watch your logs to see if
     everything works.
+
+    *Integration via docker*
+
+    postfwd can be run in a docker container. More information can be found
+    in the included docker.html or at <http://postfwd.org/docker>.
 
   TESTING
     First you have to create a ruleset (see Configuration section). Check it
