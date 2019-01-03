@@ -19,8 +19,8 @@ LABEL maintainer="Postfwd Docker Testing - http://postfwd.org/docker"
 ##
 # GitHub postfwd url
 ARG URL=https://github.com/postfwd/postfwd
-# GitHub postfwd branch (currently needs 'testing' for docker)
-ARG BRANCH=testing
+# GitHub postfwd branch (stable="master", development="testing")
+ARG BRANCH=master
 
 ##
 ## RUNTIME ARGS
