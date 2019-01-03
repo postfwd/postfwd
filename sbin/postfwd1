@@ -41,7 +41,7 @@ BEGIN {
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.36-devel5';
+our($VERSION)			= '1.36';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";

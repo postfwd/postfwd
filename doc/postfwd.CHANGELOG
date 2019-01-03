@@ -1,5 +1,5 @@
-1.36-devel5
-===========
+1.36
+====
 - feature: new items postfwd_port and postfwd_interface, allow to use the same
            ruleset for different instances of postfwd
 - code:    code changes for --stdout and --nodaemon options allow to run postfwd in a
