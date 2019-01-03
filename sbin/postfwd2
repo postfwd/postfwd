@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.36-devel4";
+our $VERSION	= "1.36-devel5";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -938,7 +938,7 @@ use vars qw(
 	%Rule_by_ID %Matches %ACLs %Timeouts %Hits %Count
 	%postfwd_items %postfwd_compare %postfwd_actions
 	%postfwd_items_plugin %postfwd_compare_plugin %postfwd_actions_plugin
-	%Request_Cache %Config_Cache %DNS_Cache %Rate_Cache
+	%Request_Cache %AutoCacheID %Config_Cache %DNS_Cache %Rate_Cache
 	$Cleanup_Requests $Cleanup_RBLs $Cleanup_Rates $Cleanup_Timeouts
 	%Cache %Cleanup $StartTime $Summary
 );
@@ -1291,8 +1291,11 @@ sub read_config {
 	if ($#Rules < 0) {
 		log_warn("critical: no rules found - i feel useless (have you set -f or -r?)");
 	} else {
-		# update Rule by ID hash
-		map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
+		# update Rule by ID and AutoCacheID hashes
+		my @myautocacheid = ();
+		map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_; push @myautocacheid, keys %{$Rules[$_]} } (0 .. $#Rules);
+		map { $AutoCacheID{lc($_)} = 1 } uniq(@myautocacheid);
+		log_info ("Setting AutoCacheID to '".(join ',', (sort keys %AutoCacheID))."'") if wantsdebug(qw[ all verbose thisrequest config cache ]);
 		if ( @Rate_Items ) {
 			@Rate_Items = uniq(@Rate_Items);
 			log_info ("rate items: ".(join ', ', @Rate_Items)) if wantsdebug (qw[ all thisrequest verbose rates ]);
@@ -2636,6 +2639,7 @@ sub smtpd_access_policy {
 	} else {
 		REQITEM: foreach $checkreq (sort keys %request) {
 			next REQITEM unless $request{$checkreq};
+			next REQITEM unless defined $AutoCacheID{lc($checkreq)};
 			next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") or ($checkreq eq "orig"));
 			next REQITEM if ( $postfwd_settings{request}{no_size} and ($checkreq eq "size") );
 			next REQITEM if ( $postfwd_settings{request}{no_sender} and ($checkreq eq "sender") );
@@ -2646,7 +2650,7 @@ sub smtpd_access_policy {
 			};
 		};
 	};
-	log_info ("created cache-id: $cacheid") if wantsdebug (qw[ all thisrequest ]);
+	log_info ("created cache-id: $cacheid") if wantsdebug (qw[ all thisrequest cache ]);
 
     	# wipe out old cache entries
 	if ( $Cleanup_Requests and (scalar keys %Request_Cache > 0) and (($now - $Cleanup_Requests) > $postfwd_settings{request}{cleanup}) ) {

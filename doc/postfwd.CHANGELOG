@@ -1,4 +1,4 @@
-1.36-devel4
+1.36-devel5
 ===========
 - feature: new items postfwd_port and postfwd_interface, allow to use the same
            ruleset for different instances of postfwd
@@ -7,6 +7,7 @@
 	   main distribution or at http://postfwd.org/docker
 - code:    allowed several postfwd2 specific command-line arguments, to allow easy
 	   switching between versions by using the same startscript.
+- code:    new AutoCacheID feature enhances effectivity of the builtin request cache
 
 1.35
 ====

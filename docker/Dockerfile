@@ -31,7 +31,7 @@ ENV PROG=postfwd1
 # port for postfwd
 ENV PORT=10040
 # request cache in seconds. use '0' to disable
-ENV CACHE=0
+ENV CACHE=60
 # additional arguments, see postfwd -h or man page for more
 ENV EXTRA="--no_parent_dns_cache --noidlestats --summary=600"
 # get config file from ARG

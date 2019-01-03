@@ -14,7 +14,7 @@ docker pull postfwd/postfwd:testing
 
 1.1.2 Execute a container based on that image:
 ```bash
-docker run -it postfwd/postfwd:testing
+docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -it postfwd/postfwd:testing
 ```
 
 ### 1.2 docker-compose
@@ -32,7 +32,7 @@ services:
       - 127.0.0.1:10040:10040
     volumes:
       # Do not forget to create your ruleset an change /path/to/ruleset below!
-      - /path/to/ruleset/postfwd.cf:/etc/postfwd/postfwd.cf:ro
+      - /path/to/ruleset:/etc/postfwd/postfwd.cf:ro
 ```
 
 1.2.2 Execute the container:
@@ -66,7 +66,7 @@ docker build --no-cache --pull -t postfwd:testing .
 ```
 2.2.2 Execute a container based on that image:
 ```bash
-docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
+docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
 ```
 
 ### 2.3 docker-compose

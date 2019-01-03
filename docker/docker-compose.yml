@@ -21,7 +21,7 @@ services:
       # configuration file
       - CONF=postfwd.cf
       # request cache in seconds. use '0' to disable
-      - CACHE=0
+      - CACHE=60
       # additional arguments, see postfwd -h or man page for more
       - EXTRA=--no_parent_dns_cache --noidlestats --summary=600
     restart: always

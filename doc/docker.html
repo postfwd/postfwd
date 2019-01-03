@@ -7,191 +7,98 @@
 <meta name="description" content="postfwd docker support">
 <meta name="author" content="jpk">
 <meta name="keywords" content="postfwd, postfwd usage, postfwd manual, postfwd docker, docker, postfix, policy, policy delegation, firewall, postfix acl, postfix acls, pfwpolicy, postfw, restrictions, IT-Security, IT-Consulting, Jan, Peter, Kessler">
+<style type="text/css" media="screen">
+#CommandBox { font-size: 1.15em; color: #3D1600; background: #E5E4E2; padding-left: 20px; padding-right: 20px; padding-top: 1px; padding-bottom: 1px; border: none; width:90%; margin-top: .1em; margin-bottom: .7em; }
+#Command { color: #2B547E; };
+</style>
 </head>
 
 <body>
 <h2>postfwd docker support [devel]</h2>
 
-To run postfwd in a docker container you will need at least version 1.36-devel2. The following examples fetch postfwd from the <a href="https://github.com/postfwd/postfwd/tree/testing">"testing"-branch at GitHub</a>. Furthermore you can find these versions at the <a href="https://postfwd.org/DEVEL/?C=M;O=D">postfwd development page</a>. This will change after the final release of version 1.36+.<br><br>
-
-<ol>
-<li>Get the postfwd docker files:<br><br>
-   <ul>
-   <li>via GitHub: <pre><code>git clone https://github.com/postfwd/postfwd --branch testing --single-branch postfwd</code></pre>
-   <li>via postfwd.org: <pre><code>wget https://postfwd.org/DEVEL/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz</code></pre>
-   </ul><br>
-<li>Configure your postfwd ruleset:<br><br>
-   <ul>
-   <li>Change to the postfwd docker sample sub-directory:<pre><code>cd postfwd/docker</code></pre>
-   <li>Edit the ruleset <a href="#postfwd.cf"><tt>postfwd.cf</tt></a><br>
-   <pre>For reasonable operation the default ruleset should be edited. Refer to the postfwd <a href="https://postfwd.org/doc.html"><small><tt>manual</tt></small></a> for more information.</pre>
-   </ul><br>
-<li>Build and run the container:<br><br>
-   <ul>
-   <li>Edit the <a href="#Dockerfile"><tt>Dockerfile</tt></a> and run: <pre><code>docker build -t postfwd:testing .
-docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing</code></pre>
-   <li>Edit the <a href="#docker-compose.yml"><tt>docker-compose.yml</tt></a> file and run: <pre><code>docker-compose build --pull
-docker-compose up</code></pre>
-   </ul><br>
-</ol>
-
-<h3>Sample files: </h3>
-<p>
-<a name="postfwd.cf"></a>
-<center>
-<table width="99%" border="1" cellpadding="3px">
-<tr>
-<td valign="top">
-<a href="postfwd.cf"><tt><b>postfwd.cf</b></tt></a> (<a href="https://github.com/postfwd/postfwd/blob/testing/docker/postfwd.cf">@GitHub</a>):
-<tr>
-<td valign="top">
-<pre><code>#
-# Sample ruleset for postfwd
-#
-
-# default: log the request and finish
-id=DEFAULT; action=DUNNO
-</code></pre>
-</table>
-</center>
-</p>
+To run postfwd in a docker container you will need to access the development aka testing branch (at least version 1.36-devel2). You can use the pre-built image "postfwd/postfwd:testing" from DockerHub or download the postfwd distibution and build the image by yourself.<br>
 
 <br>
-<p>
-<a name="Dockerfile"></a>
-<center>
-<table width="99%" border="1" cellpadding="3px">
-<tr>
-<td valign="top">
-<a href="Dockerfile"><tt><b>Dockerfile</b></tt></a> (<a href="https://github.com/postfwd/postfwd/blob/testing/docker/Dockerfile">@GitHub</a>):
-<tr>
-<td valign="top">
-<pre><code>#
-# Sample Dockerfile for postfwd - http://postfwd.org/docker
-#
-# Edit postfwd.cf and use with:
-#
-#   docker build -t postfwd:testing .
-#   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
-#
-# or with more options (postfwd2 on post 10050):
-#
-#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -e PROG=postfwd2 -e PORT=10050 -it postfwd:testing
-#
-FROM debian:stretch-slim
-
-LABEL maintainer="Postfwd Docker Testing - http://postfwd.org/docker"
-
-##
-## BUILD ARGS
-##
-# GitHub postfwd url
-ARG URL=https://github.com/postfwd/postfwd
-# GitHub postfwd branch (currently needs 'testing' for docker)
-ARG BRANCH=testing
-
-##
-## RUNTIME ARGS
-##
-# use 'postfwd1' or 'postfwd2' to switch between versions
-# go to http://postfwd.org/versions.html for more info
-ENV PROG=postfwd1
-# port for postfwd
-ENV PORT=10040
-# request cache in seconds. use '0' to disable
-ENV CACHE=0
-# additional arguments, see postfwd -h or man page for more
-ENV EXTRA="--no_parent_dns_cache --noidlestats --summary=600"
-# get config file from ARG
-ENV CONF=postfwd.cf
-
-##
-## CONTAINER ARGS
-##
-# configuration directory
-ENV ETC=/etc/postfwd
-# target for postfwd distribution
-ENV TARGET=/opt/postfwd
-# data directory
-ENV HOME=/var/lib/postfwd
-# user and group for execution
-ENV USER=postfw
-ENV GROUP=postfw
-
-# install stuff
-RUN apt-get update && apt-get install -y \
-    libnet-dns-perl libnet-server-perl \
-    libtime-hires-perl libstorable-perl \
-    git
-RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}
-RUN apt-get purge -y --auto-remove git && rm -fR /var/lib/apt/lists/*
-
-# create stuff
-RUN addgroup --quiet --system ${GROUP}
-RUN adduser --quiet --system --no-create-home --disabled-login --disabled-password \
-    --ingroup ${GROUP} --home ${HOME} --shell /bin/false ${USER}
-RUN mkdir -p ${ETC} && chown root:${GROUP} ${ETC} && chmod 0750 ${ETC}
-RUN mkdir -p ${HOME} && chown ${USER}:${GROUP} ${HOME} && chmod 0700 ${HOME}
-
-# open port
-EXPOSE ${PORT}
-
-# start postfwd - don't worry about versions: postfwd1 will silently ignore postfwd2-specific arguments
-ENTRYPOINT exec ${TARGET}/sbin/${PROG} --file ${ETC}/${CONF} --user ${USER} --group ${GROUP} \
-	--server_socket tcp:0.0.0.0:${PORT} --cache_socket=unix::${HOME}/postfwd.cache \
-	--pidfile=${HOME}/postfwd.pid --save_rates=${HOME}/postfwd.rates \
-	--cache=${CACHE} ${EXTRA} \
-	--stdout --nodaemon
-</code></pre>
-</table>
-</center>
-</p>
-
 <br>
-<p>
-<a name="docker-compose.yml"></a>
-<center>
-<table width="99%" border="1" cellpadding="3px">
-<tr>
-<td valign="top">
-<a href="docker-compose.yml"><tt><b>docker-compose.yml</b></tt></a> (<a href="https://github.com/postfwd/postfwd/blob/testing/docker/docker-compose.yml">@GitHub</a>):
-<tr>
-<td valign="top">
-<pre><code>#
-# Sample postfwd docker compose file - http://postfwd.org/docker
-#
-# Edit ruleset/postfwd.cf and use with:
-#
-# 	docker-compose build --pull
-#	docker-compose up
+<h3>Quicknav</h3>
+<ul>
+  <li><a href="#c001">Using a pre-built image</a>
+  <ul>
+    <li><a href="#c001s001">docker</a>
+    <li><a href="#c001s002">docker-compose</a>
+  </ul>
+<br>
+  <li><a href="#c002">Building your own image</a>
+  <ul>
+    <li><a href="#c002s001">get postfwd docker files</a>
+    <li><a href="#c002s002">docker</a>
+    <li><a href="#c002s003">docker-compose</a>
+  </ul>
+</ul>
+<br>
 
-version: '2' 
+<a name="c001"><h3>Using a pre-built image</h3></a>
+
+<a name="c001s001"><h4>a.) docker</h4></a>
+<ul>
+<li>Get the image:
+   <div id="CommandBox"><pre><code>docker pull postfwd/postfwd:testing</code></pre></div>
+<li>Execute a container based on that image:
+   <div id="CommandBox"><pre><code>docker run -v <strong id="Command">/path/to/ruleset</strong>:/etc/postfwd/postfwd.cf:ro -it postfwd/postfwd:testing</code></pre></div>
+</ul>
+
+<a name="c001s002"><h4>b.) docker-compose</h4></a>
+
+<ul>
+<li>Create docker-compose.yml:
+   <div id="CommandBox"><pre><code>version: '2'
 
 services:
-
-  postfwd:
-    build: .
-    environment:
-      # use 'postfwd1' or 'postfwd2' to switch between versions
-      # go to http://postfwd.org/versions.html for more info
-      - PROG=postfwd1
-      # port for postfwd
-      - PORT=10040
-      # configuration file
-      - CONF=postfwd.cf
-      # request cache in seconds. use '0' to disable
-      - CACHE=0
-      # additional arguments, see postfwd -h or man page for more
-      - EXTRA=--no_parent_dns_cache --noidlestats --summary=600
+  postfwd-testing:
+    image: postfwd/postfwd:testing
     restart: always
     ports:
-      - 127.0.0.1:10040:10040
+      # Modify interface and port below if required!
+      - <strong id="Command">127.0.0.1:10040</strong>:10040
     volumes:
-      - ./postfwd.cf:/etc/postfwd/postfwd.cf:ro
-</code></pre>
-</table>
-</center>
-</p>
+      # Do not forget to create your ruleset an change /path/to/ruleset below!
+      - <strong id="Command">/path/to/ruleset</strong>:/etc/postfwd/postfwd.cf:ro</code></pre></div>
+<li>Execute the container:
+   <div id="CommandBox"><pre><code>docker-compose up</code></pre></div>
+</ul>
+
+<br>
+<a name="c002"><h3>Building your own image</h3></a>
+
+<a name="c002s001"><h4>Get the postfwd docker files</h4></a>
+
+The files "Dockerfile" and "docker-compose.yml" which were used to build the images at DockerHub can be found within the
+"docker"-subfolder of the postfwd distribution. You can find it at:<br>
+
+<ul>
+<li><a href="https://github.com/postfwd/postfwd/tree/testing">GitHub</a>:
+   <div id="CommandBox"><pre><code>git clone https://github.com/postfwd/postfwd --branch testing --single-branch postfwd</code></pre></div>
+<li><a href="https://postfwd.org/DEVEL/?C=M;O=D">postfwd.org/DEVEL</a>:
+   <div id="CommandBox"><pre><code>wget https://postfwd.org/DEVEL/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz</code></pre></div>
+</ul>
+
+<a name="c002s002"><h4>a.) docker</h4></a>
+
+<ul>
+<li>Edit the Dockerfile and build the image:
+   <div id="CommandBox"><pre><code>docker build --no-cache --pull -t postfwd:testing .</code></pre></div>
+<li>Execute a container based on that image:
+   <div id="CommandBox"><pre><code>docker run -v <strong id="Command">/path/to/ruleset</strong>:/etc/postfwd/postfwd.cf:ro -it postfwd:testing</code></pre></div>
+</ul>
+
+<a name="c002s003"><h4>b.) docker-compose</h4></a>
+
+<ul>
+<li>Edit the Dockerfile and the docker-compose.yml file and build the image:
+   <div id="CommandBox"><pre><code>docker-compose build --no-cache --pull</code></pre></div>
+<li>Execute the container:
+   <div id="CommandBox"><pre><code>docker-compose up</code></pre></div>
+</ul>
 
 </body>
 </html>
