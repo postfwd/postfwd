@@ -1,6 +1,6 @@
 # postfwd docker support
 
-To run postfwd in a docker container you will need to access the development aka testing branch (at least version 1.36-devel2). You can use the pre-built image "postfwd/postfwd:testing" from DockerHub or download the postfwd distibution and build the image by yourself.
+To run postfwd in a docker container you will need use at least version 1.36 of postfwd. You can use one of the pre-built images "postfwd/postfwd:stable" or "postfwd/postfwd:testing" from DockerHub or download the postfwd distibution and build the image by yourself.
 
 
 ## 1 Using a pre-built image
@@ -9,12 +9,12 @@ To run postfwd in a docker container you will need to access the development aka
 
 1.1.1 Get the image:
 ```bash
-docker pull postfwd/postfwd:testing
+docker pull postfwd/postfwd:stable
 ```
 
 1.1.2 Execute a container based on that image:
 ```bash
-docker run -it postfwd/postfwd:testing
+docker run -it postfwd/postfwd:stable
 ```
 
 ### 1.2 docker-compose
@@ -24,8 +24,8 @@ docker run -it postfwd/postfwd:testing
 version: '2'
 
 services:
-  postfwd-testing:
-    image: postfwd/postfwd:testing
+  postfwd:
+    image: postfwd/postfwd:stable
     restart: always
     ports:
       # Modify the port below if required!
@@ -45,25 +45,25 @@ docker-compose up
 The files "Dockerfile" and "docker-compose.yml" which were used to build the images at DockerHub can be found within the
 "docker"-subfolder of the postfwd distribution. You can find it at:
 
-2.1.1 [GitHub](https://github.com/postfwd/postfwd/tree/testing):
+2.1.1 [GitHub](https://github.com/postfwd/postfwd):
 ```bash
-git clone https://github.com/postfwd/postfwd --branch testing --single-branch postfwd
+git clone https://github.com/postfwd/postfwd --branch master --single-branch postfwd
 ```
 
-2.1.2 [postfwd.org/DEVEL](https://postfwd.org/DEVEL/?C=M;O=D):
+2.1.2 [postfwd.org](https://postfwd.org):
 ```bash
-wget https://postfwd.org/DEVEL/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz
+wget https://postfwd.org/postfwd-latest.tar.gz && gzip -dc postfwd-latest.tar.gz | tar -xf - && rm postfwd-latest.tar.gz
 ```
 
 ### 2.2 docker
 
 2.2.1 Edit the Dockerfile and build the image:
 ```bash
-docker build --no-cache --pull -t postfwd:testing .
+docker build --no-cache --pull -t postfwd:stable .
 ```
 2.2.2 Execute a container based on that image:
 ```bash
-docker run -it postfwd:testing
+docker run -it postfwd:stable
 ```
 
 ### 2.3 docker-compose
@@ -108,13 +108,13 @@ Now specify the program options via the container environment. The following set
 Run postfwd2 instead of postfwd1:
 
 ```bash
-docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e PROG=postfwd2 -it postfwd:testing
+docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e PROG=postfwd2 -it postfwd:stable
 ```
 
 Disable request-cache, enable verbose logging:
 
 ```bash
-docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e CACHE=0 -e EXTRA="-v" -it postfwd:testing
+docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e CACHE=0 -e EXTRA="-v" -it postfwd:stable
 ```
 
 #### 3.2 docker-compose
@@ -131,7 +131,7 @@ version: '2'
   services:
 
     postfwd:
-      image: postfwd/postfwd:testing
+      image: postfwd/postfwd:stable
       environment:
         - PROG=postfwd2
         - CACHE=0

@@ -3,12 +3,12 @@
 #
 # Edit postfwd.cf and use with:
 #
-#   docker build --pull --no-cache -t postfwd:testing .
-#   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
+#   docker build --pull --no-cache -t postfwd:stable .
+#   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:stable
 #
 # or with more options (postfwd2 on post 10050):
 #
-#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -e PROG=postfwd2 -e PORT=10050 -it postfwd:testing
+#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -e PROG=postfwd2 -e PORT=10050 -it postfwd:stable
 #
 FROM debian:stretch-slim
 
