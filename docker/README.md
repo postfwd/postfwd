@@ -90,56 +90,56 @@ For reasonable operation you should configure postfwd. First you should create y
 Now specify the program options via the container environment. The following settings are available:
 
 ```bash
-    # use 'postfwd1' or 'postfwd2' to switch between versions
-    # go to http://postfwd.org/versions.html for more info
-    - PROG=postfwd1
-    # port for postfwd
-    - PORT=10040
-    # configuration file
-    - CONF=postfwd.cf
-    # request cache in seconds. use '0' to disable
-    - CACHE=60
-    # additional arguments, see postfwd -h or man page for more
-    - EXTRA=--no_parent_dns_cache --noidlestats --summary=600
+# use 'postfwd1' or 'postfwd2' to switch between versions
+# go to http://postfwd.org/versions.html for more info
+- PROG=postfwd1
+# port for postfwd
+- PORT=10040
+# configuration file
+- CONF=postfwd.cf
+# request cache in seconds. use '0' to disable
+- CACHE=60
+# additional arguments, see postfwd -h or man page for more
+- EXTRA=--no_parent_dns_cache --noidlestats --summary=600
 ```
 
 ### 3.1 docker
 
-    Run postfwd2 instead of postfwd1:
+Run postfwd2 instead of postfwd1:
 
 ```bash
-    docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e PROG=postfwd2 -it postfwd:testing
+docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e PROG=postfwd2 -it postfwd:testing
 ```
 
-    Disable request-cache, enable verbose logging:
+Disable request-cache, enable verbose logging:
 
 ```bash
-    docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e CACHE=0 -e EXTRA="-v" -it postfwd:testing
+docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e CACHE=0 -e EXTRA="-v" -it postfwd:testing
 ```
 
 #### 3.2 docker-compose
 
-    Run postfwd2 instead of postfwd1, disable cache, enable verbose logging (docker-compose.yml):
+Run postfwd2 instead of postfwd1, disable cache, enable verbose logging (docker-compose.yml):
 
 ```bash
-    #
-    # docker-compose.yml
-    #
+#
+# docker-compose.yml
+#
 
-    version: '2' 
+version: '2' 
 
-    services:
+  services:
 
-      postfwd:
-        image: postfwd/postfwd:testing
-        environment:
-          - PROG=postfwd2
-          - CACHE=0
-          - EXTRA=-vv --no_parent_dns_cache --noidlestats --summary=600
-        restart: always
-        ports:
-          - 127.0.0.1:10040:10040
-        volumes:
-          - /path/to/ruleset:/etc/postfwd/postfwd.cf:ro
+    postfwd:
+      image: postfwd/postfwd:testing
+      environment:
+        - PROG=postfwd2
+        - CACHE=0
+        - EXTRA=-vv --no_parent_dns_cache --noidlestats --summary=600
+      restart: always
+      ports:
+        - 127.0.0.1:10040:10040
+      volumes:
+        - /path/to/ruleset:/etc/postfwd/postfwd.cf:ro
 ```
 
