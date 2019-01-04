@@ -103,8 +103,6 @@ SYNOPSIS
             -D, --defaults                  show postfwd2 settings and exit
             -C, --showconfig                show postfwd2 ruleset and exit (-v allowed)
             -L, --stdout                    redirect syslog messages to stdout (--stdoutlog works for compatibility)
-                --stdin                     pull request from stdin instead of a network socket
-                ---cmd                      shorthand form of --stdin, --stdout and --nodaemon
             -q, --quiet                     no syslogging, no stdout (-P works for compatibility)
 
             Obsolete (only for compatibility with postfwd v1):
@@ -1004,19 +1002,6 @@ DESCRIPTION
             -L, --stdout
             Redirects all syslog messages to stdout for debugging. Do not use this in daemon mode!
 
-           --stdin
-            Tells postfwd to get the request data from STDIN instead of a network socket. This
-            may be used to test rulesets at the command-line:
-
-            Example:
-            postfwd -f /etc/postfwd/postfwd.cf --stdin --stdout --nodaemon ../tools/request.sample
-
-            --cmd
-            Shorthand for the combination --stdin, --stdout and --nodaemon
-
-            Example:
-            postfwd -f /etc/postfwd/postfwd.cf --cmd ../tools/request.sample
-
             -t, --test
             In test mode postfwd2 always returns "dunno", but logs according
             to it`s ruleset. -v will be set automatically with this option.
@@ -1343,7 +1328,7 @@ DESCRIPTION
     Lists will be evaluated in the specified order. This allows to place
     faster expressions at first:
 
-            postfwd2 -vv --cmd -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
+            postfwd2 --nodaemon -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
 
     produces the following
 
@@ -1362,7 +1347,7 @@ DESCRIPTION
     The negation operator !!(<value>) has the highest priority and therefore
     will be evaluated first. Then variable substitutions are performed:
 
-            postfwd2 -vv --cmd -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
+            postfwd2 --nodaemon -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
 
     will give
 
@@ -1483,7 +1468,7 @@ DESCRIPTION
     There is an example policy request distributed with postfwd, called
     'request.sample'. Simply change it to meet your requirements and use
 
-            postfwd2 --cmd -f /etc/postfwd.cf request.sample
+            postfwd2 -f /etc/postfwd.cf <request.sample
 
     You should get an answer like
 

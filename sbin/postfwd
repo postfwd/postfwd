@@ -41,7 +41,7 @@ BEGIN {
 
 # Program constants
 our($NAME) 			= 'postfwd';
-our($VERSION)			= '1.37-devel1';
+our($VERSION)			= '1.36';
 
 # Networking options (use -i, -p and -R to change)
 our($def_net_pid)		= "/var/run/".$NAME.".pid";
@@ -234,7 +234,7 @@ use vars qw(
 	$opt_perfmon $opt_test $opt_verbose $opt_noidlestats $opt_delcache $opt_delrate
 	$opt_cache_rdomain_only $opt_cache_no_size $config_timeout $opt_fast_limits
 	$opt_cache_no_sender $opt_no_rulestats $opt_kill $opt_hup $opt_dumpcache $opt_dumpstats
-	$opt_showconfig $opt_stdoutlog $opt_stdin $opt_shortlog $dns_async_txt $opt_keep_rates_on_reload
+	$opt_showconfig $opt_stdoutlog $opt_shortlog $dns_async_txt $opt_keep_rates_on_reload
 	$DNS $Reload_Conf $dns_queuesize $dns_retries $dns_timeout
 );
 our %Name_To_Var = (
@@ -2453,8 +2453,6 @@ GetOptions (	"term|kill|stop|k"	 => \$opt_kill,
 		'I|instantcfg'		 => \$opt_instantconfig,
 		'P|perfmon'		 => \$opt_perfmon,
 		'L|stdout|stdoutlog'	 => \$opt_stdoutlog,
-		'stdin'	 		 => \$opt_stdin,
-		'commandline|command|cmd' => sub{ $opt_stdin = $opt_stdoutlog = 1; $opt_daemon = 0 },
 		'i|interface=s'		 => \$net_interface,
 		'p|port=s'		 => \$net_port,
 		"server_socket|socket=s" => sub{ (undef, $net_interface, $net_port) = (split ':', $_[1]) },
@@ -2785,26 +2783,9 @@ sub mux_input() {
 	};
 };
 
+## run the servers main loop
 umask oct($net_umask);
-unless ($opt_stdin) {
-	## run the servers main loop
-	$server->run;
-} else {
-	# main loop for command line use with --stdin
-	# regexp is used to keep it similar to the server main loop
-	my($request,$answer) = undef;
-	my (%myattr) = ();
-	while (<>) {
-		# check request and print output
-		s/^([^\r\n]*)\r?\n//;
-		next unless defined $1;
-		$request = $1;
-		process_input (undef, $request, \%myattr);
-	};
-	# finishing
-	end_program;
-};
-
+$server->run;
 die "should never see me...";
 ## EOF
 
@@ -2889,8 +2870,6 @@ postfwd [OPTIONS] [SOURCE1, SOURCE2, ...]
 	Informational (use only at command-line!):
 	-C, --showconfig            shows ruleset summary, -v for verbose
         -L, --stdout                redirect syslog messages to stdout (--stdoutlog works for compatibility)
-            --stdin                 pull request from stdin instead of a network socket
-	    --cmd		    shorthand form for --stdin, --stdout and --nodaemon
 	-P, --perfmon               no syslogging, no stdout
 	-V, --version               shows program version
 	-h, --help                  shows usage
@@ -3798,21 +3777,8 @@ These parameters influence the way postfwd is working. Any of them can be combin
 	Disables per rule statistics. Keeps your log clean, if you do not use them.
 	This option has no effect without --summary or --verbose set.
 
-	-L, --stdout
+	-L, --stdoutlog
 	Redirects all syslog messages to stdout for debugging. Never use this with postfix!
-
-	--stdin
-	Tells postfwd to get the request data from STDIN instead of a network socket. This
-	may be used to test rulesets at the command-line:
-
-	Example:
-	postfwd -f /etc/postfwd/postfwd.cf --stdin --stdout --nodaemon ../tools/request.sample
-
-	--cmd
-	Shorthand for the combination --stdin, --stdout and --nodaemon
-
-	Example:
-	postfwd -f /etc/postfwd/postfwd.cf --cmd ../tools/request.sample
 
 	-t, --test
 	In test mode postfwd always returns "dunno", but logs according
@@ -4115,7 +4081,7 @@ equals to
 
 Lists will be evaluated in the specified order. This allows to place faster expressions at first:
 
-	postfwd -vv --cmd -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
+	postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
 
 produces the following
 
@@ -4133,7 +4099,7 @@ produces the following
 
 The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
 
-	postfwd -vv --cmd -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
+	postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
 
 will give
 
@@ -4264,7 +4230,7 @@ First you have to create a ruleset (see Configuration section). Check it with
 There is an example policy request distributed with postfwd, called 'request.sample'.
 Simply change it to meet your requirements and use
 
-	postfwd --cmd -f /etc/postfwd.cf request.sample
+	postfwd -f /etc/postfwd.cf <request.sample
 
 You should get an answer like
 
