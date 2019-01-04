@@ -1,5 +1,5 @@
-1.37-devel1
-===========
+1.37
+====
 - code:    new options --stdin and --cmd re-enable the ability  to check requests at
 	   the commmand-line without opening a network socket
 	   (this was broken since version 1.36, see manpage for more info)

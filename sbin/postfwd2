@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.37-devel1";
+our $VERSION	= "1.37";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
