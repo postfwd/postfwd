@@ -2,7 +2,7 @@
 
 Important: Please look at [postfwd.org/docker](https://postfwd.org/docker) for the latest version of this information!
 
-To run postfwd in a docker container you will need use at least version 1.36 of postfwd. You can use one of the pre-built images `postfwd/postfwd:stable` (aka `latest`) or `postfwd/postfwd:devel` (aka `testing`) from [DockerHub](https://hub.docker.com/r/postfwd/postfwd) or download the [postfwd distibution](https://postfwd.org) and build the image by yourself.
+To run postfwd in a docker container you will need use at least version 1.36 of postfwd. You can use one of the pre-built images `postfwd/postfwd:stable` or `postfwd/postfwd:devel` from [DockerHub](https://hub.docker.com/r/postfwd/postfwd) or download the [postfwd distibution](https://postfwd.org) and build the image by yourself.
 
 ## 1 Using a pre-built image
 
@@ -20,7 +20,7 @@ docker run -it postfwd/postfwd:stable
 
 ### 1.2 docker-compose
 
-1.2.1 Create docker-compose.yml:
+1.2.1 Create `docker-compose.yml`:
 ```
 version: '2'
 
@@ -43,8 +43,8 @@ docker-compose up
 
 ### 2.1 Get the postfwd docker files
 
-The files `Dockerfile` and `docker-compose.yml` which were used to build the images at DockerHub can be found within the
-`docker`-subfolder of the postfwd distribution. You can find it at:
+The files `Dockerfile` and `docker-compose.yml` which were used to build the images at DockerHub can be found within
+the subfolder `docker/` of the postfwd distribution. You can find it at:
 
 2.1.1 [GitHub](https://github.com/postfwd/postfwd):
 ```bash
@@ -120,7 +120,7 @@ docker run -v /path/to/ruleset:/etc/postfwd/postfwd.cf:ro -e CACHE=0 -e EXTRA="-
 
 #### 3.2 docker-compose
 
-Run postfwd2 instead of postfwd1, disable cache, enable verbose logging (docker-compose.yml):
+Run postfwd2 instead of postfwd1, disable cache, enable verbose logging via `docker-compose.yml`:
 
 ```
 #
