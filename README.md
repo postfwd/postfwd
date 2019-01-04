@@ -2,7 +2,7 @@
 
 Postfwd is written in perl to combine complex postfix restrictions in a ruleset similar to those of the most firewalls. The program uses the postfix policy delegation protocol to control access to the mail system before a message has been accepted (please visit http://www.postfix.org/SMTPD_POLICY_README.html for more information). It allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters (like sender and recipient address, size or the client's TLS fingerprint).
 
-[Documentation](http://postfwd.org/doc.html), [Quickstart guide](http://postfwd.org/quick.html) and [Examples](http://postfwd.org/example-cfg.txt) are located at official postfwd web page http://postfwd.org/.
+Important: [Documentation](https://postfwd.org/doc.html), [Quickstart guide](https://postfwd.org/quick.html) and [Examples](https://postfwd.org/example-cfg.txt) are located at official postfwd web page [postfwd.org](https://postfwd.org/).
 
 If you are interested in postfwd, please subscribe to [mailing list](http://listi.jpberlin.de/mailman/listinfo/postfwd-users).
 
@@ -20,7 +20,7 @@ To change default arguments with which postfwd is run, edit file `/etc/default/p
 
 Clone this repository and copy `postfwd2` from directory `./sbin` to your PATH environment (eg. /usr/sbin/).
 
-There are several perl module dependencies needed to run postfwd. These are mentioned at [postfwd home page](http://postfwd.org/). For `postfwd2` it is:
+There are several perl module dependencies needed to run postfwd. These are mentioned at [postfwd home page](https://postfwd.org/). For `postfwd2` it is:
 
 * Net::Server::Daemonize
 * Net::Server::Multiplex
@@ -41,6 +41,10 @@ install Net::Server::Daemonize \
 
 Note: Before installing with `cpan` make sure that you have installed `gcc`, `gcc-devel` and `make` or `build-essential` to build perl modules.
 
+### Docker
+
+Postfwd can be run in a docker container. Please see [postfwd.org/docker](https://postfwd.org/docker) for more information.
+
 ## Configuration
 
 By default postfwd listens on port 10040 and configuration file is located in `/etc/postfix/postfwd.cf`, but this can be overriden with postfwd arguments. To show postfwd argument list, simply run `postfwd2 --help`.
@@ -58,7 +62,7 @@ smtpd_recipient_restrictions = permit_mynetworks
 
 Note: If you do not run postfwd on same server where postfix is run, replace IP address `127.0.0.1` to IP address where your postfwd instance is located.
 
-For more instructions to setup postfwd with postfix refer to [Postfwd Integration](http://postfwd.org/doc.html#integration).
+For more instructions to setup postfwd with postfix refer to [Postfwd Integration](https://postfwd.org/doc.html#integration).
 
 ### Rules file
 
@@ -82,7 +86,7 @@ postfwd --daemon -f /etc/postfwd.cf -u postfwd -g postfwd
 
 Postfwd functionality can be extended by creating plugins. Sample plugin can be found in `plugins/postfwd.plugins.sample` in this repository.
 
-If you are interested in plugin development, use [plugin development documentation](http://postfwd.org/doc.html#plugins) as reference.
+If you are interested in plugin development, use [plugin development documentation](https://postfwd.org/doc.html#plugins) as reference.
 
 List of public plugins:
 

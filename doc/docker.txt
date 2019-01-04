@@ -1,0 +1,1 @@
+Please look into the docker/ subfolder of the main distribution or at https://postfwd.org/docker.
