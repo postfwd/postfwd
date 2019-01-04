@@ -23,7 +23,7 @@ services:
       # request cache in seconds. use '0' to disable
       - CACHE=60
       # additional arguments, see postfwd -h or man page for more
-      - EXTRA=--no_parent_dns_cache --noidlestats --summary=600
+      - EXTRA=--noidlestats --summary=600
     restart: always
     ports:
       - 127.0.0.1:10040:10040
