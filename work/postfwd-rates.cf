@@ -1,0 +1,22 @@
+#
+# Sample ruleset for postfwd shows how to use a single ruleset for multiple instances
+#
+
+id=R001
+	action=rate(client_address/3/20/450 4.7.1 rate exceeded)
+
+id=R002
+	action=rate(sender/3/20/450 4.7.1 rate exceeded)
+
+id=R003
+	action=note($$version $$postfwd_interface:$$postfwd_port)
+
+id=R004
+        rbl=list.dnswl.org
+        rbl=hostkarma.junkemailfilter.com/^127\.0\.0\.1$/3600 
+        rhsbl_client=hostkarma.junkemailfilter.com/^127\.0\.0\.1$/3600
+	action=PERMIT_AUTH_DESTINATION
+
+# default: log the request and finish
+id=DEFAULT; action=DUNNO
+
