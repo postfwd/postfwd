@@ -2,7 +2,7 @@
 
 Important: Please look at [postfwd.org/docker](https://postfwd.org/docker) for the latest version of this information!
 
-To run postfwd in a docker container you will need use at least version 1.36 of postfwd. You can use one of the pre-built images "postfwd/postfwd:stable" or "postfwd/postfwd:testing" from DockerHub or download the postfwd distibution and build the image by yourself.
+To run postfwd in a docker container you will need use at least version 1.36 of postfwd. You can use one of the pre-built images "postfwd/postfwd:stable" or "postfwd/postfwd:devel" from DockerHub or download the postfwd distibution and build the image by yourself.
 
 ## 1 Using a pre-built image
 
@@ -88,7 +88,7 @@ For reasonable operation you should configure postfwd. First you should create y
 /path/to/ruleset
 ```
 
-Now specify the program options via the container environment. The following settings are available:
+Now specify the program options via the container environment. The following settings are available with these default values:
 
 ```bash
 # use 'postfwd1' or 'postfwd2' to switch between versions
@@ -101,7 +101,7 @@ Now specify the program options via the container environment. The following set
 # request cache in seconds. use '0' to disable
 - CACHE=60
 # additional arguments, see postfwd -h or man page for more
-- EXTRA=--no_parent_dns_cache --noidlestats --summary=600
+- EXTRA=--noidlestats --summary=600
 ```
 
 ### 3.1 docker
