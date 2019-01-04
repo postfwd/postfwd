@@ -74,6 +74,8 @@ SYNOPSIS
             Informational (use only at command-line!):
             -C, --showconfig            shows ruleset summary, -v for verbose
             -L, --stdout                redirect syslog messages to stdout (--stdoutlog works for compatibility)
+                --stdin                 pull request from stdin instead of a network socket
+                --cmd                   shorthand form for --stdin, --stdout and --nodaemon
             -P, --perfmon               no syslogging, no stdout
             -V, --version               shows program version
             -h, --help                  shows usage
@@ -1000,8 +1002,21 @@ DESCRIPTION
             Disables per rule statistics. Keeps your log clean, if you do not use them.
             This option has no effect without --summary or --verbose set.
 
-            -L, --stdoutlog
+            -L, --stdout
             Redirects all syslog messages to stdout for debugging. Never use this with postfix!
+
+            --stdin
+            Tells postfwd to get the request data from STDIN instead of a network socket. This
+            may be used to test rulesets at the command-line:
+
+            Example:
+            postfwd -f /etc/postfwd/postfwd.cf --stdin --stdout --nodaemon ../tools/request.sample
+
+            --cmd
+            Shorthand for the combination --stdin, --stdout and --nodaemon
+
+            Example:
+            postfwd -f /etc/postfwd/postfwd.cf --cmd ../tools/request.sample
 
             -t, --test
             In test mode postfwd always returns "dunno", but logs according
@@ -1306,7 +1321,7 @@ DESCRIPTION
     Lists will be evaluated in the specified order. This allows to place
     faster expressions at first:
 
-            postfwd -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
+            postfwd -vv --cmd -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
 
     produces the following
 
@@ -1325,7 +1340,7 @@ DESCRIPTION
     The negation operator !!(<value>) has the highest priority and therefore
     will be evaluated first. Then variable substitutions are performed:
 
-            postfwd -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
+            postfwd -vv --cmd -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
 
     will give
 
@@ -1466,7 +1481,7 @@ DESCRIPTION
     There is an example policy request distributed with postfwd, called
     'request.sample'. Simply change it to meet your requirements and use
 
-            postfwd -f /etc/postfwd.cf <request.sample
+            postfwd --cmd -f /etc/postfwd.cf request.sample
 
     You should get an answer like
 

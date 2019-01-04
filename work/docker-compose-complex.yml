@@ -1,0 +1,59 @@
+#
+# Sample postfwd docker compose file - http://postfwd.org/docker
+#
+# combined use of postfwd1 and postfwd2
+#
+# Edit ruleset/postfwd-complex.cf and use with:
+#
+#       docker-compose -f docker-compose-complex.yml build --pull
+#       docker-compose -f docker-compose-complex.yml up
+
+version: '2' 
+
+services:
+
+  postfwd2:
+    build:
+      context: .
+      args:
+        # GitHub postfwd branch (currently needs 'testing' for docker)
+        BRANCH: testing
+    environment:
+      # use 'postfwd1' or 'postfwd2' to switch between versions
+      - PROG=postfwd2
+      # port for postfwd
+      - PORT=10055
+      # additional arguments, see postfwd -h or man page for more
+      - EXTRA=--no_parent_dns_cache --noidlestats --summary=20
+    restart: always
+    ports:
+      - 127.0.0.1:10055:10055
+    volumes:
+      - ./postfwd-complex.cf:/etc/postfwd/postfwd.cf:ro
+    networks:
+      - postfwdnet
+
+  postfwd1:
+    build:
+      context: .
+      args:
+        # GitHub postfwd branch (currently needs 'testing' for docker)
+        BRANCH: testing
+    environment:
+      # use 'postfwd1' or 'postfwd2' to switch between versions
+      - PROG=postfwd1
+      # port for postfwd
+      - PORT=10050
+      # additional arguments, see postfwd -h or man page for more
+      - EXTRA=--noidlestats --summary=15
+    restart: always
+    volumes:
+      - ./postfwd-complex.cf:/etc/postfwd/postfwd.cf:ro
+    networks:
+      - postfwdnet
+
+networks:
+
+  postfwdnet:
+    # empty
+

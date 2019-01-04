@@ -12,7 +12,7 @@
 #
 FROM debian:stretch-slim
 
-LABEL maintainer="Postfwd Docker Testing - http://postfwd.org/docker"
+LABEL maintainer="Postfwd Docker - http://postfwd.org/docker"
 
 ##
 ## BUILD ARGS

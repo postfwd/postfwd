@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.36";
+our $VERSION	= "1.37";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -110,6 +110,7 @@ our %postfwd_settings = (
 		unsafe_version  => (not(defined $Sys::Syslog::VERSION) or $Sys::Syslog::VERSION lt '0.15'),
 		perfmon   	=> 0,
 		stdout		=> 0,
+		stdin		=> 0,
 	},
 	timeout => {
 		rule		=> 40,
@@ -3112,6 +3113,8 @@ GetOptions( \%options,
 	"noidlestats"		  => \$postfwd_settings{syslog}{noidlestats},
 	"no-idlestats"		  => \$postfwd_settings{syslog}{noidlestats},
 	"stdoutlog|stdout|L"	  => \$postfwd_settings{syslog}{stdout},
+	"stdin"	  		  => \$postfwd_settings{syslog}{stdin},
+	"commandline|command|cmd" => sub{ $postfwd_settings{syslog}{stdin} = $postfwd_settings{syslog}{stdout} = 1; $postfwd_settings{daemon} = 0 },
 	# Cache
 	"cache_socket=s"	  => sub{ ($postfwd_settings{cache}{proto}, $postfwd_settings{cache}{host}, $postfwd_settings{cache}{port}) = (split ':', $_[1]) },
 	"cache_interface=s"	  => \$postfwd_settings{cache}{host},
@@ -3275,7 +3278,23 @@ $0 = $Commandline;
 $SIG{__WARN__} = sub { log_warn("warning: $_[0]") };
 $SIG{__DIE__}  = sub { log_crit("FATAL: $_[0]"); die @_; };
 
+# check for --stdin option
+if ($postfwd_settings{syslog}{stdin}) {
+	log_note ("STDIN: Please note that rate() commands do not work with postfwd2 and --stdin option due to the missing cache daemon");
+	my(%attr) = ();
+	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
+	read_config(1);
+	map { $postfwd_settings{daemons}{$_} = 0 } (keys %{$postfwd_settings{daemons}});
+	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1;
+	while (<>) {
+		chomp;
+		process_input (undef, undef, $_, \%attr);
+	};
+	exit;
+};
+
 # fork daemons: cache and server
+umask oct($postfwd_settings{base}{umask});
 foreach my $daemon (sort keys %{$postfwd_settings{daemons}}) {
 	umask oct($postfwd_settings{$daemon}{umask});
 	if (my $pid = spawn_daemon ($daemon)) {
@@ -3284,7 +3303,6 @@ foreach my $daemon (sort keys %{$postfwd_settings{daemons}}) {
 	};
 };
 $postfwd_settings{name} .= "/master";
-umask oct($postfwd_settings{base}{umask});
 
 # prepare master SIG handlers and enter main loop
 $SIG{TERM} = sub { end_program(); };
@@ -3523,6 +3541,8 @@ B<postfwd2> [OPTIONS] [SOURCE1, SOURCE2, ...]
 	-D, --defaults			show postfwd2 settings and exit
         -C, --showconfig		show postfwd2 ruleset and exit (-v allowed)
         -L, --stdout			redirect syslog messages to stdout (--stdoutlog works for compatibility)
+            --stdin			pull request from stdin instead of a network socket
+	    ---cmd			shorthand form of --stdin, --stdout and --nodaemon
         -q, --quiet			no syslogging, no stdout (-P works for compatibility)
 
 	Obsolete (only for compatibility with postfwd v1):
@@ -4403,6 +4423,19 @@ These parameters influence the way postfwd2 is working. Any of them can be combi
 	-L, --stdout
 	Redirects all syslog messages to stdout for debugging. Do not use this in daemon mode!
 
+       --stdin
+        Tells postfwd to get the request data from STDIN instead of a network socket. This
+        may be used to test rulesets at the command-line:
+
+        Example:
+        postfwd -f /etc/postfwd/postfwd.cf --stdin --stdout --nodaemon ../tools/request.sample
+
+        --cmd
+        Shorthand for the combination --stdin, --stdout and --nodaemon
+
+        Example:
+        postfwd -f /etc/postfwd/postfwd.cf --cmd ../tools/request.sample
+
 	-t, --test
 	In test mode postfwd2 always returns "dunno", but logs according
 	to it`s ruleset. -v will be set automatically with this option.
@@ -4726,7 +4759,7 @@ equals to
 
 Lists will be evaluated in the specified order. This allows to place faster expressions at first:
 
-	postfwd2 --nodaemon -vv -L -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
+	postfwd2 -vv --cmd -r "id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT" /some/where/request.sample
 
 produces the following
 
@@ -4744,7 +4777,7 @@ produces the following
 
 The negation operator !!(<value>) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:
 
-	postfwd2 --nodaemon -vv -L -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
+	postfwd2 -vv --cmd -r "id=TEST; action=REJECT; client_name=!!($$heloname)" /some/where/request.sample
 
 will give
 
@@ -4859,7 +4892,7 @@ First you have to create a ruleset (see Configuration section). Check it with
 There is an example policy request distributed with postfwd, called 'request.sample'.
 Simply change it to meet your requirements and use
 
-	postfwd2 -f /etc/postfwd.cf <request.sample
+	postfwd2 --cmd -f /etc/postfwd.cf request.sample
 
 You should get an answer like
 

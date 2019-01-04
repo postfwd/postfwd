@@ -1,26 +1,26 @@
 #
-# Dockerfile for DockerHub automatic build of postfwd - http://postfwd.org/docker
+# Sample Dockerfile for postfwd - http://postfwd.org/docker
 #
 # Edit postfwd.cf and use with:
 #
-#   docker build --pull --no-cache -t postfwd:stable .
-#   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:stable
+#   docker build -t postfwd:testing .
+#   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:testing
 #
 # or with more options (postfwd2 on post 10050):
 #
-#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -e PROG=postfwd2 -e PORT=10050 -it postfwd:stable
+#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -e PROG=postfwd2 -e PORT=10050 -it postfwd:testing
 #
 FROM debian:stretch-slim
 
-LABEL maintainer="Postfwd Docker - http://postfwd.org/docker"
+LABEL maintainer="Postfwd Docker Testing - http://postfwd.org/docker"
 
 ##
 ## BUILD ARGS
 ##
 # GitHub postfwd url
 ARG URL=https://github.com/postfwd/postfwd
-# GitHub postfwd branch (stable="master", development="testing")
-ARG BRANCH=master
+# GitHub postfwd branch (currently needs 'testing' for docker)
+ARG BRANCH=testing
 
 ##
 ## RUNTIME ARGS
@@ -31,9 +31,9 @@ ENV PROG=postfwd1
 # port for postfwd
 ENV PORT=10040
 # request cache in seconds. use '0' to disable
-ENV CACHE=60
+ENV CACHE=0
 # additional arguments, see postfwd -h or man page for more
-ENV EXTRA="--noidlestats --summary=600"
+ENV EXTRA="--no_parent_dns_cache --noidlestats --summary=600"
 # get config file from ARG
 ENV CONF=postfwd.cf
 
@@ -51,12 +51,12 @@ ENV USER=postfw
 ENV GROUP=postfw
 
 # install stuff
-RUN apt-get update && apt-get install --no-install-recommends -y \
+RUN apt-get update && apt-get install -y \
     libnet-dns-perl libnet-server-perl \
     libtime-hires-perl libstorable-perl \
-    git ca-certificates
+    git
 RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}
-RUN apt-get purge -y --auto-remove git ca-certificates && apt-get autoremove -y && rm -fR /var/lib/apt/lists/*
+RUN apt-get purge -y --auto-remove git && rm -fR /var/lib/apt/lists/*
 
 # create stuff
 RUN addgroup --quiet --system ${GROUP}
