@@ -1,7 +1,8 @@
 # postfwd docker support
 
-To run postfwd in a docker container you will need use at least version 1.36 of postfwd. You can use one of the pre-built images "postfwd/postfwd:stable" or "postfwd/postfwd:testing" from DockerHub or download the postfwd distibution and build the image by yourself.
+Important: Please look at [postfwd.org/docker](https://postfwd.org/docker) for the latest version of this information!
 
+To run postfwd in a docker container you will need use at least version 1.36 of postfwd. You can use one of the pre-built images "postfwd/postfwd:stable" or "postfwd/postfwd:testing" from DockerHub or download the postfwd distibution and build the image by yourself.
 
 ## 1 Using a pre-built image
 
