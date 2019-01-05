@@ -2855,36 +2855,6 @@ sub smtpd_access_policy {
     return $myaction;
 };
 
-
-## Net::Server::PreFork methods
-
-# ignore syslog failures
-sub handle_syslog_error {};
-
-# reload config on HUP signal
-sub sig_hup {
-	my $self = shift;
-	log_note ("catched HUP signal - reloading ruleset on next request");
-	read_config(1);
-	map { kill ("HUP", $_) } (keys %{$self->{server}->{children}});
-};
-
-# parent start
-sub pre_loop_hook {
-	my $self = shift;
-	# change parent's name
-	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::policy';
-	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
-	$postfwd_settings{name} .= "/policy";
-	init_log ($self->{server}->{syslog_ident});
-	# load plugin-items
-	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
-	# read configuration
-	read_config(1);
-	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
-	log_info ("ready for input");
-};
-
 # increase counters
 sub count_cache { map { $Count{$1} += $2 if m/$postfwd_patterns{cntval}/ } (split ($postfwd_settings{sepreq}, $_[1])) if $_[1] };
 
@@ -2958,6 +2928,36 @@ sub list_stats {
 	$Count{interval} = $Count{dnsinterval} = 0;
 	$Summary = $now;
 	return @output;
+};
+
+
+## Net::Server::PreFork methods
+
+# ignore syslog failures
+sub handle_syslog_error {};
+
+# reload config on HUP signal
+sub sig_hup {
+	my $self = shift;
+	log_note ("catched HUP signal - reloading ruleset on next request");
+	read_config(1);
+	map { kill ("HUP", $_) } (keys %{$self->{server}->{children}});
+};
+
+# parent start
+sub pre_loop_hook {
+	my $self = shift;
+	# change parent's name
+	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::policy';
+	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
+	$postfwd_settings{name} .= "/policy";
+	init_log ($self->{server}->{syslog_ident});
+	# load plugin-items
+	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
+	# read configuration
+	read_config(1);
+	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
+	log_info ("ready for input");
 };
 
 # parent processes child input
@@ -3047,6 +3047,8 @@ sub process_input {
 1; # EOF postfwd2::server
 
 
+## postfwd::master Start
+
 use warnings;
 use strict;
 use Getopt::Long 2.25 qw(:config no_ignore_case bundling);
@@ -3063,7 +3065,7 @@ import postfwd2::server qw(&read_config &show_config &process_input &get_plugins
 
 
 # functions to start, override with '--daemons' at command line
-my @daemons = qw[ cache server ];
+my @daemons = @{$postfwd_settings{master}{daemons}};
 
 use vars qw(
 	%options %children %failures
@@ -3136,12 +3138,12 @@ GetOptions( \%options,
 	"save_rates|save_limits|save_rates_on_restart=s" => \$postfwd_settings{rate}{store},
 	"fast_limit_evaluation"	  => \$postfwd_settings{rate}{fast_eval},
 	# Control
-	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable: $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit 1; },
-	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit 1; },
+	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable: $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
+	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit; },
 	'manual|m'		  => sub{ # contructing command string (de-tainting $0)
                                           $postfwd_settings{manual} .= ($0 =~ /^([-\@\/\w. ]+)$/) ? " \"".$1 : " \"".$postfwd_settings{name};
                                           $postfwd_settings{manual} .= "\" | ".$postfwd_settings{pager};
-                                          system ($postfwd_settings{manual}); exit 1; },
+                                          system ($postfwd_settings{manual}); exit; },
         "term|kill|stop|k",
         "hup|reload",
         "delcache=s",
@@ -3218,7 +3220,7 @@ init_log ($postfwd_settings{name}."/master");
 if (defined $options{'showconfig'}) {
 	read_config(1);
         show_config();
-        exit 1;
+        exit;
 };
 
 # show program settings
@@ -3228,7 +3230,7 @@ if (defined $options{'defaults'}) {
 		map { print "  %$_\n" } hash_to_list ('postfwd_commands', %postfwd_commands);
 		map { print "  %$_\n" } hash_to_list ('postfwd_patterns', %postfwd_patterns);
 	};
-	print "\n"; exit 1;
+	print "\n"; exit;
 };
 
 # dump stats
@@ -3238,7 +3240,7 @@ if (defined $options{'dumpstats'}) {
 		map { print ("$_\n") } get_stats ($daemon);
 	};
 	print "\n";
-	exit 1;
+	exit;
 };
 
 # dump cache contents
@@ -3247,7 +3249,7 @@ if (defined $options{'dumpcache'}) {
 		split $postfwd_settings{sepreq}.$postfwd_settings{seplst},
 			(&{$postfwd_settings{cache}{check}} ('cache', 'CMD=DC;') || '<undef>')
 	)."\n\n";
-	exit 1;
+	exit;
 };
 
 # remove cache item
@@ -3256,7 +3258,7 @@ if (defined $options{'delcache'} or defined $options{'delrate'}) {
 		split $postfwd_settings{sepreq}.$postfwd_settings{seplst},
 			(&{$postfwd_settings{cache}{check}} ('cache', (($options{'delcache'}) ? 'CMD=RC '.$options{'delcache'} : 'CMD=RR '.$options{'delrate'})) || '<undef>')
 	)."\n\n";
-	exit 1;
+	exit;
 };
 
 # -n - skip dns based checks
