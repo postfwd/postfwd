@@ -1295,8 +1295,12 @@ sub read_config {
 		# update Rule by ID and AutoCacheID hashes
 		my @myautocacheid = ();
 		map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_; push @myautocacheid, keys %{$Rules[$_]} } (0 .. $#Rules);
-		map { $AutoCacheID{lc($_)} = 1 } uniq(@myautocacheid);
-		log_info ("Setting AutoCacheID to '".(join ',', (sort keys %AutoCacheID))."'") if wantsdebug(qw[ all verbose thisrequest config cache ]);
+		map { $AutoCacheID{lc($_)} = 1 } (grep !/^($COMP_ID|$COMP_ACTION)$/, uniq(@myautocacheid));
+		if (%AutoCacheID) {
+			log_info ("Setting AutoCacheID to '".(join ',', (sort keys %AutoCacheID))."'") if wantsdebug(qw[ all verbose thisrequest config cache ]);
+		} else {
+			log_info ("No items found in ruleset. Disabling AutoCacheID") if wantsdebug(qw[ all verbose thisrequest config cache ]);
+		};
 		if ( @Rate_Items ) {
 			@Rate_Items = uniq(@Rate_Items);
 			log_info ("rate items: ".(join ', ', @Rate_Items)) if wantsdebug (qw[ all thisrequest verbose rates ]);
@@ -2640,7 +2644,7 @@ sub smtpd_access_policy {
 	} else {
 		REQITEM: foreach $checkreq (sort keys %request) {
 			next REQITEM unless $request{$checkreq};
-			next REQITEM unless defined $AutoCacheID{lc($checkreq)};
+			next REQITEM if %AutoCacheID and not defined $AutoCacheID{lc($checkreq)};
 			next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") or ($checkreq eq "orig"));
 			next REQITEM if ( $postfwd_settings{request}{no_size} and ($checkreq eq "size") );
 			next REQITEM if ( $postfwd_settings{request}{no_sender} and ($checkreq eq "sender") );
