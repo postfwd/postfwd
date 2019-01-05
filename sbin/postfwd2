@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd2";
-our $VERSION	= "1.37";
+our $VERSION	= "1.38-devel1";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -2875,13 +2875,13 @@ sub pre_loop_hook {
 	# change parent's name
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::policy';
 	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
-	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
 	$postfwd_settings{name} .= "/policy";
 	init_log ($self->{server}->{syslog_ident});
 	# load plugin-items
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
 	# read configuration
 	read_config(1);
+	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
 	log_info ("ready for input");
 };
 
@@ -3382,6 +3382,8 @@ sub spawn_daemon {
 		my %service =  %{$postfwd_settings{$type}};
 		# Net::Server dies when a unix domain socket without dot "." is used
 		$service{port} .= '|unix' if (($service{proto} eq 'unix') and not($service{port} =~ /\|unix$/));
+ 		$service{syslog_logopt}  = $postfwd_settings{syslog}{options}  if defined $postfwd_settings{syslog}{options};
+ 		$service{syslog_logsock} = $postfwd_settings{syslog}{socktype} if defined $postfwd_settings{syslog}{socktype};
 		my %daemonopts = (%{$postfwd_settings{base}}, %service);
 		my $daemon = bless { server => { %daemonopts } }, "postfwd2::$type";
 		$daemon->run();
