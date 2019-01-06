@@ -1,3 +1,8 @@
+postfwd2 1.38
+=============
+- bugfix:    fix for AutoCacheID and rulesets containing no items
+- bugfix:    fixed logging for Net::Server class
+
 postfwd2 1.37
 =============
 - code:    new options --stdin and --cmd re-enable the ability to check requests at

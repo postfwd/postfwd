@@ -1,3 +1,7 @@
+v1.38
+=====
+- bugfix:    fix for AutoCacheID and rulesets containing no items
+
 1.37
 ====
 - code:    new options --stdin and --cmd re-enable the ability  to check requests at
