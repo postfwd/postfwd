@@ -3390,7 +3390,9 @@ sub spawn_daemon {
 		$service{port} .= '|unix' if (($service{proto} eq 'unix') and not($service{port} =~ /\|unix$/));
  		$service{syslog_logopt}  = $postfwd_settings{syslog}{options}  if defined $postfwd_settings{syslog}{options};
  		$service{syslog_logsock} = $postfwd_settings{syslog}{socktype} if defined $postfwd_settings{syslog}{socktype};
+ 		$service{syslog_facility} = $postfwd_settings{syslog}{facility} if defined $postfwd_settings{syslog}{facility};
 		my %daemonopts = (%{$postfwd_settings{base}}, %service);
+		map { log_info("spawn $_") } (hash_to_list($type, %daemonopts)) if wantsdebug (qw[ all verbose daemon spawn ]);
 		my $daemon = bless { server => { %daemonopts } }, "postfwd2::$type";
 		$daemon->run();
 		die "$type-daemon: should never see me!\n";
