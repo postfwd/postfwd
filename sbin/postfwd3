@@ -107,7 +107,8 @@ our %postfwd_settings = (
 		# allow "umlaute" ;)
 		#unsafe_charset	=> qr/[^\x20-\x7E,\x80-\xFE]/,
 		unsafe_charset	=> qr/[^\x20-\x7E]/,
-		unsafe_version  => (not(defined $Sys::Syslog::VERSION) or $Sys::Syslog::VERSION lt '0.15'),
+		unsafe_version  => ( (not(defined $Sys::Syslog::VERSION) or $Sys::Syslog::VERSION lt '0.15')
+				or (not(defined $Net::Server::VERSION) or $Net::Server::VERSION lt '0.94') ),
 		perfmon   	=> 0,
 		stdout		=> 0,
 		stdin		=> 0,
@@ -311,6 +312,34 @@ sub mylogs_stdout {
 	printf STDERR "[".$postfwd_settings{name}."][$$][LOG $prio]: $1\n", @_;
 };
 
+# Net::Server syslog
+sub mylogs_net_server {
+	my $self = shift @_;
+	my $prio = shift @_;
+	my $msg  = shift @_;
+
+	$self->log($prio,$msg,@_);
+};
+
+# Net::Server syslog for Sys::Syslog < 0.15 or Net::Server < 0.94
+sub mylogs_net_server_old {
+	my $self = shift @_;
+	my $prio = shift @_;
+	my $msg  = shift @_;
+
+	# for Net::Server <= 0.87
+	$msg =~ s/\%/%%/g;
+
+	# Workaround for a crash when syslog daemon is temporarily not
+	# present (for example on syslog rotation).
+	# Note that this is not necessary with Sys::Syslog >= 0.15 and
+        # Net::Server >= 0.94 thanks to the nofatal Option.
+	eval {
+		local $SIG{"__DIE__"} = sub { };
+		$self->log($prio,$msg,@_);
+	};
+};
+
 # send log message
 sub mylogs {
 	my $prio = shift @_;
@@ -333,18 +362,24 @@ sub log_crit { mylogs ('crit', @_) };
 sub init_log {
 	my($logname) = @_;
 	$postfwd_settings{syslog}{name} = $logname if $logname;
-	$postfwd_settings{syslog}{socktype} = ( $postfwd_settings{syslog}{socktype} || (($postfwd_settings{syslog}{unsafe_version}) ? (($nounixsock) ? 'inet' : 'unix') : 'native') );
+	# Some module versions contain non-digits (example: Sys::Syslog::VERSION 0.33_01)
+	my $sver = $Sys::Syslog::VERSION;
+	my $nver = $Net::Server::VERSION;
+	$sver =~ s/[^0-9\.]//g if defined $sver;
+	$nver =~ s/[^0-9\.]//g if defined $nver;
+	$postfwd_settings{syslog}{unsafe_version} = ( (not((defined $sver) or (defined $nver))) or ($sver lt '0.15') or ($nver lt '0.94') );
 	if ($postfwd_settings{syslog}{stdout}) {
 		$postfwd_settings{syslog}{logger}   = \&mylogs_stdout;
 		$postfwd_settings{syslog}{socktype} = 'console';
 		$postfwd_settings{syslog}{options} = 'cons,pid';
 		$postfwd_settings{base}{log_file} = undef;
 	} else {
+		$postfwd_settings{syslog}{socktype} = ( $postfwd_settings{syslog}{socktype} || (($postfwd_settings{syslog}{unsafe_version}) ? (($nounixsock) ? 'inet' : 'unix') : 'native') );
 		$postfwd_settings{syslog}{logger}   = ($postfwd_settings{syslog}{unsafe_version}) ? \&mylogs_old : \&mylogs_new;
 	};
 	setlogsock $postfwd_settings{syslog}{socktype};
 	openlog $postfwd_settings{syslog}{name}, $postfwd_settings{syslog}{options}, $postfwd_settings{syslog}{facility};
-	log_info ("set up syslogging Sys::Syslog".((defined $Sys::Syslog::VERSION) ? " version $Sys::Syslog::VERSION" : '') ) if wantsdebug (qw[ all verbose ]);
+	log_info ("set up syslogging Sys::Syslog".((defined $Sys::Syslog::VERSION) ? " version $Sys::Syslog::VERSION" : '').' ['.($postfwd_settings{syslog}{unsafe_version} || 0).']' ) if wantsdebug (qw[ all verbose ]);
 };
 
 # check: INET
@@ -1379,7 +1414,7 @@ sub rbl_read_dns {
 	# read question, for dns cache id
 	foreach ($myresult->question) {
 		$typ = ($_->qtype || ''); $que = ($_->qname || '');
-		map { &{$postfwd_settings{syslog}{logger}} ('info', "[GETDNS00] type=$typ, query=$que, $_") } (hash_to_list ('%packet', %{$myresult}))
+		map { log_info ("[GETDNS00] type=$typ, query=$que, $_") } (hash_to_list ('%packet', %{$myresult}))
 			if wantsdebug (qw[ all thisrequest dns getdns getdnspacket ]);
 		next unless ($typ and $que);
 		log_info ("[GETDNS01] type=$typ, query=$que") if wantsdebug (qw[ all thisrequest dns getdns ]);
@@ -2877,9 +2912,9 @@ sub smtpd_access_policy {
 	};
     };
     $myaction = $postfwd_settings{default} if ($postfwd_settings{test} or !($myaction));
-    map { &{$postfwd_settings{syslog}{logger}} ('info', "  %$_") } hash_to_list ('Request_Cache', %Request_Cache)	if wantsdebug (qw[ child_cache child_request_cache ]);
-    map { &{$postfwd_settings{syslog}{logger}} ('info', "  %$_") } hash_to_list ('Rate_Cache', %Rate_Cache)		if wantsdebug (qw[ child_cache child_rate_cache ]);
-    map { &{$postfwd_settings{syslog}{logger}} ('info', "  %$_") } hash_to_list ('DNS_Cache', %DNS_Cache)		if wantsdebug (qw[ child_cache child_dns_cache ]);
+    map { log_info ("  %$_") } hash_to_list ('Request_Cache', %Request_Cache)	if wantsdebug (qw[ child_cache child_request_cache ]);
+    map { log_info ("  %$_") } hash_to_list ('Rate_Cache', %Rate_Cache)		if wantsdebug (qw[ child_cache child_rate_cache ]);
+    map { log_info ("  %$_") } hash_to_list ('DNS_Cache', %DNS_Cache)		if wantsdebug (qw[ child_cache child_dns_cache ]);
     return $myaction;
 };
 
@@ -3503,7 +3538,7 @@ sub detaint_hash {
 };
 
 # send stats to syslog
-sub log_stats { map { &{$postfwd_settings{syslog}{logger}} ('notice', "$_") unless ($_ eq '<undef>') } get_stats(sort keys %{$postfwd_settings{daemons}}); };
+sub log_stats { map { log_note ("$_") unless ($_ eq '<undef>') } get_stats(sort keys %{$postfwd_settings{daemons}}); };
 
 # retrieve status from children
 sub get_stats {
@@ -3511,6 +3546,7 @@ sub get_stats {
 	map { push @output, (split $postfwd_settings{sepreq}.$postfwd_settings{seplst}, (&{$postfwd_settings{$_}{check}} ($_, 'CMD=DS;') || '<undef>')) } @daemons;
 	return @output;
 };
+
 
 # EOF postfwd3
 
