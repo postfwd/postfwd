@@ -1,0 +1,6 @@
+postfwd3 1.99-devel1
+====================
+- code:    First release of postfwd3.
+	   This release will obsolete postfwd1 and postfwd2. Please look at the
+	   manpage or at postfwd.org/doc.html for the --personality switch.
+
