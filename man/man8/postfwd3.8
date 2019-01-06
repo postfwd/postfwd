@@ -1088,18 +1088,22 @@ The following arguments will control it's behaviour in this case.
 \&
 \&        \-\-personality <type>
 \&        Type of policy server, allows \*(AqPreFork\*(Aq or \*(AqMultiplex\*(Aq.
+\&        This option overrides \-\-autopersonality.
+\&
+\&        \-\-v1
+\&        set personality to \*(AqMultiplex\*(Aq
+\&        This option overrides \-\-autopersonality.
+\&
+\&        \-\-v2
+\&        set personality to \*(AqPreFork\*(Aq
+\&        This option overrides \-\-autopersonality.
 \&
 \&        \-\-autopersonality
 \&        postfwd3 determines the  personality by program name:
 \&           * \*(AqMultiplex\*(Aq for \*(Aqpostfwd\*(Aq or \*(Aqpostfwd1\*(Aq
 \&           * \*(AqPreFork\*(Aq for \*(Aqpostfwd2\*(Aq
-\&        you can disable this by using \-\-noautopersonality
-\&
-\&        \-\-v1
-\&        set personality to \*(AqMultiplex\*(Aq
-\&
-\&        \-\-v2
-\&        set personality to \*(AqPreFork\*(Aq
+\&        you can disable this by using \-\-noautopersonality or
+\&        explicitly using \-\-personality, \-\-v1 or \-\-v2
 \&
 \&        \-\-umask <mask>
 \&        Changes the umask for filepermissions of the master process (pidfile).

@@ -867,18 +867,22 @@
 
         --personality &lt;type&gt;
         Type of policy server, allows &#39;PreFork&#39; or &#39;Multiplex&#39;.
+        This option overrides --autopersonality.
+
+        --v1
+        set personality to &#39;Multiplex&#39;
+        This option overrides --autopersonality.
+
+        --v2
+        set personality to &#39;PreFork&#39;
+        This option overrides --autopersonality.
 
         --autopersonality
         postfwd3 determines the  personality by program name:
            * &#39;Multiplex&#39; for &#39;postfwd&#39; or &#39;postfwd1&#39;
            * &#39;PreFork&#39; for &#39;postfwd2&#39;
-        you can disable this by using --noautopersonality
-
-        --v1
-        set personality to &#39;Multiplex&#39;
-
-        --v2
-        set personality to &#39;PreFork&#39;
+        you can disable this by using --noautopersonality or
+        explicitly using --personality, --v1 or --v2
 
         --umask &lt;mask&gt;
         Changes the umask for filepermissions of the master process (pidfile).

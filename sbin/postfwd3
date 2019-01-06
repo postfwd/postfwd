@@ -2972,7 +2972,6 @@ sub sig_hup {
 	my $self = shift;
 	log_note ("catched HUP signal - reloading ruleset on next request");
 	read_config(1);
-	#DBGDBG map { kill ("HUP", $_) } (keys %{$self->{server}->{children}}) if $postfwd_settings{personality} eq 'PreFork';
 	map { kill ("HUP", $_) } (keys %{$self->{server}->{children}}) if defined $self->{server}->{children};
 };
 
@@ -3251,11 +3250,9 @@ if ($postfwd_settings{verbose} > 1) {
 };
 # set personality by argument or ...
 if (defined $options{personality}) {
-print STDERR "DBGDBG: OPTIOPERSO\n";
 	$postfwd_settings{personality} = $options{personality};
 # ... determine personality by program name to keep old scripts compatible
 } elsif ($postfwd_settings{autopersonality}) {
-print STDERR "DBGDBG: AUTOPERSO\n";
     $postfwd_settings{personality} = 'Multiplex' if $0 =~ /postfwd[1]?$/i;
     $postfwd_settings{personality} = 'PreFork'   if $0 =~ /postfwd2$/i;
 };
@@ -4397,18 +4394,22 @@ The following arguments will control it's behaviour in this case.
 
 	--personality <type>
 	Type of policy server, allows 'PreFork' or 'Multiplex'.
+	This option overrides --autopersonality.
+
+	--v1
+	set personality to 'Multiplex'
+	This option overrides --autopersonality.
+
+	--v2
+	set personality to 'PreFork'
+	This option overrides --autopersonality.
 
 	--autopersonality
 	postfwd3 determines the  personality by program name:
 	   * 'Multiplex' for 'postfwd' or 'postfwd1'
 	   * 'PreFork' for 'postfwd2'
-	you can disable this by using --noautopersonality
-
-	--v1
-	set personality to 'Multiplex'
-
-	--v2
-	set personality to 'PreFork'
+	you can disable this by using --noautopersonality or
+	explicitly using --personality, --v1 or --v2
 
 	--umask <mask>
         Changes the umask for filepermissions of the master process (pidfile).
