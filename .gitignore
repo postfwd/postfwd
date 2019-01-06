@@ -1,4 +1,2 @@
-/postfwd/work
-/postfwd/work/*
-/work
-/work/*
+work/
+*.tmp
