@@ -1,3 +1,7 @@
+postfwd3 1.99-devel2
+====================
+- bugfix:  fixed typo in autopersonality-detection for postfwd2
+
 postfwd3 1.99-devel1
 ====================
 - code:    First release of postfwd3.

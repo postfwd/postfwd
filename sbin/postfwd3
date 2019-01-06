@@ -34,7 +34,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "1.99-devel1";
+our $VERSION	= "1.99-devel2";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -3251,11 +3251,13 @@ if ($postfwd_settings{verbose} > 1) {
 };
 # set personality by argument or ...
 if (defined $options{personality}) {
+print STDERR "DBGDBG: OPTIOPERSO\n";
 	$postfwd_settings{personality} = $options{personality};
 # ... determine personality by program name to keep old scripts compatible
 } elsif ($postfwd_settings{autopersonality}) {
+print STDERR "DBGDBG: AUTOPERSO\n";
     $postfwd_settings{personality} = 'Multiplex' if $0 =~ /postfwd[1]?$/i;
-    $postfwd_settings{personality} = 'PreFork'   if $0 =~ /postfwd3$/i;
+    $postfwd_settings{personality} = 'PreFork'   if $0 =~ /postfwd2$/i;
 };
 die "\nERROR: Bad personality type! --personality must be 'Multiplex' or 'Prefork'. You can use --v1 or --v2 as shortcut.\n\n" unless $postfwd_settings{personality} =~ /^(Multiplex|PreFork)$/;
 if ($postfwd_settings{personality} eq 'Multiplex') {
