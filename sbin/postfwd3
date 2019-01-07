@@ -19,9 +19,9 @@ our @EXPORT_OK = qw(
 	&wantsdebug &hash_to_list
 	&hash_to_str &str_to_hash
 	&check_inet &check_unix
-	&ts $TIMEHIRES $STORABLE
+	&ts $TIMEHIRES $STORABLE $NETADDR
 );
-our($TIMEHIRES); our($STORABLE);
+our($TIMEHIRES); our($STORABLE); our($NETADDR);
 BEGIN {
 	# use Time::HiRes if available
 	eval { require Time::HiRes };
@@ -29,12 +29,14 @@ BEGIN {
 	# use Storable if available
 	eval { require Storable };
 	$STORABLE = ($@) ? 0 : (Storable->VERSION || 'available');
+	eval { require NetAddr::IP };
+	$NETADDR = ($@) ? 0 : (NetAddr::IP->VERSION || 'available');
 };
 
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "1.99-devel3";
+our $VERSION	= "1.99-devel4";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -403,7 +405,7 @@ package postfwd3::cache;
 use warnings;
 use strict;
 use base 'Net::Server::Multiplex';
-import postfwd3::basic qw(:DEFAULT &wantsdebug &hash_to_list &str_to_hash &hash_to_str &ts $TIMEHIRES $STORABLE);
+import postfwd3::basic qw(:DEFAULT &wantsdebug &hash_to_list &str_to_hash &hash_to_str &ts $TIMEHIRES $STORABLE $NETADDR);
 use vars qw( %Cache %Cleanup %Count %Interval %Top $Reload_Conf $Summary $StartTime );
 BEGIN {
 	# use Time::HiRes if available
@@ -826,7 +828,7 @@ use IO::Socket qw(SOCK_STREAM);
 use Net::DNS;
 use Net::Server::PreFork;
 use Net::Server::Multiplex;
-import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_str &str_to_hash &hash_to_list &ts $TIMEHIRES);
+import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_str &str_to_hash &hash_to_list &ts $TIMEHIRES $NETADDR);
 # export these functions for '-C' switch
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -1691,10 +1693,11 @@ sub postfwd_items {
 # must take compare_item_foo ( $COMPARE_TYPE, $RULEITEM, $REQUESTITEM, %REQUEST, %REQUESTINFO );
 #
 %postfwd_compare = (
-	"cidr" => sub {
+	# old version: cidr only for v4, v6 as regex
+	"cidr_postfwd" => sub {
 		my($cmp,$val,$myitem,%request) = @_;
 		my($myresult) = ($val and $myitem);
-		log_info ("type cidr :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
+		log_info ("type cidr_postfwd :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
 		if ($myresult) {
 			# always true
 			$myresult = ($val eq '0.0.0.0/0');
@@ -1710,6 +1713,16 @@ sub postfwd_items {
 				};
 			};
 		};
+		$myresult = not($myresult) if ($cmp eq '!=');
+		return $myresult;
+	},
+	# new version: based on NetAddr::IP
+	"cidr_netaddr" => sub {
+		my($cmp,$val,$myitem,%request) = @_;
+		my($myresult) = ($val and $myitem);
+		log_info ("type cidr_netaddr :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
+		# compare with NetAddr::IP->within()
+		$myresult = NetAddr::IP->new($myitem)->within(NetAddr::IP->new($val)) if $myresult;
 		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
@@ -1907,6 +1920,7 @@ sub postfwd_items {
 		};
 		return $myresult;
 	},
+	"cidr"			=> sub { return &{$postfwd_compare{cidr_postfwd}}(@_); },
 	"client_address"	=> sub { return &{$postfwd_compare{cidr}}(@_); },
 	"encryption_keysize"	=> sub { return &{$postfwd_compare{numeric}}(@_); },
 	"size"			=> sub { return &{$postfwd_compare{numeric}}(@_); },
@@ -3121,7 +3135,7 @@ use Pod::Usage;
 use Net::Server::Daemonize qw(daemonize);
 # own modules
 # program settings, syslogging
-import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_list $TIMEHIRES);
+import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_list $TIMEHIRES $NETADDR);
 # cache daemon (requests, dns, limits), Net::Server::Multiplex
 import postfwd3::cache qw();
 # policy daemon, Net::Server::PreFork 
@@ -3202,7 +3216,7 @@ GetOptions( \%options,
 	"save_rates|save_limits|save_rates_on_restart=s" => \$postfwd_settings{rate}{store},
 	"fast_limit_evaluation"	  => \$postfwd_settings{rate}{fast_eval},
 	# Control
-	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable: $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
+	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable: $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
 	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit; },
 	'manual|m'		  => sub{ # contructing command string (de-tainting $0)
                                           $postfwd_settings{manual} .= ($0 =~ /^([-\@\/\w. ]+)$/) ? " \"".$1 : " \"".$postfwd_settings{name};
@@ -3378,7 +3392,7 @@ unless ($postfwd_settings{daemon}) {
 log_info ($postfwd_settings{name}." "
 	.$postfwd_settings{version}." starting [daemons: ".(join ',', sort keys %{$postfwd_settings{daemons}})."]"
 	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : ''));
-log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
+log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
 umask oct($postfwd_settings{base}{umask});
 daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file}) if $postfwd_settings{daemon};
 $0 = $Commandline;
@@ -3386,6 +3400,12 @@ $0 = $Commandline;
 # prepare shared SIG handlers
 $SIG{__WARN__} = sub { log_warn("warning: $_[0]") };
 $SIG{__DIE__}  = sub { log_crit("FATAL: $_[0]"); die @_; };
+
+# overload cidr compare function if NetAddr::IP is available
+if ($NETADDR) {
+	log_info("NetAddr::IP found, overloading cidr-compare function") if wantsdebug (qw[ all verbose ]);
+	$postfwd_compare{cidr} = $postfwd_compare{cidr_netaddr};
+};
 
 # check for --stdin option
 if ($postfwd_settings{syslog}{stdin}) {

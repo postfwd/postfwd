@@ -52,7 +52,7 @@ ENV GROUP=postfw
 
 # install stuff
 RUN apt-get update && apt-get install --no-install-recommends -y \
-    libnet-dns-perl libnet-server-perl \
+    libnet-dns-perl libnet-server-perl libnetaddr-ip-perl \
     libtime-hires-perl libstorable-perl \
     git ca-certificates
 RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}

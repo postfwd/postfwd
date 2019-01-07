@@ -1,3 +1,17 @@
+postfwd3 1.99-devel4
+====================
+- code:    postfwd3 optionally uses NetAddr:IP for cidr-compare functions
+	   if available, which allows better IPv6 matching. Please note
+	   that former versions used regex-matching for v6 addresses and
+	   adapt your rulesets if required.
+
+postfwd3 1.99-devel3
+====================
+- code:    postfwd now takes commands as arguments, e.g.
+	   'postfwd stop' or 'postfwd reload'. Please see the manpage
+	   for more information
+- bugfix:  loggin fixes
+
 postfwd3 1.99-devel2
 ====================
 - bugfix:  fixed typo in autopersonality-detection for postfwd2
