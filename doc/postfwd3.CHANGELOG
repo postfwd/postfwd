@@ -15,7 +15,7 @@ postfwd3 1.99-devel3
 - code:    postfwd now takes commands as arguments, e.g.
 	   'postfwd stop' or 'postfwd reload'. Please see the manpage
 	   for more information
-- bugfix:  loggin fixes
+- bugfix:  logging fixes
 
 postfwd3 1.99-devel2
 ====================
@@ -24,6 +24,7 @@ postfwd3 1.99-devel2
 postfwd3 1.99-devel1
 ====================
 - code:    First release of postfwd3.
+	   postfwd3 lets you choose between Multiplex and PreFork personality.
 	   This release will obsolete postfwd1 and postfwd2. Please look at the
 	   manpage or at postfwd.org/doc.html for the --personality switch.
 
