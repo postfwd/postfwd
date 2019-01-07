@@ -1,3 +1,9 @@
+postfwd3 1.99-devel6
+====================
+- code:    lists of ip and network objects will now be aggregated
+	   automatically using Net::Addr->Compact() function.
+	   This can be disabled by the --noaggregate_addrs switch
+
 postfwd3 1.99-devel5
 ====================
 - code:    IPv6 Support (requires NetAddr::IP module) for

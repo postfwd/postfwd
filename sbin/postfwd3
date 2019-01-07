@@ -36,7 +36,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "1.99-devel5";
+our $VERSION	= "1.99-devel6";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -185,6 +185,7 @@ our %postfwd_settings = (
 	verbose		=> 0,
 	test		=> 0,
 	keep_rates	=> 0,
+	aggregate_addrs	=> 1,
 	max_command_recursion => 64,
         timeformat	=> ( ($TIMEHIRES) ? '%.2f' : '%d' ),
 );
@@ -835,6 +836,8 @@ our @EXPORT_OK = qw(
 our @ISA = ();
 # use Time::HiRes if available
 BEGIN { Time::HiRes->import( qw(time) ) if $TIMEHIRES };
+# use NetAddr::IP if available
+BEGIN { NetAddr::IP->import( qw(Compact) ) if $NETADDR };
 
 
 
@@ -919,7 +922,7 @@ my $COMP_VAR                  = "[\$][\$]";
 # date calculations
 my $COMP_DATECALC             = "($COMP_DATE|$COMP_TIME|$COMP_DAYS|$COMP_MONTHS)";
 # these items allow whitespace-or-comma-separated values
-my $COMP_CSV                  = "($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY|$COMP_RHSBL_KEY_CLIENT|$COMP_RHSBL_KEY_HELO|$COMP_RHSBL_KEY_SENDER|$COMP_RHSBL_KEY_RCLIENT|$COMP_DATECALC|$COMP_HELO_ADDR|$COMP_NS_ADDR|$COMP_MX_ADDR)";
+my $COMP_CSV                  = "($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY|$COMP_RHSBL_KEY_CLIENT|$COMP_RHSBL_KEY_HELO|$COMP_RHSBL_KEY_SENDER|$COMP_RHSBL_KEY_RCLIENT|$COMP_DATECALC)";
 # dont treat these as lists
 my $COMP_SINGLE               = "($COMP_ID|$COMP_ACTION|$COMP_CACHE|$COMP_SCORES|$COMP_RBL_CNT|$COMP_RHSBL_CNT)";
 
@@ -1235,6 +1238,17 @@ sub parse_config_line {
 			unless (exists($myrule{$COMP_ID})) {
 				$myrule{$COMP_ID} = "R-".$myindex;
 				log_note ("notice: Rule $myindex ($myfile line $mynum): contains no rule identifier - will use \"$myrule{id}\"") if wantsdebug (qw[ all thisrequest config verbose ]);
+			};
+			if ($NETADDR and $postfwd_settings{aggregate_addrs}) {
+				foreach my $k (keys %myrule) {
+					next unless $k =~ /$COMP_NETWORK_CIDRS/;
+					my $c = scalar @{$myrule{$k}};
+					@{$myrule{$k}} = Compact( map { s/[=;<>~]//g; $_ = NetAddr::IP->new($_) } @{$myrule{$k}} );
+					# the compare operator can be safely overwritten for cidr
+					# as all of them lead to the same action
+					map { $_ = "=;$_" } @{$myrule{$k}};
+					log_note ("notice: Rule $myindex ($myfile line $mynum): aggregated ".$k."-networks for : ".$c." -> ".(scalar @{$myrule{$k}})) if wantsdebug (qw[ all thisrequest config verbose ]);
+				};
 			};
 			log_info ("loaded: Rule $myindex ($myfile line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"") if wantsdebug (qw[ all thisrequest config verbose ]);
 		};
@@ -3159,6 +3173,7 @@ GetOptions( \%options,
         "test|t"		  => \$postfwd_settings{test},
         "instantcfg|I"		  => \$postfwd_settings{instant},
 	"config_timeout=i"	  => \$postfwd_settings{timeout}{config},
+	"aggregate_addrs"	  => \$postfwd_settings{aggregate_addrs},
 	"showconfig|C",
 	"defaults|settings|D",
 	# Networking
@@ -3583,6 +3598,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	-f, --file <file>		reads rules from <file>
 	-r, --rule <rule>		adds <rule> to config
 	-s, --scores <v>=<r>		returns <r> when score exceeds <v>
+	    --aggregate_addrs		pre-compute ip address lists to subnets
 
         Server:
         -i, --interface <dev>		listen on interface <dev>
@@ -4415,6 +4431,15 @@ that at least one of the following is required for postfwd3 to work.
 	Adds <rule> to ruleset. Remember that you might have to quote
 	strings that contain whitespaces or shell characters.
 
+	--aggregate_addrs, --noaggregate_addrs
+	Pre-computes ip address lists to subnets, so that e.g.:
+
+	   client_address=10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24
+		will result in
+	   client_address=10.0.0.0/22
+
+	This increases the performance of cidr-matching and is on by default
+
 I<Scoring>
 
 	-s, --scores <val>=<action>
@@ -4434,7 +4459,7 @@ I<Networking>
 postfwd3 can be run as daemon so that it listens on the network for incoming requests.
 The following arguments will control it's behaviour in this case.
 
-	-d, --daemon
+	-d, --daemon, --nodaemon
 	postfwd3 will run as daemon and listen on the network for incoming
 	queries (default 127.0.0.1:10045). Use --nodaemon to keep postfwd3
 	running in foreground.
