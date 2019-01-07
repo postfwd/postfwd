@@ -1,3 +1,8 @@
+postfwd3 1.99-devel5
+====================
+- code:    IPv6 Support (requires NetAddr::IP module) for
+	   dnsbl lookups (fixed 'reverse_address' item)
+
 postfwd3 1.99-devel4
 ====================
 - code:    postfwd3 optionally uses NetAddr:IP for cidr-compare functions

@@ -36,7 +36,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "1.99-devel4";
+our $VERSION	= "1.99-devel5";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -709,8 +709,6 @@ sub pre_loop_hook() {
 	# change cache name
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::cache';
 	$postfwd_settings{name} .= "/cache";
-	#$self->{server}->{syslog_ident} = $postfwd_settings{name}."/cache";
-	#init_log ($self->{server}->{syslog_ident});
 	load_rates();
 	$StartTime = $Summary = $Cleanup{request} = $Cleanup{rate} = $Cleanup{dns} = time();
 	log_info ("ready for input");
@@ -834,7 +832,6 @@ use Exporter qw(import);
 our @EXPORT_OK = qw(
 	&read_config &show_config &process_input &get_plugins
 );
-#our @ISA = 'Net::Server::'.$postfwd_settings{personality};
 our @ISA = ();
 # use Time::HiRes if available
 BEGIN { Time::HiRes->import( qw(time) ) if $TIMEHIRES };
@@ -1664,7 +1661,13 @@ sub dns_query_net_dns {
 		$request{recipient} =~ /(.*)@([^@]*)$/;
 		( $result{recipient_localpart}, $result{recipient_domain} ) = ( $1, $2 );
 		# reverted ip address (for lookups)
-		$result{reverse_address} = (join(".", reverse(split(/\./,$request{client_address}))));
+		if ( $request{client_address} =~ /\./ ) {
+			# IPv4
+			$result{reverse_address} = join(".", reverse(split(/\./,$request{client_address})));
+		} elsif ( $request{client_address} =~ /:/ ) {
+			# IPv6
+			$result{reverse_address} = join('.', (reverse split '', (join '', (map { $_ = sprintf "%04s", $_ } (split /:/, $request{client_address})))));
+		};
 		return %result;
 	},
 	"sender_dns" => sub {
@@ -2892,7 +2895,6 @@ sub smtpd_access_policy {
 		print $parent "CMD=".$postfwd_commands{countcache}.";TYPE=$counters"
 		    .(($rulehits) ? $postfwd_settings{seplst}."CMD=".$postfwd_commands{matchcache}.";TYPE=$rulehits" : "")
 		    ."\n"; $parent->getline();
-	# elsif ($postfwd_settings{personality} eq 'Multiplex') {
 	} else {
 		count_cache(undef, $counters) if $counters;
 		match_cache(undef, $rulehits) if $rulehits;
@@ -3003,8 +3005,6 @@ sub pre_loop_hook {
 	# change parent's name
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::policy';
 	$postfwd_settings{name} .= "/policy";
-	#$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
-	#init_log ($self->{server}->{syslog_ident});
 	# load plugin-items
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
 	# read configuration
