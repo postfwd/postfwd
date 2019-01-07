@@ -312,34 +312,6 @@ sub mylogs_stdout {
 	printf STDERR "[".$postfwd_settings{name}."][$$][LOG $prio]: $1\n", @_;
 };
 
-# Net::Server syslog
-sub mylogs_net_server {
-	my $self = shift @_;
-	my $prio = shift @_;
-	my $msg  = shift @_;
-
-	$self->log($prio,$msg,@_);
-};
-
-# Net::Server syslog for Sys::Syslog < 0.15 or Net::Server < 0.94
-sub mylogs_net_server_old {
-	my $self = shift @_;
-	my $prio = shift @_;
-	my $msg  = shift @_;
-
-	# for Net::Server <= 0.87
-	$msg =~ s/\%/%%/g;
-
-	# Workaround for a crash when syslog daemon is temporarily not
-	# present (for example on syslog rotation).
-	# Note that this is not necessary with Sys::Syslog >= 0.15 and
-        # Net::Server >= 0.94 thanks to the nofatal Option.
-	eval {
-		local $SIG{"__DIE__"} = sub { };
-		$self->log($prio,$msg,@_);
-	};
-};
-
 # send log message
 sub mylogs {
 	my $prio = shift @_;
@@ -734,9 +706,9 @@ sub pre_loop_hook() {
 	my $self = shift;
 	# change cache name
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::cache';
-	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/cache";
 	$postfwd_settings{name} .= "/cache";
-	init_log ($self->{server}->{syslog_ident});
+	#$self->{server}->{syslog_ident} = $postfwd_settings{name}."/cache";
+	#init_log ($self->{server}->{syslog_ident});
 	load_rates();
 	$StartTime = $Summary = $Cleanup{request} = $Cleanup{rate} = $Cleanup{dns} = time();
 	log_info ("ready for input");
@@ -860,7 +832,8 @@ use Exporter qw(import);
 our @EXPORT_OK = qw(
 	&read_config &show_config &process_input &get_plugins
 );
-our @ISA = 'Net::Server::'.$postfwd_settings{personality};
+#our @ISA = 'Net::Server::'.$postfwd_settings{personality};
+our @ISA = ();
 # use Time::HiRes if available
 BEGIN { Time::HiRes->import( qw(time) ) if $TIMEHIRES };
 
@@ -3015,9 +2988,9 @@ sub pre_loop_hook {
 	my $self = shift;
 	# change parent's name
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::policy';
-	$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
 	$postfwd_settings{name} .= "/policy";
-	init_log ($self->{server}->{syslog_ident});
+	#$self->{server}->{syslog_ident} = $postfwd_settings{name}."/policy";
+	#init_log ($self->{server}->{syslog_ident});
 	# load plugin-items
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
 	# read configuration
