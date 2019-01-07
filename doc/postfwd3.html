@@ -44,7 +44,9 @@
 
 <h1 id="SYNOPSIS">SYNOPSIS</h1>
 
-<p><b>postfwd3</b> [OPTIONS] [SOURCE1, SOURCE2, ...]</p>
+<p><b>postfwd3</b> [OPTIONS] [COMMAND]</p>
+
+<p><b>postfwd3</b> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]</p>
 
 <pre><code>        Ruleset: (at least one, multiple use is allowed):
         -f, --file &lt;file&gt;               reads rules from &lt;file&gt;
@@ -155,6 +157,15 @@
             --stdin                     pull request from stdin instead of a network socket
             ---cmd                      shorthand form of --stdin, --stdout and --nodaemon
         -q, --quiet                     no syslogging, no stdout (-P works for compatibility)
+
+        Commands:
+        start                           start the program [default]
+        stop                            same as --stop
+        reload                          same as --reload
+        dumpcache                       same as --dumpcache
+        dumpstats                       same as --dumpstats
+        delcache &lt;item&gt;                 same as --delcache &lt;item&gt;
+        delrate &lt;item&gt;                  same as --delrate &lt;item&gt;
 
         Obsolete (only for compatibility with postfwd v1):
         --shortlog, --dns_queuesize, --dns_retries</code></pre>

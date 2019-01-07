@@ -3303,6 +3303,30 @@ map { $postfwd_settings{$_}{check} = ($postfwd_settings{$_}{proto} eq 'unix') ? 
 # de-taint command-line
 %postfwd_settings = detaint_hash (%postfwd_settings);
 
+# check for commands (e.g. 'postfwd stop')
+if (@ARGV) {
+	if ($ARGV[0] =~ /^(term|kill|stop)$/i) {
+		$options{'term'} = 1;
+	} elsif ($ARGV[0] =~ /^(hup|reload)$/i) {
+		$options{'hup'} = 1;
+	} elsif ($ARGV[0] =~ /^(dumpcache)$/i) {
+		$options{'dumpcache'} = 1;
+	} elsif ($ARGV[0] =~ /^(dumpstats)$/i) {
+		$options{'dumpstats'} = 1;
+	} elsif ($ARGV[0] =~ /^(delcache)$/i) {
+		(defined $ARGV[1] and $ARGV[1] =~ /^(.*)$/)
+			? $options{'delcache'} = $1
+			: die "\nCommand 'delcache' needs an argument!\n\n";
+	} elsif ($ARGV[0] =~ /^(delrate)$/i) {
+		(defined $ARGV[1] and $ARGV[1] =~ /^(.*)$/)
+			? $options{'delrate'} = $1
+			: die "\nCommand 'delrate' needs an argument!\n\n";
+	} else {
+		die "\nUnknown command '".$ARGV[0]."'\n\n"
+			unless $ARGV[0] =~ /^(start|run)$/i;
+	};
+};
+
 # terminate at -k or --kill
 if (defined $options{'term'}) {
 	kill "TERM", get_master_pid();
@@ -3558,7 +3582,9 @@ postfwd3 - postfix firewall daemon
 
 =head1 SYNOPSIS
 
-B<postfwd3> [OPTIONS] [SOURCE1, SOURCE2, ...]
+B<postfwd3> [OPTIONS] [COMMAND]
+
+B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 
 	Ruleset: (at least one, multiple use is allowed):
 	-f, --file <file>		reads rules from <file>
@@ -3669,6 +3695,15 @@ B<postfwd3> [OPTIONS] [SOURCE1, SOURCE2, ...]
             --stdin			pull request from stdin instead of a network socket
 	    ---cmd			shorthand form of --stdin, --stdout and --nodaemon
         -q, --quiet			no syslogging, no stdout (-P works for compatibility)
+
+	Commands:
+	start				start the program [default]
+	stop				same as --stop
+	reload				same as --reload
+	dumpcache			same as --dumpcache
+	dumpstats			same as --dumpstats
+	delcache <item>			same as --delcache <item>
+	delrate <item>			same as --delrate <item>
 
 	Obsolete (only for compatibility with postfwd v1):
         --shortlog, --dns_queuesize, --dns_retries

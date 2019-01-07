@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD3 1"
-.TH POSTFWD3 1 "2019-01-06" "perl v5.26.1" "User Contributed Perl Documentation"
+.TH POSTFWD3 1 "2019-01-07" "perl v5.26.1" "User Contributed Perl Documentation"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -138,7 +138,9 @@
 postfwd3 \- postfix firewall daemon
 .SH "SYNOPSIS"
 .IX Header "SYNOPSIS"
-\&\fBpostfwd3\fR [\s-1OPTIONS\s0] [\s-1SOURCE1, SOURCE2, ...\s0]
+\&\fBpostfwd3\fR [\s-1OPTIONS\s0] [\s-1COMMAND\s0]
+.PP
+\&\fBpostfwd3\fR [\s-1OPTIONS\s0] \-\-cmd [\s-1SOURCE1, SOURCE2, ...\s0]
 .PP
 .Vb 4
 \&        Ruleset: (at least one, multiple use is allowed):
@@ -250,6 +252,15 @@ postfwd3 \- postfix firewall daemon
 \&            \-\-stdin                     pull request from stdin instead of a network socket
 \&            \-\-\-cmd                      shorthand form of \-\-stdin, \-\-stdout and \-\-nodaemon
 \&        \-q, \-\-quiet                     no syslogging, no stdout (\-P works for compatibility)
+\&
+\&        Commands:
+\&        start                           start the program [default]
+\&        stop                            same as \-\-stop
+\&        reload                          same as \-\-reload
+\&        dumpcache                       same as \-\-dumpcache
+\&        dumpstats                       same as \-\-dumpstats
+\&        delcache <item>                 same as \-\-delcache <item>
+\&        delrate <item>                  same as \-\-delrate <item>
 \&
 \&        Obsolete (only for compatibility with postfwd v1):
 \&        \-\-shortlog, \-\-dns_queuesize, \-\-dns_retries
