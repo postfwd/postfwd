@@ -66,7 +66,7 @@ COPY ./man/     ${TARGET}/man/
 COPY ./plugins/ ${TARGET}/plugins/
 COPY ./sbin/    ${TARGET}/sbin/
 COPY ./tools/   ${TARGET}/tools/
-COPY ./docker/postfwd.cf ${ETC}/
+COPY ./etc/	${ETC}/
 RUN chown -R root:root ${TARGET}
 
 # open port
