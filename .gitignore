@@ -1,4 +1,4 @@
-/postfwd/work
-/postfwd/work/*
-/work
-/work/*
+work/
+*.temp
+*.tmp
+*.swp
