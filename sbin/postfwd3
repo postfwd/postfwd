@@ -1240,10 +1240,12 @@ sub parse_config_line {
 				log_note ("notice: Rule $myindex ($myfile line $mynum): contains no rule identifier - will use \"$myrule{id}\"") if wantsdebug (qw[ all thisrequest config verbose ]);
 			};
 			if ($NETADDR and $postfwd_settings{aggregate_addrs}) {
-				foreach my $k (keys %myrule) {
-					next unless $k =~ /$COMP_NETWORK_CIDRS/;
+				AGGR: foreach my $k (keys %myrule) {
+					next AGGR unless $k =~ /$COMP_NETWORK_CIDRS/;
+					# disable aggregation for lfile/ltable elements
+					map { next AGGR unless m@[^[;=<>~]+[0-9a-fA-F_:/\.\[\]\-]+$@ } @{$myrule{$k}};
 					my $c = scalar @{$myrule{$k}};
-					@{$myrule{$k}} = Compact( map { s/[=;<>~]//g; $_ = NetAddr::IP->new($_) } @{$myrule{$k}} );
+					@{$myrule{$k}} = Compact( map { s/[;=<>~]//g; $_ = NetAddr::IP->new($_) } @{$myrule{$k}} );
 					# the compare operator can be safely overwritten for cidr
 					# as all of them lead to the same action
 					map { $_ = "=;$_" } @{$myrule{$k}};
@@ -3173,7 +3175,7 @@ GetOptions( \%options,
         "test|t"		  => \$postfwd_settings{test},
         "instantcfg|I"		  => \$postfwd_settings{instant},
 	"config_timeout=i"	  => \$postfwd_settings{timeout}{config},
-	"aggregate_addrs"	  => \$postfwd_settings{aggregate_addrs},
+	"aggregate_addrs!"	  => \$postfwd_settings{aggregate_addrs},
 	"showconfig|C",
 	"defaults|settings|D",
 	# Networking
