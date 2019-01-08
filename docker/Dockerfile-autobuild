@@ -1,26 +1,21 @@
 #
 # Dockerfile for DockerHub automatic build of postfwd - http://postfwd.org/docker
 #
-# Edit postfwd.cf and use with:
+# If you want to rebuild it, go to the top directory (usually 'cd ..') and type in:
 #
-#   docker build --pull --no-cache -t postfwd:stable .
-#   docker run -v `pwd`/postfwd.cf:/etc/postfwd/postfwd.cf:ro -it postfwd:stable
+#	docker build -f docker/Dockerfile-autobuild -t postfwd:mybuild .
 #
-# or with more options (postfwd2 on post 10050):
+# To run a container from it, use:
 #
-#   docker run -v `pwd`/ruleset:/etc/postfwd:ro -e PROG=postfwd2 -e PORT=10050 -it postfwd:stable
+#	docker run -it postfwd:mybuild
+#
+# or with more options (postfwd2 on port 10050, postfwd.cf in /path/to/ruleset):
+#
+#	docker run -it -e PROG=postfwd2 -e PORT=10050 -v /path/to/ruleset:/etc/postfwd:ro postfwd:mybuild
 #
 FROM debian:stretch-slim
 
 LABEL maintainer="Postfwd Docker - http://postfwd.org/docker"
-
-##
-## BUILD ARGS
-##
-# GitHub postfwd url
-ARG URL=https://github.com/postfwd/postfwd
-# GitHub postfwd branch (stable="master", development="testing")
-ARG BRANCH=testing
 
 ##
 ## RUNTIME ARGS
@@ -53,10 +48,8 @@ ENV GROUP=postfw
 # install stuff
 RUN apt-get update && apt-get install --no-install-recommends -y \
     libnet-dns-perl libnet-server-perl libnetaddr-ip-perl \
-    libtime-hires-perl libstorable-perl \
-    git ca-certificates
-RUN git clone ${URL} --branch ${BRANCH} --single-branch ${TARGET}
-RUN apt-get purge -y --auto-remove git ca-certificates && apt-get autoremove -y && rm -fR /var/lib/apt/lists/*
+    libtime-hires-perl libstorable-perl
+RUN rm -fR /var/lib/apt/lists/*
 
 # create stuff
 RUN addgroup --quiet --system ${GROUP}
@@ -64,6 +57,17 @@ RUN adduser --quiet --system --no-create-home --disabled-login --disabled-passwo
     --ingroup ${GROUP} --home ${HOME} --shell /bin/false ${USER}
 RUN mkdir -p ${ETC} && chown root:${GROUP} ${ETC} && chmod 0750 ${ETC}
 RUN mkdir -p ${HOME} && chown ${USER}:${GROUP} ${HOME} && chmod 0700 ${HOME}
+RUN mkdir -p ${TARGET} && chown root:root ${TARGET} && chmod 0755 ${TARGET}
+
+# copy stuff
+COPY ./bin/     ${TARGET}/bin/
+COPY ./doc/     ${TARGET}/doc/
+COPY ./man/     ${TARGET}/man/
+COPY ./plugins/ ${TARGET}/plugins/
+COPY ./sbin/    ${TARGET}/sbin/
+COPY ./tools/   ${TARGET}/tools/
+COPY ./docker/postfwd.cf ${ETC}/
+RUN chown -R root:root ${TARGET}
 
 # open port
 EXPOSE ${PORT}
