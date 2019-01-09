@@ -39,8 +39,6 @@ ENV CONF=postfwd.cf
 ENV ETC=/etc/postfwd
 # target for postfwd distribution
 ENV TARGET=/usr
-# sub-directory for postfwd distribution files
-ENV TARGETSUB=${TARGET}/postfwd
 # data directory
 ENV HOME=/var/lib/postfwd
 # user and group for execution
