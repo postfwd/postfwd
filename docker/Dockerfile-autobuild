@@ -38,7 +38,9 @@ ENV CONF=postfwd.cf
 # configuration directory
 ENV ETC=/etc/postfwd
 # target for postfwd distribution
-ENV TARGET=/opt/postfwd
+ENV TARGET=/usr/local
+# sub-directory for postfwd distribution files
+ENV TARGETSUB=postfwd
 # data directory
 ENV HOME=/var/lib/postfwd
 # user and group for execution
@@ -58,14 +60,15 @@ RUN adduser --quiet --system --no-create-home --disabled-login --disabled-passwo
 RUN mkdir -p ${ETC} && chown root:${GROUP} ${ETC} && chmod 0750 ${ETC}
 RUN mkdir -p ${HOME} && chown ${USER}:${GROUP} ${HOME} && chmod 0700 ${HOME}
 RUN mkdir -p ${TARGET} && chown root:root ${TARGET} && chmod 0755 ${TARGET}
+RUN mkdir -p ${TARGETSUB} && chown root:root ${TARGETSUB} && chmod 0755 ${TARGETSUB}
 
 # copy stuff
-COPY ./bin/     ${TARGET}/bin/
-COPY ./doc/     ${TARGET}/doc/
-COPY ./man/     ${TARGET}/man/
-COPY ./plugins/ ${TARGET}/plugins/
 COPY ./sbin/    ${TARGET}/sbin/
-COPY ./tools/   ${TARGET}/tools/
+COPY ./bin/     ${TARGET}/bin/
+COPY ./man/     ${TARGET}/man/
+COPY ./doc/     ${TARGET}/${TARGETSUB}/doc/
+COPY ./plugins/ ${TARGET}/${TARGETSUB}/plugins/
+COPY ./tools/   ${TARGET}/${TARGETSUB}/tools/
 COPY ./etc/	${ETC}/
 RUN chown -R root:root ${TARGET}
 
