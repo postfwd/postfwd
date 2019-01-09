@@ -66,7 +66,7 @@ COPY ./sbin/    ${TARGET}/sbin/
 # set ownership & permissions
 RUN chown -R root:${GROUP} ${ETC} && chmod 0750 ${ETC} && chmod 0640 ${ETC}/*
 RUN chown -R ${USER}:${GROUP} ${HOME} && chmod -R 0700 ${HOME}
-RUN chown root:root ${TARGET}/sbin/postfwd* && chmod 0755 {TARGET}/sbin/postfwd*
+RUN chown root:root ${TARGET}/sbin/postfwd* && chmod 0755 ${TARGET}/sbin/postfwd*
 
 # open port
 EXPOSE ${PORT}
