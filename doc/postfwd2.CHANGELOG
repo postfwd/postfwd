@@ -1,7 +1,3 @@
-postfwd2 v1.39
-==============
-- code:    disabled AutoCacheID. this feature needs further development
-
 postfwd2 1.38
 =============
 - bugfix:    fix for AutoCacheID and rulesets containing no items
