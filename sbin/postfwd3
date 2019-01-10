@@ -129,6 +129,7 @@ our %postfwd_settings = (
 		no_size		=> 0,
 		nolog		=> 0,
 		noparent	=> 0,
+		autocacheid	=> 0,
 	},
 	dns => {
 		disable		=> 0,
@@ -1336,15 +1337,17 @@ sub read_config {
 	} else {
 		# update Rule by ID hash
 		map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_ } (0 .. $#Rules);
-		# update Rule by ID and AutoCacheID hashes
-		#my @myautocacheid = ();
-		#map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_; push @myautocacheid, keys %{$Rules[$_]} } (0 .. $#Rules);
-		#map { $AutoCacheID{lc($_)} = 1 } (grep !/^($COMP_ID|$COMP_ACTION)$/, uniq(@myautocacheid));
-		#if (%AutoCacheID) {
-		#	log_info ("Setting AutoCacheID to '".(join ',', (sort keys %AutoCacheID))."'") if wantsdebug(qw[ all verbose thisrequest config cache ]);
-		#} else {
-		#	log_info ("No items found in ruleset. Disabling AutoCacheID") if wantsdebug(qw[ all verbose thisrequest config cache ]);
-		#};
+		if ($postfwd_settings{request}{autocacheid}) {
+			# update AutoCacheID hash
+			my @myautocacheid = ();
+			map { $Rule_by_ID{$Rules[$_]{$COMP_ID}} = $_; push @myautocacheid, keys %{$Rules[$_]} } (0 .. $#Rules);
+			map { $AutoCacheID{lc($_)} = 1 } (grep !/^($COMP_ID|$COMP_ACTION)$/, uniq(@myautocacheid));
+			if (%AutoCacheID) {
+				log_info ("Setting AutoCacheID to '".(join ',', (sort keys %AutoCacheID))."'") if wantsdebug(qw[ all verbose thisrequest config cache ]);
+			} else {
+				log_info ("No items found in ruleset. Disabling AutoCacheID") if wantsdebug(qw[ all verbose thisrequest config cache ]);
+			};
+		};
 		if ( @Rate_Items ) {
 			@Rate_Items = uniq(@Rate_Items);
 			log_info ("rate items: ".(join ', ', @Rate_Items)) if wantsdebug (qw[ all thisrequest verbose rates ]);
