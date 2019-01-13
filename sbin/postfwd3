@@ -1827,7 +1827,7 @@ sub dns_query_net_dns {
 		} elsif ( $request{client_address} =~ /:/ ) {
 			# IPv6
 			$result{reverse_address} = join('.', (reverse split '', (join '', (map { $_ = sprintf "%04s", $_ } (split /:/, $request{client_address})))))
-				if ($postfwd_settings{dns}{ipv6_dnsbl};
+				if ($postfwd_settings{dns}{ipv6_dnsbl});
 		};
 		return %result;
 	},
