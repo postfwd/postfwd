@@ -2877,7 +2877,7 @@ sub smtpd_access_policy {
     };
 
     # wipe out old group members
-    if ( $Cleanup_Groups and (scalar keys %Group_Cache > 0) and (($now - ($Cleanup_Groups || 0)) > $postfwd_settings{group}{cleanup}) ) {
+    if ( $postfwd_settings{group}{noparent} and $Cleanup_Groups and (scalar keys %Group_Cache > 0) and (($now - ($Cleanup_Groups || 0)) > $postfwd_settings{group}{cleanup}) ) {
 	$t1 = time();
 	$t3 = scalar keys %Group_Cache;
 	cleanup_group_cache($now);
