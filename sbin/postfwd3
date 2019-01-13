@@ -482,7 +482,7 @@ sub list_stats {
 	if ( $grpcnt ) {
 		my $grpitems = 0;
 		map { $grpitems += (scalar keys %{$Groups{$_}} || 0) } (sort keys %Groups);
-		push ( @output, "[STATS] $grpcnt Groups with $grpitems items" );
+		push ( @output, "[STATS] $grpcnt Groups with $grpitems item".(($grpitems > 1) ? 's' : '')." overall" );
 	};
 
 	if (wantsdebug (qw[ all stats devel parent_cache ])) {
