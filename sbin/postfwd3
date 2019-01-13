@@ -477,6 +477,14 @@ sub list_stats {
 	push ( @output, "[STATS] Contents: ".
 		join ', ', map { $_ = "$_=".(scalar keys %{$Cache{$_}}) } (reverse sort keys %Cache)
 	);
+	
+	my $grpcnt = (scalar keys %Groups || 0);
+	if ( $grpcnt ) {
+		my $grpitems = 0;
+		map { $grpitems += (scalar keys %{$Groups{$_}} || 0) } (sort keys %Groups);
+		push ( @output, "[STATS] $grpcnt Groups with $grpitems items" );
+	};
+
 	if (wantsdebug (qw[ all stats devel parent_cache ])) {
 		push ( @output, "[STATS] Counters: ".
 			join ', ', map { $_ = "$_=".$Count{$_} } (reverse sort keys %Count) );
@@ -553,6 +561,7 @@ sub del_group {
 	my $answer = 'no';
 	if (defined $Groups{$groupname}{$groupitem}) {
 		delete $Groups{$groupname}{$groupitem};
+		$Count{"group_hits"}++;
 		$answer = 'ok';
 	};
 	return $answer;
@@ -564,6 +573,7 @@ sub get_group {
 	my @answer = ();
 	if (defined $Groups{$groupname} and scalar keys %{$Groups{$groupname}}) {
 		map { push @answer, $_  if $Groups{$groupname}{$_} > $now } (keys %{$Groups{$groupname}});
+		$Count{"group_hits"}++;
 	};
 	return (join $postfwd_settings{sepreq}, @answer);
 };
@@ -696,6 +706,7 @@ sub cleanup_cache {
 sub cleanup_groups {
     my($now) = $_[0]; return unless $now;
     my $start = $Cleanup{group} = time();
+    map { log_info("[CLEANUP] PRE: Group: '$_' -> ".(scalar keys %{$Groups{$_}})." items") } (sort keys %Groups) if wantsdebug (qw[ all cleanup parentcleanup groups ]);
     foreach my $groupname (keys %Groups) {
 	foreach my $groupitem (keys %{$Groups{$groupname}}) {
 		unless ( $Groups{$groupname}{$groupitem} ) {
@@ -714,6 +725,7 @@ sub cleanup_groups {
 		delete $Groups{$groupname};
 	};
     };
+    map { log_info("[CLEANUP] POST: Group: '$_' -> ".(scalar keys %{$Groups{$_}})." items") } (sort keys %Groups) if wantsdebug (qw[ all cleanup parentcleanup groups ]);
     my $end = time();
     log_info ("[CLEANUP] cleaning group cache needed ".ts($end - $start)." seconds")
 	if ( wantsdebug (qw[ all verbose cleanup parentcleanup ]) or (($end - $start) >= 1) );
