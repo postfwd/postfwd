@@ -904,7 +904,7 @@ Dynamic groups are list objects, that can be changed and compared within your ru
 This way you can save information for later use.
 .PP
 .Vb 2
-\&        # add aclient_address to group %%BLACKLISTED, if sent to spamtrap
+\&        # add client_address to group %%BLACKLISTED, if sent to spamtrap
 \&        id=SPAMTRAP; recipient==spamtrap@domain.local; action=groupadd(%%BLACKLISTED/client_address)
 \&
 \&        # reject any request from client_address in group %%BLACKLISTED

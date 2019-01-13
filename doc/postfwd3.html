@@ -712,7 +712,7 @@
 
 <p>Dynamic groups are list objects, that can be changed and compared within your ruleset. Groups are saved persistant for further requests. This way you can save information for later use.</p>
 
-<pre><code>        # add aclient_address to group %%BLACKLISTED, if sent to spamtrap
+<pre><code>        # add client_address to group %%BLACKLISTED, if sent to spamtrap
         id=SPAMTRAP; recipient==spamtrap@domain.local; action=groupadd(%%BLACKLISTED/client_address)
 
         # reject any request from client_address in group %%BLACKLISTED
