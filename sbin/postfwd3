@@ -979,6 +979,7 @@ our($COMP_LIVE_TABLE)           = 'ltable';
 our($COMP_TABLES)               = qr/^($COMP_CONF_TABLE|$COMP_LIVE_TABLE)$/i;
 our($COMP_CONF_FILE_TABLE)      = qr/^($COMP_CONF_FILE|$COMP_CONF_TABLE):(.+)$/i;
 our($COMP_LIVE_FILE_TABLE)      = qr/^($COMP_LIVE_FILE|$COMP_LIVE_TABLE):(.+)$/i;
+our($COMP_ADDRESS_ITEM)		= qr/^[;=<>~]+([0-9a-fA-F_:\/\.\[\]\-]+)$/;
 # date checks
 my $COMP_DATE                 = "date";
 my $COMP_TIME                 = "time";
@@ -1236,14 +1237,14 @@ sub aggregate_addr {
 	foreach my $addr (@addrs) {
 		# disable aggregation for dynamic elements (lfile, negation, ...)
 		#if ( $addr =~ m@[^[;=<>\~]+[0-9a-fA-F_:/\.\[\]\-]+$@ ) {
-		if ( $addr =~ m@^[;=<>~]+[0-9a-fA-F_:/\.\[\]\-]+$@ ) {
-			push @comp, $addr;
+		if ( $addr =~ m@$COMP_ADDRESS_ITEM@ ) {
+			($1) ? push @comp, $1 : push @keep, $addr;
 		} else {
 			push @keep, $addr;
 		};
 	};
 	if ( @comp ) {
-		@comp = Compact( map { s/[;=<>~]//g; $_ = NetAddr::IP->new($_) } @comp );
+		@comp = Compact( map { $_ = NetAddr::IP->new($_) } @comp );
 		# the compare operator can be safely overwritten for cidr
 		# as all of them lead to the same action
 		map { $_ = "=;$_" } @comp;
