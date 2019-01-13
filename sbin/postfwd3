@@ -95,7 +95,7 @@ our %postfwd_settings = (
 		min_servers             => 10,
 		max_spare_servers       => 50,
 		max_servers             => 100,
-		max_requests            => 1000,
+		max_requests            => 200, # lowered
 		child_communication     => 1, # children report data to parent for summary in PreFork mode
 		leave_children_open_on_hup => 1,  # children should finish their work
 	},
@@ -158,7 +158,7 @@ our %postfwd_settings = (
 		maxitems	=> 9999, # '-1' for unlimited
 		cleanup		=> 600,
 		noparent	=> 0,
-		aggregate_addrs	=> 1,
+		aggregate_addrs	=> 0,
 	},
 	scores => {
 		"5.0"		=> "554 5.7.1 ".$NAME." score exceeded",
@@ -194,7 +194,7 @@ our %postfwd_settings = (
 	verbose		=> 0,
 	test		=> 0,
 	keep_rates	=> 0,
-	aggregate_addrs	=> 1,
+	aggregate_addrs	=> 0,
 	max_command_recursion => 64,
         timeformat	=> ( ($TIMEHIRES) ? '%.2f' : '%d' ),
 );
@@ -1118,12 +1118,13 @@ sub degroup_item {
 	my(@myresult) = ();
 	$groupname =~ s/^$COMP_GROUP//;
 	return () unless $groupname;
-	if (defined $Group_Cache{$groupname}) {
-		foreach my $item (keys %{$Group_Cache{$groupname}}) {
-			push @myresult, $item if $Group_Cache{$groupname}{$item} >= $now;
+	if ($postfwd_settings{group}{noparent}) {
+		if (defined $Group_Cache{$groupname}) {
+			foreach my $item (keys %{$Group_Cache{$groupname}}) {
+				push @myresult, $item if $Group_Cache{$groupname}{$item} >= $now;
+			};
 		};
-	};
-	unless ($postfwd_settings{group}{noparent}) {
+	} else  {
 		my $cmd = "CMD=".$postfwd_commands{groupget}.";TYPE=$groupname";
 		my $res = cache_query ($cmd);
 		log_info ("get parent group '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
@@ -2370,12 +2371,13 @@ sub postfwd_items {
 		if ( $groupname and $groupitem and $request{$groupitem} ) {
 			$groupttl ||= $postfwd_settings{group}{ttl};
 			log_info ("[RULES] ".$myline.", adding item '".$request{$groupitem}."' to group '".$groupname."' with ttl=".$groupttl."s") if wantsdebug (qw[ all thisrequest groups ]);
-			$Group_Cache{$groupname}{$request{$groupitem}} = $now + $groupttl unless (
-				(defined $Group_Cache{$groupname}{$request{$groupitem}} and $Group_Cache{$groupname}{$request{$groupitem}} > $now)
-				or (scalar keys %{$Group_Cache{$groupname}} >= $postfwd_settings{group}{maxitems})
-				or ($postfwd_settings{group}{maxitems} < 0)
-			);
-			unless ($postfwd_settings{group}{noparent}) {
+			if ($postfwd_settings{group}{noparent}) {
+				$Group_Cache{$groupname}{$request{$groupitem}} = $now + $groupttl unless (
+					(defined $Group_Cache{$groupname}{$request{$groupitem}} and $Group_Cache{$groupname}{$request{$groupitem}} > $now)
+					or (scalar keys %{$Group_Cache{$groupname}} >= $postfwd_settings{group}{maxitems})
+					or ($postfwd_settings{group}{maxitems} < 0)
+				);
+			} else {
 				my $cmd = "CMD=".$postfwd_commands{groupadd}.";TYPE=$groupname;ITEM=".$request{$groupitem}.$postfwd_settings{seplim}.($now + $groupttl);
 				my $res = cache_query ($cmd);
 				log_info ("parent group update '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
@@ -2389,17 +2391,19 @@ sub postfwd_items {
 		my($myaction) = $postfwd_settings{default};
 		my($groupname,$groupitem,$stop) = split "/", $myarg, 3; $stop ||= 0;
 		$groupname =~ s/^$COMP_GROUP//; $groupitem =~ s/^$COMP_VAR//;
-		if ( $groupname and $groupitem and $request{$groupitem}
-		and defined $Group_Cache{$groupname}{$request{$groupitem}} ) {
-			log_info ("[RULES] ".$myline.", removing item '".$request{$groupitem}."' from group '".$groupname."'") if wantsdebug (qw[ all thisrequest groups ]);
-			delete $Group_Cache{$groupname}{$request{$groupitem}};
-		} else {
-			log_note ("[RULES] ".$myline.", item '".($request{$groupitem} || '<undef>')."' not in group '".($groupname || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
-		};
-		unless ($postfwd_settings{group}{noparent}) {
-			my $cmd = "CMD=".$postfwd_commands{groupdel}.";TYPE=$groupname;ITEM=".$request{$groupitem};
-			my $res = cache_query ($cmd);
-			log_info ("parent group update '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+		if ( $groupname and $groupitem and $request{$groupitem} ) {
+			if ($postfwd_settings{group}{noparent}) {
+				if ( defined $Group_Cache{$groupname}{$request{$groupitem}} ) {
+					log_info ("[RULES] ".$myline.", removing item '".$request{$groupitem}."' from group '".$groupname."'") if wantsdebug (qw[ all thisrequest groups ]);
+					delete $Group_Cache{$groupname}{$request{$groupitem}};
+				} else {
+					log_note ("[RULES] ".$myline.", item '".($request{$groupitem} || '<undef>')."' not in group '".($groupname || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+				};
+			} else {
+				my $cmd = "CMD=".$postfwd_commands{groupdel}.";TYPE=$groupname;ITEM=".$request{$groupitem};
+				my $res = cache_query ($cmd);
+				log_info ("parent group update '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+			};
 		};
 		return ($stop,$index,$myaction,$myline,%request);
 	},
@@ -3411,7 +3415,7 @@ GetOptions( \%options,
         "test|t"		  => \$postfwd_settings{test},
         "instantcfg|I"		  => \$postfwd_settings{instant},
 	"config_timeout=i"	  => \$postfwd_settings{timeout}{config},
-	"aggregate_addrs!"	  => \$postfwd_settings{aggregate_addrs},
+	"aggregate_addrs|A!",
 	"showconfig|C",
 	"defaults|settings|D",
 	# Networking
@@ -3592,6 +3596,9 @@ if (defined $postfwd_settings{chroot}) {
 
 # init_log
 init_log ($postfwd_settings{name}."/master");
+
+# check for address aggregation with NetAddr::IP
+$postfwd_settings{aggregate_addrs} = ($options{aggregate_addrs} || 0) if $NETADDR;
 
 # read and display configuration
 if (defined $options{'showconfig'}) {
@@ -3840,7 +3847,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	-f, --file <file>		reads rules from <file>
 	-r, --rule <rule>		adds <rule> to config
 	-s, --scores <v>=<r>		returns <r> when score exceeds <v>
-	    --aggregate_addrs		pre-compute ip address lists to subnets
+	-A, --aggregate_addrs		pre-compute ip address lists to subnets
 
         Server:
         -i, --interface <dev>		listen on interface <dev>
@@ -4767,14 +4774,14 @@ that at least one of the following is required for postfwd3 to work.
 	Adds <rule> to ruleset. Remember that you might have to quote
 	strings that contain whitespaces or shell characters.
 
-	--aggregate_addrs, --noaggregate_addrs
+	-A, --aggregate_addrs, --noaggregate_addrs
 	Pre-computes ip address lists to subnets, so that e.g.:
 
 	   client_address=10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24
 		will result in
 	   client_address=10.0.0.0/22
 
-	This increases the performance of cidr-matching and is on by default
+	This increases the performance of cidr-matching
 
 I<Scoring>
 
