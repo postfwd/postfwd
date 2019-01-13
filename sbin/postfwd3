@@ -158,7 +158,7 @@ our %postfwd_settings = (
 		maxitems	=> 9999, # '-1' for unlimited
 		cleanup		=> 600,
 		noparent	=> 0,
-		aggregate_addrs	=> 1,
+		aggregate_addrs	=> 0,
 	},
 	scores => {
 		"5.0"		=> "554 5.7.1 ".$NAME." score exceeded",
@@ -194,7 +194,7 @@ our %postfwd_settings = (
 	verbose		=> 0,
 	test		=> 0,
 	keep_rates	=> 0,
-	aggregate_addrs	=> 1,
+	aggregate_addrs	=> 0,
 	max_command_recursion => 64,
         timeformat	=> ( ($TIMEHIRES) ? '%.2f' : '%d' ),
 );
@@ -541,6 +541,7 @@ sub add_group {
 	    or ($postfwd_settings{group}{maxitems} < 0)
 	) {
 		$Groups{$groupname}{$groupitem} = $groupttl;
+		$Count{"group_hits"}++;
 		$answer = 'ok';
 	};
 	return $answer;
@@ -799,9 +800,9 @@ sub mux_input {
 		} elsif ($request =~ m/$postfwd_patterns{groupget}/) {
 			my ($type) = ($1);
 			log_info ("[GETGROUP] request: '$request'") if wantsdebug (qw[ all cache setcache groups ]);
-			cleanup_groups ($now) if (($now - $Cleanup{group}) > ($postfwd_settings{group}{cleanup} || 300));
+			#cleanup_groups ($now) if (($now - $Cleanup{group}) > ($postfwd_settings{group}{cleanup} || 300));
 			$Count{cache_queries}++; $Interval{cache_queries}++;
-			$Count{"group_get"}++; $Interval{"group_get"}++;
+			#$Count{"group_get"}++; $Interval{"group_get"}++;
 			$action = $self->get_group($now,$type);
 			log_info ("[GETGROUP] answer: '$action'") if wantsdebug (qw[ all cache getcache groups ]);
 		} elsif ($request =~ m/$postfwd_patterns{checkrate}/) {
@@ -2533,7 +2534,9 @@ sub compare_item {
 	# prepare_group
 	if ($val =~ /^$COMP_GROUP/) {
 		my @mygroup = degroup_item($now, $val);
-		map { push @items, $cmp.";".$_ } @mygroup if @mygroup;
+		if (@mygroup) {
+			map { push @items, $cmp.";".$_ } @mygroup if @mygroup;
+		};
 		next ITEM;
 	};
 	log_info ("compare $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
@@ -2856,18 +2859,18 @@ sub smtpd_access_policy {
     };
 
     # wipe out old group members
-    if ( $Cleanup_Groups and (scalar keys %Group_Cache > 0) and (($now - ($Cleanup_Groups || 0)) > $postfwd_settings{group}{cleanup}) ) {
-	$t1 = time();
-	$t3 = scalar keys %Group_Cache;
-	cleanup_group_cache($now);
-	$t2 = time();
-	log_info ("[CLEANUP] cleaning group-cache needed ".ts($t2 - $t1)
-		." seconds for group cleanup of "
-		.($t3 - scalar keys %Group_Cache)." out of ".$t3
-		." groups after cleanup time ".$postfwd_settings{group}{cleanup}."s")
-		if ( wantsdebug (qw[ all thisrequest verbose cleanup childcleanup groups ]) or (($t2 - $t1) >= 1) );
-	$Cleanup_Groups = $t1;
-    };
+#    if ( $Cleanup_Groups and (scalar keys %Group_Cache > 0) and (($now - ($Cleanup_Groups || 0)) > $postfwd_settings{group}{cleanup}) ) {
+#	$t1 = time();
+#	$t3 = scalar keys %Group_Cache;
+#	cleanup_group_cache($now);
+#	$t2 = time();
+#	log_info ("[CLEANUP] cleaning group-cache needed ".ts($t2 - $t1)
+#		." seconds for group cleanup of "
+#		.($t3 - scalar keys %Group_Cache)." out of ".$t3
+#		." groups after cleanup time ".$postfwd_settings{group}{cleanup}."s")
+#		if ( wantsdebug (qw[ all thisrequest verbose cleanup childcleanup groups ]) or (($t2 - $t1) >= 1) );
+#	$Cleanup_Groups = $t1;
+#    };
 
     # clear dnsbl timeout counters
     if ( $Cleanup_Timeouts and ($postfwd_settings{dns}{max_interval} > 0) and (($now - $Cleanup_Timeouts) > $postfwd_settings{dns}{max_interval}) ) {
