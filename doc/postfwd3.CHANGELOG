@@ -1,3 +1,15 @@
+postfwd3 1.99-devel8
+====================
+- feature: Dynamic groups allow to store and compare request items
+	   Please read the manual section about "DYNAMIC GROUPS".
+- bugfix:  network aggregation allows mixed items (e.g. lfile:) now
+- code:    --ipv6_dnsbl switch to enable dnsbl lookups for IPv6
+
+postfwd3 1.99-devel7
+====================
+- bugfix:  deactivated AutoCacheID. needs further development to
+	   not conflict with postfwd_items and plugins.
+
 postfwd3 1.99-devel6
 ====================
 - code:    lists of ip and network objects will now be aggregated

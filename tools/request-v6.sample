@@ -17,5 +17,5 @@ recipient_count=1
 ccert_issuer=
 sender=sender@example.org
 client_name=www.example.org
-client_address=93.184.216.34
+client_address=2606:2800:220:1:248:1893:25c8:1946
 

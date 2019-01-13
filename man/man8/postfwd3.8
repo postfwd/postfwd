@@ -133,7 +133,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD3 1"
-.TH POSTFWD3 1 "2019-01-10" "perl v5.22.1" "User Contributed Perl Documentation"
+.TH POSTFWD3 1 "2019-01-13" "perl v5.22.1" "User Contributed Perl Documentation"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -183,7 +183,13 @@ postfwd3 \- postfix firewall daemon
 \&            \-\-no_parent_request_cache   disable parent request cache
 \&            \-\-no_parent_rate_cache      disable parent rate cache
 \&            \-\-no_parent_dns_cache       disable parent dns cache (default)
+\&            \-\-no_parent_group_cache     disable parent group cache
 \&            \-\-no_parent_cache           disable all parent caches
+\&
+\&        Groups:
+\&            \-\-default_group_ttl <i>     default group TTL
+\&            \-\-group_maxitems <i>        max items per group
+\&            \-\-cleanup\-groups <int>      cleanup interval in seconds for group objects
 \&
 \&        Rates:
 \&            \-\-cleanup\-rates <int>       cleanup interval in seconds for rate cache
@@ -219,6 +225,7 @@ postfwd3 \- postfix firewall daemon
 \&            \-\-dns_async_txt             perform dnsbl A and TXT lookups simultaneously
 \&            \-\-dns_max_ns_lookups        max names to look up with sender_ns_addrs
 \&            \-\-dns_max_mx_lookups        max names to look up with sender_mx_addrs
+\&            \-\-ipv6_dnsbl                enables dnsbl checks for IPv6 addresses
 \&
 \&        Optional:
 \&        \-t, \-\-test                      testing, always returns "dunno"
@@ -292,7 +299,7 @@ which should allow straightforward and easy-to-read configurations.
 .PP
 * Date/time based rules
 .PP
-* Macros/ACLs, Groups, Negation
+* Macros/ACLs, Dynamic groups, Negation
 .PP
 * Compare request attributes (e.g. client_name and helo_name)
 .PP
@@ -786,6 +793,22 @@ postfwd3 actions control the behaviour of the program. Currently you can specify
 \&        sender oder recipient addresses are evaluated case\-sensitive according to rfc5321. That
 \&        means that requests from bob@example.local and BoB@example.local will be treated differently
 \&
+\&        groupadd(<groupname>/<item>[/<ttl>])
+\&        saves <item> to dynamic group <group> for later use. the object will be removed from that
+\&        group after ttl seconds. if not set, postfwd3 will use the default \-\-default_group_ttl [3600s].
+\&        Please read the chapter about dynamic groups before use!
+\&           # add client_address to group %%blacklisted_hosts
+\&           id=ADDGROUP
+\&                rbl=zen.spamhaus.org,bl.spamcop.net,ix.dnsbl.manitu.net
+\&                action=groupadd(%%blacklisted_hosts/client_address/86400)
+\&
+\&        groupdel(<groupname>/<item>)
+\&        removes <item> from dynamic group <group>. Please read the chapter about dynamic groups before use!
+\&           # remove a client_address from group %%blacklisted_hosts
+\&           id=DELGROUP
+\&                rbl=lists.dnswl.org
+\&                action=groupdel(%%blacklisted_hosts/client_address)
+\&
 \&        ask (<addr>:<port>[:<ignore>])
 \&        allows to delegate the policy decision to another policy service (e.g. postgrey). the first
 \&        and the second argument (address and port) are mandatory. a third optional argument may be
@@ -875,6 +898,87 @@ Macros can contain macros, too:
 .Ve
 .PP
 Basically macros are simple text substitutions \- see the \*(L"\s-1PARSER\*(R"\s0 section for more information.
+.SS "\s-1DYNAMIC GROUPS\s0"
+.IX Subsection "DYNAMIC GROUPS"
+Dynamic groups are list objects, that can be changed and compared within your ruleset. Groups are saved persistant for further requests.
+This way you can save information for later use.
+.PP
+.Vb 2
+\&        # add aclient_address to group %%BLACKLISTED, if sent to spamtrap
+\&        id=SPAMTRAP; recipient==spamtrap@domain.local; action=groupadd(%%BLACKLISTED/client_address)
+\&
+\&        # reject any request from client_address in group %%BLACKLISTED
+\&        id=BLACKLISTED; client_address=%%BLACKLISTED; action=REJECT
+.Ve
+.PP
+The \fIgroupadd()\fR function receives the following arguments. The <ttl> value is optional. If not specified, postfwd3
+will use the default \-\-default_group_ttl [300s]:
+.PP
+.Vb 1
+\&        groupadd ( <Groupname> / <item> [ / <ttl> ] )
+.Ve
+.PP
+postfwd will save this data in the following structure:
+.PP
+.Vb 1
+\&        %Group_Cache \-> %<Groupname> \-> $<item> = <ttl>
+.Ve
+.PP
+The \fIgroupdel()\fR function removes an item from a group:
+.PP
+.Vb 1
+\&        groupdel ( <Groupname> / <item> )
+.Ve
+.PP
+Expired members will be removed at cleanup stage after \-\-cleanup_groups <i> seconds.
+.PP
+To compare requests with dynamic groups, these must be refered by preceeding '%%'\-characters:
+.PP
+.Vb 1
+\&        <item> = %%<Groupname>
+.Ve
+.PP
+Empty groups will return false. So the following is valid, too:
+.PP
+.Vb 2
+\&        # allow any request from client_address in group %%WHITELISTED
+\&        id=WHITEGROUP; client_address=%%WHITELISTED; action=DUNNO
+\&
+\&        # reject any request from client_address in group %%BLACKLISTED
+\&        id=BLACKGROUP; client_address=%%BLACKLISTED; action=REJECT
+\&
+\&        # ... other rules ...
+\&
+\&        # ... whitelist file ...
+\&        id=WHITELIST; client_address=file:/etc/postfwd/whitelist_networks; action=set(WHITE=1)
+\&
+\&        # ... whitelist dns ...
+\&        id=WHITELIST; rbl=list.dnswl.org,hostkarma; action=DUNNO
+\&
+\&        # ... \-> add it to whitelist and leave
+\&        id=GROUPADD; WHITE==1; action=groupadd(%%WHITELISTED/client_address)
+\&        id=GROUPADD; WHITE==1; action=DUNNO
+\&
+\&        # ... or blacklist by sending to spamtrap ...
+\&        id=SPAMTRAP; recipient==spamtrap@domain.local; action=set(BLACK=1)
+\&
+\&        # ... or blacklisted by dns ...
+\&        id=DNSBL; rbl=zen.spamhaus.org; action=action=set(BLACK=1)
+\&
+\&        # ... \-> add it to group and reject
+\&        id=GROUPADD; BLACK==1; action=groupadd(%%BLACKLISTED/client_address)
+\&        id=GROUPADD; BLACK==1; action=REJECT
+.Ve
+.PP
+\&\fBLimitations\fR
+.PP
+Currently dynamic groups are kept in memory. postfwd3 will only accept \-\-group_maxitems [9999] members
+to a group. To deactivate this limit set \-\-group_maxitems to '\-1'.
+.PP
+With PreFork personality, you should be aware that this information must be shared through the cache daemon.
+.PP
+In short: Don't let these lists get excessively big unless you have enough system capacity to do so. If necessary
+tune your config by setting the <ttl> and \-\-group_maxitems.
 .SS "\s-1PLUGINS\s0"
 .IX Subsection "PLUGINS"
 \&\fBDescription\fR
@@ -1300,6 +1404,9 @@ These parameters influence the way postfwd3 is working. Any of them can be combi
 \&
 \&        \-\-dns_max_mx_lookups     (default=0)
 \&        maximum mx names to lookup up with sender_mx_addrs item. use 0 for no maximum.
+\&
+\&        \-\-ipv6_dnsbl            (default=0)
+\&        enables dnsbl checks for IPv6 addresses
 \&
 \&        \-I, \-\-instantcfg
 \&        The config files, specified by \-f will be re\-read for every request

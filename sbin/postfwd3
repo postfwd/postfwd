@@ -36,7 +36,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "1.99-devel7";
+our $VERSION	= "1.99-devel8";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -145,12 +145,20 @@ our %postfwd_settings = (
 		mask		=> '^127\.',
 		max_ns_lookups	=> 100,
 		max_mx_lookups	=> 100,
+		ipv6_dnsbl	=> 0,
 	},
 	rate => {
 		cleanup		=> 600,
 		noparent	=> 0,
 		fast_eval	=> 0,
 		store		=> undef,
+	},
+	group => {
+		ttl		=> 3600, # default ttl=1h
+		maxitems	=> 9999, # '-1' for unlimited
+		cleanup		=> 600,
+		noparent	=> 0,
+		aggregate_addrs	=> 1,
 	},
 	scores => {
 		"5.0"		=> "554 5.7.1 ".$NAME." score exceeded",
@@ -209,6 +217,9 @@ our %postfwd_commands = (
 	setrateitem   => 'SR',
 	setrateitem2  => 'S2',
 	getrateitem   => 'GR',
+	groupadd      => 'GA',
+	groupdel      => 'GD',
+	groupget      => 'GG',
 );
 
 # precompiled patterns
@@ -232,6 +243,9 @@ our %postfwd_patterns = (
 	setrateitem   => qr/^CMD\s*=\s*$postfwd_commands{setrateitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*(.*?)\s*$/i,
 	setrateitem2  => qr/^CMD\s*=\s*$postfwd_commands{setrateitem2}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*(.*?)\s*$/i,
 	getrateitem   => qr/^CMD\s*=\s*$postfwd_commands{getrateitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$/i,
+	groupadd      => qr/^CMD\s*=\s*$postfwd_commands{groupadd}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$seplim\s*(.*?)\s*$/i,
+	groupdel      => qr/^CMD\s*=\s*$postfwd_commands{groupdel}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$/i,
+	groupget      => qr/^CMD\s*=\s*$postfwd_commands{groupget}\s*;\s*TYPE\s*=\s*(.*?)\s*$/i,
 );
 
 
@@ -408,7 +422,7 @@ use warnings;
 use strict;
 use base 'Net::Server::Multiplex';
 import postfwd3::basic qw(:DEFAULT &wantsdebug &hash_to_list &str_to_hash &hash_to_str &ts $TIMEHIRES $STORABLE $NETADDR);
-use vars qw( %Cache %Cleanup %Count %Interval %Top $Reload_Conf $Summary $StartTime );
+use vars qw( %Cache %Groups %Cleanup %Count %Interval %Top $Reload_Conf $Summary $StartTime );
 BEGIN {
 	# use Time::HiRes if available
 	Time::HiRes->import( qw(time) ) if $TIMEHIRES;
@@ -477,7 +491,7 @@ sub list_stats {
 # return cache contents
 sub dump_cache {
 	my @result = ();
-	foreach (keys %Cache) {
+	foreach (sort keys %Cache) {
 		push @result, hash_to_list ('%'.$_."_cache", %{$Cache{$_}}) if %{$Cache{$_}};
 	}; return @result;
 };
@@ -518,23 +532,39 @@ sub get_rate {
 	return (join $postfwd_settings{sepreq}, @answer);
 };
 
-# set rate to cache
-sub set_rate {
-	my ($self,$now,$type,$item,$vals) = @_;
-	my @answer = (); my $rindex = '';
-	($item, $rindex) = split $postfwd_settings{seplim}, $item;
-	return '<undef>' if ( defined $Cache{$type}{$item} and defined $Cache{$type}{$item}{$rindex} and defined $Cache{$type}{$item}{$rindex}{'until'} and $now <= @{$Cache{$type}{$item}{$rindex}{'until'}}[0] );
-	push @{$Cache{$type}{$item}{'list'}}, $rindex;
-	@{$Cache{$type}{$item}{'list'}} = uniq(@{$Cache{$type}{$item}{'list'}});
-	delete $Cache{$type}{$item}{$rindex} if defined $Cache{$type}{$item}{$rindex};
-	foreach my $arg (split ($postfwd_settings{sepreq}, $vals)) {
-		map {	push @{$Cache{$type}{$item}{$rindex}{$1}}, $_;
-			push @answer, "$type->$item->$rindex->$1=$_";
-			@{$Cache{$type}{$item}{$rindex}{$1}} = uniq(@{$Cache{$type}{$item}{$rindex}{$1}});
-		} (split $postfwd_settings{seplst}, $2) if ($arg =~ m/$postfwd_patterns{keyval}/);
+# add item to group
+sub add_group {
+	my ($self,$now,$groupname,$groupitem,$groupttl) = @_;
+	my $answer = 'no';
+	unless ( (defined $Groups{$groupname}{$groupitem} and $Groups{$groupname}{$groupitem} > $now)
+	    or (scalar keys %{$Groups{$groupname}} >= $postfwd_settings{group}{maxitems})
+	    or ($postfwd_settings{group}{maxitems} < 0)
+	) {
+		$Groups{$groupname}{$groupitem} = $groupttl;
+		$answer = 'ok';
 	};
-	@answer = '<undef>' unless @answer;
-	return (join '; ', @answer);
+	return $answer;
+};
+
+# remove item from group
+sub del_group {
+	my ($self,$now,$groupname,$groupitem) = @_;
+	my $answer = 'no';
+	if (defined $Groups{$groupname}{$groupitem}) {
+		delete $Groups{$groupname}{$groupitem};
+		$answer = 'ok';
+	};
+	return $answer;
+};
+
+# get items from group
+sub get_group {
+	my ($self,$now,$groupname) = @_;
+	my @answer = ();
+	if (defined $Groups{$groupname} and scalar keys %{$Groups{$groupname}}) {
+		map { push @answer, $_  if $Groups{$groupname}{$_} > $now } (keys %{$Groups{$groupname}});
+	};
+	return (join $postfwd_settings{sepreq}, @answer);
 };
 
 # set rate to cache
@@ -661,6 +691,33 @@ sub cleanup_cache {
 		if ( wantsdebug (qw[ all verbose cleanup parentcleanup ]) or (($end - $start) >= 1) );
 };
 
+# clean up group cache
+sub cleanup_groups {
+    my($now) = $_[0]; return unless $now;
+    my $start = $Cleanup{group} = time();
+    foreach my $groupname (keys %Groups) {
+	foreach my $groupitem (keys %{$Groups{$groupname}}) {
+		unless ( $Groups{$groupname}{$groupitem} ) {
+			log_info ("[CLEANUP] deleting incomplete group-cache item '$groupitem' from group '$groupname'")
+				if wantsdebug (qw[ all cleanup parentcleanup devel groups ]);
+			delete $Groups{$groupname}{$groupitem};
+		} elsif ($now > $Groups{$groupname}{$groupitem}) {
+			log_info ("[CLEANUP] removing expired group-cache item '$groupitem' from group '$groupname'")
+				if wantsdebug (qw[ all cleanup parentcleanup groups ]);
+			delete $Groups{$groupname}{$groupitem};
+		};
+	};
+	unless ( %{$Groups{$groupname}} ) {
+		log_info ("[CLEANUP] removing empty group '$groupname'")
+			if wantsdebug (qw[ all cleanup parentcleanup groups ]);
+		delete $Groups{$groupname};
+	};
+    };
+    my $end = time();
+    log_info ("[CLEANUP] cleaning group cache needed ".ts($end - $start)." seconds")
+	if ( wantsdebug (qw[ all verbose cleanup parentcleanup ]) or (($end - $start) >= 1) );
+};
+
 # saves rate limits to disk
 sub save_rates {
     return unless ($STORABLE and $postfwd_settings{rate}{store} and defined $Cache{rate});
@@ -712,7 +769,7 @@ sub pre_loop_hook() {
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::cache';
 	$postfwd_settings{name} .= "/cache";
 	load_rates();
-	$StartTime = $Summary = $Cleanup{request} = $Cleanup{rate} = $Cleanup{dns} = time();
+	$StartTime = $Summary = $Cleanup{request} = $Cleanup{rate} = $Cleanup{dns} = $Cleanup{group} = time();
 	log_info ("ready for input");
 };
 
@@ -739,6 +796,14 @@ sub mux_input {
 		};
 		if ($request eq $postfwd_patterns{ping}) {
 			$action = $postfwd_patterns{pong};
+		} elsif ($request =~ m/$postfwd_patterns{groupget}/) {
+			my ($type) = ($1);
+			log_info ("[GETGROUP] request: '$request'") if wantsdebug (qw[ all cache setcache groups ]);
+			cleanup_groups ($now) if (($now - $Cleanup{group}) > ($postfwd_settings{group}{cleanup} || 300));
+			$Count{cache_queries}++; $Interval{cache_queries}++;
+			$Count{"group_get"}++; $Interval{"group_get"}++;
+			$action = $self->get_group($now,$type);
+			log_info ("[GETGROUP] answer: '$action'") if wantsdebug (qw[ all cache getcache groups ]);
 		} elsif ($request =~ m/$postfwd_patterns{checkrate}/) {
 			my ($type, $item, $size, $rcpt) = ($1, $2, $3, $4);
 			log_info ("[CHECKRATE] request: '$request'") if wantsdebug (qw[ all rates cache getcache ]);
@@ -784,6 +849,20 @@ sub mux_input {
 			$Count{$type."_set"}++; $Interval{$type."_set"}++;
 			$action = $self->set_rate2($now,$type,$item,$vals);
 			log_info ("[SETRATEITEM2] answer: '$action'") if wantsdebug (qw[ all cache setcache ]);
+		} elsif ($request =~ m/$postfwd_patterns{groupadd}/) {
+			my ($type, $item, $vals) = ($1, $2, $3);
+			log_info ("[ADDGROUP] request: '$request'") if wantsdebug (qw[ all cache setcache groups ]);
+			$Count{cache_queries}++; $Interval{cache_queries}++;
+			$Count{"group_add"}++; $Interval{"group_add"}++;
+			$action = $self->add_group($now,$type,$item,$vals);
+			log_info ("[ADDGROUP] answer: '$action'") if wantsdebug (qw[ all cache setcache groups ]);
+		} elsif ($request =~ m/$postfwd_patterns{groupdel}/) {
+			my ($type, $item) = ($1, $2);
+			log_info ("[DELGROUP] request: '$request'") if wantsdebug (qw[ all cache setcache groups ]);
+			$Count{cache_queries}++; $Interval{cache_queries}++;
+			$Count{"group_del"}++; $Interval{"group_del"}++;
+			$action = $self->del_group($now,$type,$item);
+			log_info ("[DELGROUP] answer: '$action'") if wantsdebug (qw[ all cache setcache groups ]);
 		} elsif ($request =~ m/$postfwd_patterns{dumpstats}/) {
 			$action = join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, list_stats();
 		} elsif ($request =~ m/$postfwd_patterns{dumpcache}/) {
@@ -920,6 +999,8 @@ my $COMP_ACL                  = "[\&][\&]";
 my $COMP_NEG                  = "[\!][\!]";
 # variables
 my $COMP_VAR                  = "[\$][\$]";
+# groups
+my $COMP_GROUP                = "[\%][\%]";
 # date calculations
 my $COMP_DATECALC             = "($COMP_DATE|$COMP_TIME|$COMP_DAYS|$COMP_MONTHS)";
 # these items allow whitespace-or-comma-separated values
@@ -957,8 +1038,8 @@ use vars qw(
 	%Rule_by_ID %Matches %ACLs %Timeouts %Hits %Count
 	%postfwd_items %postfwd_compare %postfwd_actions
 	%postfwd_items_plugin %postfwd_compare_plugin %postfwd_actions_plugin
-	%Request_Cache %AutoCacheID %Config_Cache %DNS_Cache %Rate_Cache
-	$Cleanup_Requests $Cleanup_RBLs $Cleanup_Rates $Cleanup_Timeouts
+	%Request_Cache %AutoCacheID %Config_Cache %DNS_Cache %Rate_Cache %Group_Cache
+	$Cleanup_Requests $Cleanup_RBLs $Cleanup_Rates $Cleanup_Timeouts $Cleanup_Groups
 	%Cache %Cleanup $StartTime $Summary
 );
 
@@ -1017,6 +1098,30 @@ sub devar_item {
 	return $myresult;
 };
 
+# resolves %%() groups
+sub degroup_item {
+	my($now, $groupname) = @_;
+	my(@myresult) = ();
+	$groupname =~ s/^$COMP_GROUP//;
+	return () unless $groupname;
+	if (defined $Group_Cache{$groupname}) {
+		foreach my $item (keys %{$Group_Cache{$groupname}}) {
+			push @myresult, $item if $Group_Cache{$groupname}{$item} >= $now;
+		};
+	};
+	unless ($postfwd_settings{group}{noparent}) {
+		my $cmd = "CMD=".$postfwd_commands{groupget}.";TYPE=$groupname";
+		my $res = cache_query ($cmd);
+		log_info ("get parent group '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+		unless ($res eq '<undef>') {
+			push @myresult, split $postfwd_settings{sepreq}, $res;
+			@myresult = uniq(@myresult);
+		};
+	};
+	log_info ("group :  \"$groupname\"  \"".((@myresult) ? (join ',', @myresult) : '<empty>')."\"") if wantsdebug (qw[ all thisrequest groups ]);
+	return @myresult;
+};
+
 # clean up RBL cache
 sub cleanup_dns_cache {
 	my($now) = $_[0]; return unless $now;
@@ -1038,8 +1143,7 @@ sub cleanup_dns_cache {
 # clean up request cache
 sub cleanup_request_cache {
 	my($now) = $_[0]; return unless $now;
-	RITEM: foreach my $checkitem (keys %Request_Cache) {
-		next RITEM unless defined $Request_Cache{$checkitem}{'until'};
+	foreach my $checkitem (keys %Request_Cache) {
 		if ( !defined($Request_Cache{$checkitem}{'until'}) or !defined($Request_Cache{$checkitem}{ttl}) ) {
 			log_info ("[CLEANUP] deleting incomplete request-cache item '$checkitem'")
 				if wantsdebug (qw[ all cleanup childcleanup devel ]);
@@ -1052,16 +1156,27 @@ sub cleanup_request_cache {
 	};
 };
 
-# return cache contents
-sub dump_cache {
-	my @result = ();
-	my %cache = ();
-	$cache{Request_Cache} = \%Request_Cache;
-	$cache{Rate_Cache}    = \%Rate_Cache;
-	$cache{DNS_Cache}     = \%DNS_Cache;
-	foreach (keys %cache) {
-		push @result, hash_to_list ('%'.$_."_cache", %{$cache{$_}}) if %{$cache{$_}};
-	}; return @result;
+# clean up group cache
+sub cleanup_group_cache {
+	my($now) = $_[0]; return unless $now;
+	foreach my $groupname (keys %Group_Cache) {
+		foreach my $groupitem (keys %{$Group_Cache{$groupname}}) {
+			unless ( $Group_Cache{$groupname}{$groupitem} ) {
+				log_info ("[CLEANUP] deleting incomplete group-cache item '$groupitem' from group '$groupname'")
+					if wantsdebug (qw[ all cleanup childcleanup devel groups ]);
+				delete $Group_Cache{$groupname}{$groupitem};
+			} elsif ($now > $Group_Cache{$groupname}{$groupitem}) {
+				log_info ("[CLEANUP] removing expired group-cache item '$groupitem' from group '$groupname'")
+					if wantsdebug (qw[ all cleanup childcleanup groups ]);
+				delete $Group_Cache{$groupname}{$groupitem};
+			};
+		};
+		unless ( scalar keys %{$Group_Cache{$groupname}} ) {
+			log_info ("[CLEANUP] removing empty group '$groupname'")
+				if wantsdebug (qw[ all cleanup childcleanup groups ]);
+			delete $Group_Cache{$groupname};
+		};
+	};
 };
 
 # clean up rate cache
@@ -1098,6 +1213,42 @@ sub cleanup_rate_cache {
 			};
 		};
 	};
+};
+
+# return cache contents
+sub dump_cache {
+	my @result = ();
+	my %cache = ();
+	$cache{Request_Cache} = \%Request_Cache;
+	$cache{Rate_Cache}    = \%Rate_Cache;
+	$cache{DNS_Cache}     = \%DNS_Cache;
+	$cache{Group_Cache}     = \%Group_Cache;
+	foreach (keys %cache) {
+		push @result, hash_to_list ('%'.$_, %{$cache{$_}}) if %{$cache{$_}};
+	}; return @result;
+};
+
+# aggregate ip address items with NetAddr::IP->Compact()
+sub aggregate_addr {
+	my($file,$num,$index,$item,@addrs) = @_;
+	my @keep = my @comp = ();
+	foreach my $addr (@addrs) {
+		# disable aggregation for dynamic elements (lfile, negation, ...)
+		if ( $addr =~ m@[^[;=<>~]+[0-9a-fA-F_:/\.\[\]\-]+$@ ) {
+			push @comp, $addr;
+		} else {
+			push @keep, $addr;
+		};
+	};
+	if ( @comp ) {
+		@comp = Compact( map { s/[;=<>~]//g; $_ = NetAddr::IP->new($_) } @comp );
+		# the compare operator can be safely overwritten for cidr
+		# as all of them lead to the same action
+		map { $_ = "=;$_" } @comp;
+		push @keep, @comp;
+		log_note ("notice: Rule $index ($file line $num): aggregated ".$item."-networks : ".(scalar @addrs)." -> ".(scalar @keep)) if wantsdebug (qw[ all thisrequest config aggr cidr ]);
+	};
+	return @keep;
 };
 
 # preparses configuration line for ACL syntax
@@ -1240,19 +1391,7 @@ sub parse_config_line {
 				$myrule{$COMP_ID} = "R-".$myindex;
 				log_note ("notice: Rule $myindex ($myfile line $mynum): contains no rule identifier - will use \"$myrule{id}\"") if wantsdebug (qw[ all thisrequest config verbose ]);
 			};
-			if ($NETADDR and $postfwd_settings{aggregate_addrs}) {
-				AGGR: foreach my $k (keys %myrule) {
-					next AGGR unless $k =~ /$COMP_NETWORK_CIDRS/;
-					# disable aggregation for lfile/ltable elements
-					map { next AGGR unless m@[^[;=<>~]+[0-9a-fA-F_:/\.\[\]\-]+$@ } @{$myrule{$k}};
-					my $c = scalar @{$myrule{$k}};
-					@{$myrule{$k}} = Compact( map { s/[;=<>~]//g; $_ = NetAddr::IP->new($_) } @{$myrule{$k}} );
-					# the compare operator can be safely overwritten for cidr
-					# as all of them lead to the same action
-					map { $_ = "=;$_" } @{$myrule{$k}};
-					log_note ("notice: Rule $myindex ($myfile line $mynum): aggregated ".$k."-networks for : ".$c." -> ".(scalar @{$myrule{$k}})) if wantsdebug (qw[ all thisrequest config verbose ]);
-				};
-			};
+			map { @{$myrule{$_}} = aggregate_addr($myfile,$mynum,$myindex,$_,@{$myrule{$_}}) if $_ =~ /$COMP_NETWORK_CIDRS/ } (keys %myrule) if ($NETADDR and $postfwd_settings{aggregate_addrs});
 			log_info ("loaded: Rule $myindex ($myfile line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"") if wantsdebug (qw[ all thisrequest config verbose ]);
 		};
 	    };
@@ -1687,7 +1826,8 @@ sub dns_query_net_dns {
 			$result{reverse_address} = join(".", reverse(split(/\./,$request{client_address})));
 		} elsif ( $request{client_address} =~ /:/ ) {
 			# IPv6
-			$result{reverse_address} = join('.', (reverse split '', (join '', (map { $_ = sprintf "%04s", $_ } (split /:/, $request{client_address})))));
+			$result{reverse_address} = join('.', (reverse split '', (join '', (map { $_ = sprintf "%04s", $_ } (split /:/, $request{client_address})))))
+				if ($postfwd_settings{dns}{ipv6_dnsbl};
 		};
 		return %result;
 	},
@@ -2206,6 +2346,48 @@ sub postfwd_items {
 	"rcpt5321"      => sub { return &{$postfwd_actions{rate}}(@_); },
 	# size() command, according to rfc5321 case-sensivity
 	"size5321"      => sub { return &{$postfwd_actions{rate}}(@_); },
+	# groupadd() command
+	"groupadd"	=> sub {
+		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($myaction) = $postfwd_settings{default};
+		my($groupname,$groupitem,$groupttl,$stop) = split "/", $myarg, 4; $stop ||= 0;
+		$groupname =~ s/^$COMP_GROUP//; $groupitem =~ s/^$COMP_VAR//;
+		if ( $groupname and $groupitem and $request{$groupitem} ) {
+			$groupttl ||= $postfwd_settings{group}{ttl};
+			log_info ("[RULES] ".$myline.", adding item '".$request{$groupitem}."' to group '".$groupname."' with ttl=".$groupttl."s") if wantsdebug (qw[ all thisrequest groups ]);
+			$Group_Cache{$groupname}{$request{$groupitem}} = $now + $groupttl unless (
+				(defined $Group_Cache{$groupname}{$request{$groupitem}} and $Group_Cache{$groupname}{$request{$groupitem}} > $now)
+				or (scalar keys %{$Group_Cache{$groupname}} >= $postfwd_settings{group}{maxitems})
+				or ($postfwd_settings{group}{maxitems} < 0)
+			);
+			unless ($postfwd_settings{group}{noparent}) {
+				my $cmd = "CMD=".$postfwd_commands{groupadd}.";TYPE=$groupname;ITEM=".$request{$groupitem}.$postfwd_settings{seplim}.($now + $groupttl);
+				my $res = cache_query ($cmd);
+				log_info ("parent group update '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+			};
+		};
+		return ($stop,$index,$myaction,$myline,%request);
+	},
+	# groupdel() command
+	"groupdel"	=> sub {
+		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($myaction) = $postfwd_settings{default};
+		my($groupname,$groupitem,$stop) = split "/", $myarg, 3; $stop ||= 0;
+		$groupname =~ s/^$COMP_GROUP//; $groupitem =~ s/^$COMP_VAR//;
+		if ( $groupname and $groupitem and $request{$groupitem}
+		and defined $Group_Cache{$groupname}{$request{$groupitem}} ) {
+			log_info ("[RULES] ".$myline.", removing item '".$request{$groupitem}."' from group '".$groupname."'") if wantsdebug (qw[ all thisrequest groups ]);
+			delete $Group_Cache{$groupname}{$request{$groupitem}};
+		} else {
+			log_note ("[RULES] ".$myline.", item '".($request{$groupitem} || '<undef>')."' not in group '".($groupname || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+		};
+		unless ($postfwd_settings{group}{noparent}) {
+			my $cmd = "CMD=".$postfwd_commands{groupdel}.";TYPE=$groupname;ITEM=".$request{$groupitem};
+			my $res = cache_query ($cmd);
+			log_info ("parent group update '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+		};
+		return ($stop,$index,$myaction,$myline,%request);
+	},
 	# wait() command
 	"wait"	=> sub {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
@@ -2239,6 +2421,13 @@ sub postfwd_items {
 		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		log_warn ("[RULES] ".$myline." - error: command ".$mycmd."() has not been implemented yet - ignoring");
+		return ($stop,$index,$myaction,$myline,%request);
+	},
+	# dumpcache() command
+	"dumpcache" => sub {
+		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
+		map { log_info ("[RULES] DUMPCACHE: $_") } (dump_cache());
 		return ($stop,$index,$myaction,$myline,%request);
 	},
 	# ask() command
@@ -2321,7 +2510,7 @@ sub get_plugins {
 # compare item main
 # use: compare_item ( $TYPE, $RULEITEM, $MINIMUMHITS, $REQUESTITEM, %REQUEST, %REQUESTINFO );
 sub compare_item {
-    my($mykey,$mymask,$mymin,$myitem, %request) = @_;
+    my($now,$mykey,$mymask,$mymin,$myitem,%request) = @_;
     my($val,$var,$cmp,$neg,$myresult,$postfwd_compare_proc);
     my($rcount) = 0;
     $mymin ||= 1;
@@ -2339,6 +2528,12 @@ sub compare_item {
 	# prepare_file
 	if ($val =~ /$COMP_LIVE_FILE_TABLE/) {
 		push @items, prepare_file (0, $1, $cmp, $2);
+		next ITEM;
+	};
+	# prepare_group
+	if ($val =~ /^$COMP_GROUP/) {
+		my @mygroup = degroup_item($now, $val);
+		map { push @items, $cmp.";".$_ } @mygroup if @mygroup;
 		next ITEM;
 	};
 	log_info ("compare $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
@@ -2370,7 +2565,7 @@ sub compare_item {
 # compare request against a single rule
 #
 sub compare_rule {
-    my($index,$date,%request) = @_;
+    my($now,$index,$date,%request) = @_;
     my(@ruleitems) = keys %{$Rules[$index]};
     my($has_rbl) = exists($Rules[$index]{$COMP_RBL_KEY});
     my($has_rhl) = (
@@ -2417,7 +2612,7 @@ sub compare_rule {
 			? $date
 			# default: compare against request attribute
 			: $request{$mykey};
-		$myresult[0] = ($res = compare_item($mykey, $Rules[$index]{$mykey}, $num, ((defined $val) ? $val : ''), %request)) ? ($myresult[0] + $res) : 0;
+		$myresult[0] = ($res = compare_item($now, $mykey, $Rules[$index]{$mykey}, $num, ((defined $val) ? $val : ''), %request)) ? ($myresult[0] + $res) : 0;
 	};
 	last ITEM unless ($myresult[0] > 0);
     };
@@ -2506,7 +2701,6 @@ sub compare_rule {
 		@timedout = uniq(@timedout);
 		$myresult[3] .= $postfwd_settings{sepreq}."dnstimeouts=".($#timedout + 1);
 		foreach (@timedout) {
-			my $now = time();
 		#	@{$DNS_Cache{$_}{A}}    = ('__TIMEOUT__');
 			$DNS_Cache{$_}{ttl}     = $postfwd_settings{dns}{ttl} unless $DNS_Cache{$_}{ttl};
 			$DNS_Cache{$_}{'delay'} = $now - $ownstart;
@@ -2550,6 +2744,7 @@ sub compare_rule {
 	# compare dns results
 	if ( ($myresult[0] > 0) and exists($Rules[$index]{$COMP_RBL_KEY}) ) {
 		$res = compare_item(
+			$now,
 			$COMP_RBL_KEY,
 			$Rules[$index]{$COMP_RBL_KEY},
 			($Rules[$index]{$COMP_RBL_CNT} ||= 1),
@@ -2563,6 +2758,7 @@ sub compare_rule {
 	if ( $has_rhl and ($myresult[0] > 0) ) {
 		if ( exists($Rules[$index]{$COMP_RHSBL_KEY}) ) {
 				$res = compare_item(
+					$now,
 					$COMP_RHSBL_KEY,
 					$Rules[$index]{$COMP_RHSBL_KEY},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
@@ -2574,6 +2770,7 @@ sub compare_rule {
 		};
 		if ( exists($Rules[$index]{$COMP_RHSBL_KEY_CLIENT}) ) {
 				$res = compare_item(
+					$now,
 					$COMP_RHSBL_KEY_CLIENT,
 					$Rules[$index]{$COMP_RHSBL_KEY_CLIENT},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
@@ -2585,6 +2782,7 @@ sub compare_rule {
 		};
 		if ( exists($Rules[$index]{$COMP_RHSBL_KEY_SENDER}) ) {
 				$res = compare_item(
+					$now,
 					$COMP_RHSBL_KEY_SENDER,
 					$Rules[$index]{$COMP_RHSBL_KEY_SENDER},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
@@ -2596,6 +2794,7 @@ sub compare_rule {
 		};
 		if ( exists($Rules[$index]{$COMP_RHSBL_KEY_HELO}) ) {
 				$res = compare_item(
+					$now,
 					$COMP_RHSBL_KEY_HELO,
 					$Rules[$index]{$COMP_RHSBL_KEY_HELO},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
@@ -2607,6 +2806,7 @@ sub compare_rule {
 		};
 		if ( exists($Rules[$index]{$COMP_RHSBL_KEY_RCLIENT}) ) {
 				$res = compare_item(
+					$now,
 					$COMP_RHSBL_KEY_RCLIENT,
 					$Rules[$index]{$COMP_RHSBL_KEY_RCLIENT},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
@@ -2653,6 +2853,20 @@ sub smtpd_access_policy {
     # load postfwd_items attributes
     if ( my(%postfwd_items_attr) = postfwd_items (%request) ) {
 	%request = (%request, %postfwd_items_attr);
+    };
+
+    # wipe out old group members
+    if ( $Cleanup_Groups and (scalar keys %Group_Cache > 0) and (($now - ($Cleanup_Groups || 0)) > $postfwd_settings{group}{cleanup}) ) {
+	$t1 = time();
+	$t3 = scalar keys %Group_Cache;
+	cleanup_group_cache($now);
+	$t2 = time();
+	log_info ("[CLEANUP] cleaning group-cache needed ".ts($t2 - $t1)
+		." seconds for group cleanup of "
+		.($t3 - scalar keys %Group_Cache)." out of ".$t3
+		." groups after cleanup time ".$postfwd_settings{group}{cleanup}."s")
+		if ( wantsdebug (qw[ all thisrequest verbose cleanup childcleanup groups ]) or (($t2 - $t1) >= 1) );
+	$Cleanup_Groups = $t1;
     };
 
     # clear dnsbl timeout counters
@@ -2823,7 +3037,7 @@ sub smtpd_access_policy {
 	} else {
 
 		# clean up rbl cache
-		if ( not($postfwd_settings{dns}{disabled}) and (scalar keys %DNS_Cache > 0) and (($now - $Cleanup_RBLs) > $postfwd_settings{dns}{cleanup}) ) {
+		if ( not($postfwd_settings{dns}{disabled}) and (scalar keys %DNS_Cache > 0) and (($now - ($Cleanup_RBLs || 0)) > $postfwd_settings{dns}{cleanup}) ) {
 			$t1 = time();
 			$t3 = scalar keys %DNS_Cache;
 			cleanup_dns_cache($now);
@@ -2845,7 +3059,7 @@ sub smtpd_access_policy {
 
 			# compare request against rule
 			next unless exists $Rules[$index];
-			($matched,$rblcnt,$rhlcnt,my $compcnt) = compare_rule ($index, $date, %request);
+			($matched,$rblcnt,$rhlcnt,my $compcnt) = compare_rule ($now, $index, $date, %request);
 
 			# enables/overrides hit counters for later use
 			$request{$COMP_MATCHES}    = $matched;
@@ -3030,7 +3244,7 @@ sub pre_loop_hook {
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
 	# read configuration
 	read_config(1);
-	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = time();
+	$StartTime = $Summary = $Cleanup_Timeouts = $Cleanup_Requests = $Cleanup_RBLs = $Cleanup_Rates = $Cleanup_Groups = time();
 	log_info ("ready for input");
 };
 
@@ -3203,6 +3417,7 @@ GetOptions( \%options,
 	"dns_timeout_interval=i"  => \$postfwd_settings{dns}{max_interval},
 	"dns_max_ns_lookups=i"	  => \$postfwd_settings{dns}{max_ns_lookups},
 	"dns_max_mx_lookups=i"	  => \$postfwd_settings{dns}{max_mx_lookups},
+	"ipv6_dnsbl"		  => \$postfwd_settings{dns}{ipv6_dnsbl},
 	"cache-rbl-timeout=i"	  => \$postfwd_settings{dns}{ttl},
 	"cache-rbl-default=s"	  => \$postfwd_settings{dns}{mask},
 	"cleanup-rbls=i"	  => \$postfwd_settings{dns}{cleanup},
@@ -3231,7 +3446,11 @@ GetOptions( \%options,
 	"cleanup-requests=i"	  => \$postfwd_settings{request}{cleanup},
 	"no_parent_request_cache" => \$postfwd_settings{request}{noparent},
 	"no_parent_rate_cache"    => \$postfwd_settings{rate}{noparent},
-	"no_parent_cache"         => sub{ $postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1 },
+	"no_parent_cache"         => sub{ $postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = $postfwd_settings{group}{noparent} = 1 },
+	# Groups
+	"no_parent_group_cache"   => \$postfwd_settings{group}{noparent},
+	"default_group_ttl=i"	  => \$postfwd_settings{group}{ttl},
+	"group_maxitems=i"	  => \$postfwd_settings{group}{maxitems},
 	# Limits
 	"cleanup-rates=i"	  => \$postfwd_settings{rate}{cleanup},
 	"keep_rates|keep_limits|keep_rates_on_reload" => \$postfwd_settings{keep_rates},
@@ -3302,7 +3521,7 @@ if (defined $options{personality}) {
 };
 die "\nERROR: Bad personality type! --personality must be 'Multiplex' or 'Prefork'. You can use --v1 or --v2 as shortcut.\n\n" unless $postfwd_settings{personality} =~ /^(Multiplex|PreFork)$/;
 if ($postfwd_settings{personality} eq 'Multiplex') {
-	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1;
+	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = $postfwd_settings{group}{noparent} = 1;
 	@{$postfwd_settings{master}{daemons}} = @daemons = qw( server );
 };
 map { $postfwd_settings{debug}{$_} = 1 } uniq(@{$options{debug}});
@@ -3431,12 +3650,11 @@ if ($NETADDR) {
 
 # check for --stdin option
 if ($postfwd_settings{syslog}{stdin}) {
-	log_note ("STDIN: Please note that rate() commands do not work with postfwd3 and --stdin option due to the missing cache daemon");
 	my(%attr) = ();
 	get_plugins (@{$postfwd_settings{Plugins}}) if $postfwd_settings{Plugins};
 	read_config(1);
 	map { $postfwd_settings{daemons}{$_} = 0 } (keys %{$postfwd_settings{daemons}});
-	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = 1;
+	$postfwd_settings{request}{noparent} = $postfwd_settings{rate}{noparent} = $postfwd_settings{dns}{noparent} = $postfwd_settings{group}{noparent} = 1;
 	while (<>) {
 		chomp;
 		process_input (undef, undef, $_, \%attr);
@@ -3637,7 +3855,13 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	    --no_parent_request_cache	disable parent request cache
 	    --no_parent_rate_cache	disable parent rate cache
 	    --no_parent_dns_cache	disable parent dns cache (default)
+	    --no_parent_group_cache	disable parent group cache
 	    --no_parent_cache		disable all parent caches
+
+	Groups:
+	    --default_group_ttl <i>	default group TTL
+	    --group_maxitems <i>	max items per group
+            --cleanup-groups <int>	cleanup interval in seconds for group objects
 
 	Rates:
             --cleanup-rates <int>	cleanup interval in seconds for rate cache
@@ -3673,6 +3897,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	    --dns_async_txt		perform dnsbl A and TXT lookups simultaneously
 	    --dns_max_ns_lookups	max names to look up with sender_ns_addrs
 	    --dns_max_mx_lookups	max names to look up with sender_mx_addrs
+	    --ipv6_dnsbl		enables dnsbl checks for IPv6 addresses
 
         Optional:
 	-t, --test			testing, always returns "dunno"
@@ -3748,7 +3973,7 @@ I<Features:>
 
 * Date/time based rules
 
-* Macros/ACLs, Groups, Negation
+* Macros/ACLs, Dynamic groups, Negation
 
 * Compare request attributes (e.g. client_name and helo_name)
 
@@ -4185,6 +4410,22 @@ postfwd3 actions control the behaviour of the program. Currently you can specify
         sender oder recipient addresses are evaluated case-sensitive according to rfc5321. That
 	means that requests from bob@example.local and BoB@example.local will be treated differently
 
+	groupadd(<groupname>/<item>[/<ttl>])
+	saves <item> to dynamic group <group> for later use. the object will be removed from that
+	group after ttl seconds. if not set, postfwd3 will use the default --default_group_ttl [3600s].
+	Please read the chapter about dynamic groups before use!
+	   # add client_address to group %%blacklisted_hosts
+	   id=ADDGROUP
+		rbl=zen.spamhaus.org,bl.spamcop.net,ix.dnsbl.manitu.net
+		action=groupadd(%%blacklisted_hosts/client_address/86400)
+
+	groupdel(<groupname>/<item>)
+	removes <item> from dynamic group <group>. Please read the chapter about dynamic groups before use!
+	   # remove a client_address from group %%blacklisted_hosts
+	   id=DELGROUP
+		rbl=lists.dnswl.org
+		action=groupdel(%%blacklisted_hosts/client_address)
+
 	ask (<addr>:<port>[:<ignore>])
 	allows to delegate the policy decision to another policy service (e.g. postgrey). the first
 	and the second argument (address and port) are mandatory. a third optional argument may be
@@ -4265,6 +4506,77 @@ Macros can contain macros, too:
 	&&GOAWAY ; action=REJECT dynamic client and listed on RBL
 
 Basically macros are simple text substitutions - see the L</PARSER> section for more information.
+
+
+=head2 DYNAMIC GROUPS
+
+Dynamic groups are list objects, that can be changed and compared within your ruleset. Groups are saved persistant for further requests.
+This way you can save information for later use.
+
+	# add aclient_address to group %%BLACKLISTED, if sent to spamtrap
+	id=SPAMTRAP; recipient==spamtrap@domain.local; action=groupadd(%%BLACKLISTED/client_address)
+
+	# reject any request from client_address in group %%BLACKLISTED
+	id=BLACKLISTED; client_address=%%BLACKLISTED; action=REJECT
+
+The groupadd() function receives the following arguments. The <ttl> value is optional. If not specified, postfwd3
+will use the default --default_group_ttl [300s]:
+
+	groupadd ( <Groupname> / <item> [ / <ttl> ] )
+
+postfwd will save this data in the following structure:
+
+	%Group_Cache -> %<Groupname> -> $<item> = <ttl>
+
+The groupdel() function removes an item from a group:
+
+	groupdel ( <Groupname> / <item> )
+
+Expired members will be removed at cleanup stage after --cleanup_groups <i> seconds.
+
+To compare requests with dynamic groups, these must be refered by preceeding '%%'-characters:
+
+	<item> = %%<Groupname>
+
+Empty groups will return false. So the following is valid, too:
+
+	# allow any request from client_address in group %%WHITELISTED
+	id=WHITEGROUP; client_address=%%WHITELISTED; action=DUNNO
+
+	# reject any request from client_address in group %%BLACKLISTED
+	id=BLACKGROUP; client_address=%%BLACKLISTED; action=REJECT
+
+	# ... other rules ...
+
+	# ... whitelist file ...
+	id=WHITELIST; client_address=file:/etc/postfwd/whitelist_networks; action=set(WHITE=1)
+
+	# ... whitelist dns ...
+	id=WHITELIST; rbl=list.dnswl.org,hostkarma; action=DUNNO
+
+	# ... -> add it to whitelist and leave
+	id=GROUPADD; WHITE==1; action=groupadd(%%WHITELISTED/client_address)
+	id=GROUPADD; WHITE==1; action=DUNNO
+
+	# ... or blacklist by sending to spamtrap ...
+	id=SPAMTRAP; recipient==spamtrap@domain.local; action=set(BLACK=1)
+
+	# ... or blacklisted by dns ...
+	id=DNSBL; rbl=zen.spamhaus.org; action=action=set(BLACK=1)
+
+	# ... -> add it to group and reject
+	id=GROUPADD; BLACK==1; action=groupadd(%%BLACKLISTED/client_address)
+	id=GROUPADD; BLACK==1; action=REJECT
+
+B<Limitations>
+
+Currently dynamic groups are kept in memory. postfwd3 will only accept --group_maxitems [9999] members
+to a group. To deactivate this limit set --group_maxitems to '-1'.
+
+With PreFork personality, you should be aware that this information must be shared through the cache daemon.
+
+In short: Don't let these lists get excessively big unless you have enough system capacity to do so. If necessary
+tune your config by setting the <ttl> and --group_maxitems. 
 
 
 =head2 PLUGINS
@@ -4673,6 +4985,9 @@ These parameters influence the way postfwd3 is working. Any of them can be combi
 
 	--dns_max_mx_lookups     (default=0)
 	maximum mx names to lookup up with sender_mx_addrs item. use 0 for no maximum.
+
+	--ipv6_dnsbl		(default=0)
+	enables dnsbl checks for IPv6 addresses
 
 	-I, --instantcfg
 	The config files, specified by -f will be re-read for every request
