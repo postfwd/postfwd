@@ -753,7 +753,7 @@ sub load_rates {
 	$loadrate = retrieve($postfwd_settings{rate}{store});
     };
     if ( not($@) and defined $loadrate ) {
-	$Cache{rate} = $loadrate;
+	%{$Cache{rate}} = %{$loadrate};
         log_info ("Fetched ".(scalar %{$Cache{rate}})." rates from ".$postfwd_settings{rate}{store});
 	cleanup_cache ('rate', time());
     };
@@ -779,7 +779,7 @@ sub load_groups {
 	$loadgroup = retrieve($postfwd_settings{group}{store});
     };
     if ( not($@) and defined $loadgroup ) {
-	%Groups = $loadgroup;
+	%Groups = ${$loadgroup};
         log_info ("Fetched ".(scalar %Groups)." groups from ".$postfwd_settings{group}{store});
 	cleanup_groups (time());
     };
