@@ -779,7 +779,7 @@ sub load_groups {
 	$loadgroup = retrieve($postfwd_settings{group}{store});
     };
     if ( not($@) and defined $loadgroup ) {
-	%Groups = ${$loadgroup};
+	%Groups = %{$loadgroup};
         log_info ("Fetched ".(scalar %Groups)." groups from ".$postfwd_settings{group}{store});
 	cleanup_groups (time());
     };
