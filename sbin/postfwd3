@@ -765,7 +765,7 @@ sub save_groups {
     cleanup_groups (time());
     eval {
 	local $SIG{__DIE__} = sub { log_note ("ERROR: Could not store group cache to ".$postfwd_settings{group}{store}.": $! @_") };
-	store (%Groups, $postfwd_settings{group}{store});
+	store (\%Groups, $postfwd_settings{group}{store});
     };
     log_info ("Saved ".(scalar %Groups)." groups to ".$postfwd_settings{group}{store}) unless $@;
 };
