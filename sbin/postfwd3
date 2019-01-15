@@ -506,7 +506,9 @@ sub dump_cache {
 	my @result = ();
 	foreach (sort keys %Cache) {
 		push @result, hash_to_list ('%'.$_."_cache", $Cache{$_}) if %{$Cache{$_}};
-	}; return @result;
+	};
+	push @result, hash_to_list ('%Group_cache', \%Groups) if %Groups;
+	return @result;
 };
 
 # get a whole cache item
