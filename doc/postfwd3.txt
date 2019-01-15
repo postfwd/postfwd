@@ -815,13 +815,13 @@ DESCRIPTION
     plugin-items can not be used selective. these functions will be executed
     for every request postfwd receives, so keep performance in mind.
 
-            SYNOPSIS: %result = postfwd_items_plugin{<name>}(%request)
+            SYNOPSIS: postfwd_items_plugin{<name>}($request)
 
-    means that your subroutine, called <name>, has access to a hash called
-    %request, which contains all request attributes, like
-    $request{client_name} and must return a value in the following form:
+    means that your subroutine, called <name>, has access to a
+    hash-reference called $request, which contains all request attributes,
+    like $request->{client_name} and saves values in the following form:
 
-            save: $result{<item>} = <value>
+            save: $result->{<item>} = <value>
 
     this creates the new item <item> containing <value>, which will be
     integrated in the policy delegation request and therefore may be used in
@@ -834,22 +834,17 @@ DESCRIPTION
                 
                             # allows to check postfwd version in ruleset
                             "version" => sub {
-                                    my(%request) = @_;
-                                    my(%result) = (
-                                            "version" => $NAME." ".$VERSION,
-                                    );
-                                    return %result;
+                                    my($request) = shift;
+                                    $request->{version} => $NAME." ".$VERSION,
                             },
                 
                             # sender_domain and recipient_domain
                             "address_parts" => sub {
-                                    my(%request) = @_;
-                                    my(%result) = ();
-                                    $request{sender} =~ /@([^@]*)$/;
-                                    $result{sender_domain} = ($1 || '');
-                                    $request{recipient} =~ /@([^@]*)$/;
-                                    $result{recipient_domain} = ($1 || '');
-                                    return %result;
+                                    my($request) = shift;
+                                    $request->{sender} =~ /@([^@]*)$/;
+                                    $request->{sender_domain} = ($1 || '');
+                                    $request->{recipient} =~ /@([^@]*)$/;
+                                    $request->{recipient_domain} = ($1 || '');
                             },
 
             # do NOT remove the next line
@@ -877,7 +872,7 @@ DESCRIPTION
                             # Complex example
                             # SYNOPSIS:  <result> = <item>(<operator>, <ruleset value>, <request value>, <request>)
                             "numeric" => sub {
-                                    my($cmp,$val,$myitem,%request) = @_;
+                                    my($cmp,$val,$myitem,$request) = @_;
                                     my($myresult) = undef;  $myitem ||= "0"; $val ||= "0";
                                     if ($cmp eq '==') {
                                             $myresult = ($myitem == $val);
@@ -909,7 +904,7 @@ DESCRIPTION
     Action plugins allow to define new postfwd actions. By setting the
     $stop-flag you can decide to continue or to stop parsing the ruleset.
 
-            SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>, <request>) =
+            SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>) =
                             <action> (<current rule index>, <current time>, <command name>, <argument>, <logprefix>, <request>)
 
             # do NOT remove the next line
@@ -919,26 +914,26 @@ DESCRIPTION
         
                             # note(<logstring>) command
                             "note"  => sub {
-                                    my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                    my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
                                     my($myaction) = 'dunno'; my($stop) = 0;
                                     log_info "[RULES] ".$myline." - note: ".$myarg if $myarg;
-                                    return ($stop,$index,$myaction,$myline,%request);
+                                    return ($stop,$index,$myaction,$myline);
                             },
         
                             # skips next <myarg> rules
                             "skip" => sub {
-                                    my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                    my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
                                     my($myaction) = 'dunno'; my($stop) = 0;
                                     $index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
-                                    return ($stop,$index,$myaction,$myline,%request);
+                                    return ($stop,$index,$myaction,$myline);
                             },
         
                             # dumps current request contents to syslog
                             "dumprequest" => sub {
-                                    my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                    my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
                                     my($myaction) = 'dunno'; my($stop) = 0;
-                                    map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
-                                    return ($stop,$index,$myaction,$myline,%request);
+                                    map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %{$request});
+                                    return ($stop,$index,$myaction,$myline);
                             },
 
             # do NOT remove the next line

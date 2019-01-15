@@ -133,7 +133,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD3 1"
-.TH POSTFWD3 1 "2019-01-13" "perl v5.22.1" "User Contributed Perl Documentation"
+.TH POSTFWD3 1 "2019-01-15" "perl v5.22.1" "User Contributed Perl Documentation"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -1007,15 +1007,15 @@ plugin-items can not be used selective. these functions will be executed for eve
 request postfwd receives, so keep performance in mind.
 .PP
 .Vb 1
-\&        SYNOPSIS: %result = postfwd_items_plugin{<name>}(%request)
+\&        SYNOPSIS: postfwd_items_plugin{<name>}($request)
 .Ve
 .PP
-means that your subroutine, called <name>, has access to a hash called \f(CW%request\fR,
-which contains all request attributes, like \f(CW$request\fR{client_name} and must
-return a value in the following form:
+means that your subroutine, called <name>, has access to a hash-reference called
+\&\f(CW$request\fR, which contains all request attributes, like \f(CW$request\fR\->{client_name} and
+saves values in the following form:
 .PP
 .Vb 1
-\&        save: $result{<item>} = <value>
+\&        save: $result\->{<item>} = <value>
 .Ve
 .PP
 this creates the new item <item> containing <value>, which will be integrated in
@@ -1029,22 +1029,17 @@ the policy delegation request and therefore may be used in postfwd's ruleset.
 \&                
 \&                        # allows to check postfwd version in ruleset
 \&                        "version" => sub {
-\&                                my(%request) = @_;
-\&                                my(%result) = (
-\&                                        "version" => $NAME." ".$VERSION,
-\&                                );
-\&                                return %result;
+\&                                my($request) = shift;
+\&                                $request\->{version} => $NAME." ".$VERSION,
 \&                        },
 \&                
 \&                        # sender_domain and recipient_domain
 \&                        "address_parts" => sub {
-\&                                my(%request) = @_;
-\&                                my(%result) = ();
-\&                                $request{sender} =~ /@([^@]*)$/;
-\&                                $result{sender_domain} = ($1 || \*(Aq\*(Aq);
-\&                                $request{recipient} =~ /@([^@]*)$/;
-\&                                $result{recipient_domain} = ($1 || \*(Aq\*(Aq);
-\&                                return %result;
+\&                                my($request) = shift;
+\&                                $request\->{sender} =~ /@([^@]*)$/;
+\&                                $request\->{sender_domain} = ($1 || \*(Aq\*(Aq);
+\&                                $request\->{recipient} =~ /@([^@]*)$/;
+\&                                $request\->{recipient_domain} = ($1 || \*(Aq\*(Aq);
 \&                        },
 \&
 \&        # do NOT remove the next line
@@ -1074,7 +1069,7 @@ will be used.
 \&                        # Complex example
 \&                        # SYNOPSIS:  <result> = <item>(<operator>, <ruleset value>, <request value>, <request>)
 \&                        "numeric" => sub {
-\&                                my($cmp,$val,$myitem,%request) = @_;
+\&                                my($cmp,$val,$myitem,$request) = @_;
 \&                                my($myresult) = undef;  $myitem ||= "0"; $val ||= "0";
 \&                                if ($cmp eq \*(Aq==\*(Aq) {
 \&                                        $myresult = ($myitem == $val);
@@ -1108,7 +1103,7 @@ Action plugins allow to define new postfwd actions. By setting the \f(CW$stop\fR
 continue or to stop parsing the ruleset.
 .PP
 .Vb 2
-\&        SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>, <request>) =
+\&        SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>) =
 \&                        <action> (<current rule index>, <current time>, <command name>, <argument>, <logprefix>, <request>)
 \&
 \&        # do NOT remove the next line
@@ -1118,26 +1113,26 @@ continue or to stop parsing the ruleset.
 \&        
 \&                        # note(<logstring>) command
 \&                        "note"  => sub {
-\&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+\&                                my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 \&                                my($myaction) = \*(Aqdunno\*(Aq; my($stop) = 0;
 \&                                log_info "[RULES] ".$myline." \- note: ".$myarg if $myarg;
-\&                                return ($stop,$index,$myaction,$myline,%request);
+\&                                return ($stop,$index,$myaction,$myline);
 \&                        },
 \&        
 \&                        # skips next <myarg> rules
 \&                        "skip" => sub {
-\&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+\&                                my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 \&                                my($myaction) = \*(Aqdunno\*(Aq; my($stop) = 0;
 \&                                $index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
-\&                                return ($stop,$index,$myaction,$myline,%request);
+\&                                return ($stop,$index,$myaction,$myline);
 \&                        },
 \&        
 \&                        # dumps current request contents to syslog
 \&                        "dumprequest" => sub {
-\&                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+\&                                my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 \&                                my($myaction) = \*(Aqdunno\*(Aq; my($stop) = 0;
-\&                                map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
-\&                                return ($stop,$index,$myaction,$myline,%request);
+\&                                map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %{$request});
+\&                                return ($stop,$index,$myaction,$myline);
 \&                        },
 \&
 \&        # do NOT remove the next line

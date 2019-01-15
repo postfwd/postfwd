@@ -36,7 +36,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "1.99-devel8";
+our $VERSION	= "1.99-devel9";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -262,21 +262,21 @@ sub uniq {
 
 # tests debug levels
 sub wantsdebug {
-	return unless %{$postfwd_settings{debug}};
-	foreach (@_) { return 1 if $postfwd_settings{debug}{$_} };
+	return unless defined $postfwd_settings{debug};
+	foreach (@_) { return 1 if defined $postfwd_settings{debug}{$_} };
 };
 
 # hash -> scalar
 sub hash_to_str {
-	my %request = @_; my $result  = '';
-	map { $result .= $postfwd_settings{sepreq}."$_=".((ref $request{$_} eq 'ARRAY') ? (join $postfwd_settings{seplst}, @{$request{$_}}) : ($request{$_} || '')) } (keys %request);
+	my $request = shift; my $result  = '';
+	map { $result .= $postfwd_settings{sepreq}."$_=".((ref $request->{$_} eq 'ARRAY') ? (join $postfwd_settings{seplst}, @{$request->{$_}}) : ($request->{$_} || '')) } (keys %{$request});
 	return $result;
 };
 
 # scalar -> hash
 sub str_to_hash {
 	my $request = shift; my %result  = ();
-	foreach (split $postfwd_settings{sepreq}, $request) {
+	foreach (split $postfwd_settings{sepreq}, $$request) {
 		next unless m/$postfwd_patterns{keyval}/;
 		my @items = split $postfwd_settings{seplst}, $2;
 		($#items) ? @{$result{$1}} = @items : $result{$1} = $2;
@@ -285,14 +285,14 @@ sub str_to_hash {
 
 # displays hash structure
 sub hash_to_list {
-	my ($pre, %request) = @_; my @output = ();
+	my ($pre, $request) = @_; my @output = ();
 	# get longest key
-	my $minkey = '-'.(length((sort {length($b) <=> length($a)} (keys %request))[0] || '') + 1);
-	while ( my($s, $v) = each %request ) {
+	my $minkey = '-'.(length((sort {length($b) <=> length($a)} (keys %{$request}))[0] || '') + 1);
+	while ( my($s, $v) = each %{$request} ) {
 		my $r = ref $v;
 		if ($r eq 'HASH') {
 			push @output, (%{$v})
-				? hash_to_list ( sprintf ("%s -> %".$minkey."s", $pre, '%'.$s), %{$v} )
+				? hash_to_list ( sprintf ("%s -> %".$minkey."s", $pre, '%'.$s), \%{$v} )
 				: sprintf ("%s -> %".$minkey."s -> %s", $pre, '%'.$s, 'undef');
 		} elsif ($r eq 'ARRAY') {
 			push @output, sprintf ("%s -> %".$minkey."s -> %s", $pre, '@'.$s, ((@{$v}) ? "'".(join ",", @{$v})."'" : 'undef'));
@@ -421,7 +421,7 @@ package postfwd3::cache;
 use warnings;
 use strict;
 use base 'Net::Server::Multiplex';
-import postfwd3::basic qw(:DEFAULT &wantsdebug &hash_to_list &str_to_hash &hash_to_str &ts $TIMEHIRES $STORABLE $NETADDR);
+import postfwd3::basic qw(:DEFAULT &wantsdebug &hash_to_list &hash_to_str &ts $TIMEHIRES $STORABLE $NETADDR);
 use vars qw( %Cache %Groups %Cleanup %Count %Interval %Top $Reload_Conf $Summary $StartTime );
 BEGIN {
 	# use Time::HiRes if available
@@ -500,7 +500,7 @@ sub list_stats {
 sub dump_cache {
 	my @result = ();
 	foreach (sort keys %Cache) {
-		push @result, hash_to_list ('%'.$_."_cache", %{$Cache{$_}}) if %{$Cache{$_}};
+		push @result, hash_to_list ('%'.$_."_cache", $Cache{$_}) if %{$Cache{$_}};
 	}; return @result;
 };
 
@@ -636,7 +636,7 @@ sub check_rate {
 	
 			# check rate
 			if (not($answer) and $rcount > @{$Cache{$type}{$arg}{$rindex}{maxcount}}[0]) {
-				$answer = $arg.$postfwd_settings{seplim}.$rindex.$postfwd_settings{seplst}.hash_to_str (%{$Cache{$type}{$arg}{$rindex}});
+				$answer = $arg.$postfwd_settings{seplim}.$rindex.$postfwd_settings{seplst}.hash_to_str ($Cache{$type}{$arg}{$rindex});
 				$Count{$type."_hits"}++;
 			};
 		};
@@ -658,7 +658,7 @@ sub cleanup_cache {
 			if ( !defined($Cache{$type}{$checkitem}{'until'}) or !defined($Cache{$type}{$checkitem}{ttl}) ) {
 				if ( wantsdebug (qw[ all cleanup parentcleanup devel ]) ) {
 					log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'");
-					map { log_info ("[CLEANUP]  $_") } ( hash_to_list(%{$Cache{$type}{$checkitem}}) );
+					map { log_info ("[CLEANUP]  $_") } ( hash_to_list($Cache{$type}{$checkitem}) );
 				};
 				delete $Cache{$type}{$checkitem};
 			# remove timed out objects
@@ -673,7 +673,7 @@ sub cleanup_cache {
 				if ( !(defined $Cache{$type}{$checkitem}{$crate}{'until'}) or !(defined $Cache{$type}{$checkitem}{$crate}{ttl}) ) {
 					if ( wantsdebug (qw[ all cleanup parentcleanup devel ]) ) {
 						log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'->'$crate'");
-						map { log_info ("[CLEANUP]  $_") } ( hash_to_list(%{$Cache{$type}{$checkitem}{$crate}}) );
+						map { log_info ("[CLEANUP]  $_") } ( hash_to_list($Cache{$type}{$checkitem}{$crate}) );
 					};
 					delete $Cache{$type}{$checkitem}{$crate};
 				} elsif ( $now > $Cache{$type}{$checkitem}{$crate}{'until'}[0] ) {
@@ -999,6 +999,7 @@ my $COMP_DAYS                 = "days";
 my $COMP_MONTHS               = "months";
 # always true
 my $COMP_ACTION               = "action";
+my $COMP_ACTION_MATCH         = qr/^(\w[\-\w]+)\s*\(\s*(.*?)\s*\)$/;
 my $COMP_ID                   = "id";
 my $COMP_CACHE                = "cache";
 # rule hits
@@ -1011,8 +1012,11 @@ my $COMP_SEPARATOR            = "[=\~\<\>]=|[\<\>]|[=\!][=\~\<\>]|=";
 my $COMP_ACL                  = "[\&][\&]";
 # negation
 my $COMP_NEG                  = "[\!][\!]";
+my $COMP_DENEG                = qr/^$COMP_NEG\s*\(?\s*(.+?)\s*\)?$/;
 # variables
 my $COMP_VAR                  = "[\$][\$]";
+my $COMP_DEVAR1               = qr/(.*)$COMP_VAR\s*(\w+)(.*)/;
+my $COMP_DEVAR2               = qr/(.*)$COMP_VAR\s*\((\w+)\)(.*)/;
 # groups
 my $COMP_GROUP                = "[\%][\%]";
 # date calculations
@@ -1092,20 +1096,20 @@ sub modify_score {
 # returns content of !!() negation
 sub deneg_item {
 	my($val) = (defined $_[0]) ? $_[0] : '';
-	return ( ($val =~ /^$COMP_NEG\s*\(?\s*(.+?)\s*\)?$/) ? $1 : '' );
+	return ( ($val =~ /$COMP_DENEG/) ? $1 : '' );
 };
 
 # resolves $$() variables
 sub devar_item {
-	my($cmp,$val,$myitem,%request) = @_;
+	my($cmp,$val,$myitem,$request) = @_;
 	return '' unless $val and $myitem;
 	my($pre,$post,$var,$myresult) = '';
-	while ( ($val =~ /(.*)$COMP_VAR\s*(\w+)(.*)/g) or ($val =~ /(.*)$COMP_VAR\s*\((\w+)\)(.*)/g) ) {
+	while ( ($val =~ /$COMP_DEVAR1/g) or ($val =~ /$COMP_DEVAR2/g) ) {
 		($pre,$var,$post) = ($1,$2,$3);
 		if ($var eq $COMP_DNSBL_TEXT) {
 			$myresult=$val=$pre.(join "; ", uniq(@DNSBL_Text)).$post;
-		} elsif (defined $request{$var}) {
-			$myresult=$val=$pre.$request{$var}.$post;
+		} elsif (defined $request->{$var}) {
+			$myresult=$val=$pre.$request->{$var}.$post;
 		};
 		log_info ("substitute :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest verbose ]);
 	};
@@ -1239,7 +1243,7 @@ sub dump_cache {
 	$cache{DNS_Cache}     = \%DNS_Cache;
 	$cache{Group_Cache}     = \%Group_Cache;
 	foreach (keys %cache) {
-		push @result, hash_to_list ('%'.$_, %{$cache{$_}}) if %{$cache{$_}};
+		push @result, hash_to_list ('%'.$_, $cache{$_}) if %{$cache{$_}};
 	}; return @result;
 };
 
@@ -1562,7 +1566,7 @@ sub rbl_read_dns {
 	# read question, for dns cache id
 	foreach ($myresult->question) {
 		$typ = ($_->qtype || ''); $que = ($_->qname || '');
-		map { log_info ("[GETDNS00] type=$typ, query=$que, $_") } (hash_to_list ('%packet', %{$myresult}))
+		map { log_info ("[GETDNS00] type=$typ, query=$que, $_") } (hash_to_list ('%packet', $myresult))
 			if wantsdebug (qw[ all thisrequest dns getdns getdnspacket ]);
 		next unless ($typ and $que);
 		log_info ("[GETDNS01] type=$typ, query=$que") if wantsdebug (qw[ all thisrequest dns getdns ]);
@@ -1599,14 +1603,14 @@ sub rbl_read_dns {
 			$DNS_Cache{$que}{delay}   = ($now - $DNS_Cache{$que}{delay});
 			$DNS_Cache{$que}{'log'}	  = 1;
 			$DNS_Cache{$que}{'until'} = $now + $DNS_Cache{$que}{ttl};
-			log_info ("[GETDNSA2] type=$typ, query=$que, cache='".(hash_to_str(%{$DNS_Cache{$que}}))."'") if wantsdebug (qw[ all thisrequest dns getdns ]);
+			log_info ("[GETDNSA2] type=$typ, query=$que, cache='".(hash_to_str($DNS_Cache{$que}))."'") if wantsdebug (qw[ all thisrequest dns getdns ]);
 		#} elsif ($typ eq 'TXT') {
 		} else {
 			$res = (join(" ", @texts) || '');
 			$ttl = ( $DNS_Cache{$que}{ttl} > ($ttl||=0) ) ? $DNS_Cache{$que}{ttl} : $ttl;
 			$DNS_Cache{$que}{TXT} = $res;
 			$DNS_Cache{$que}{ttl}  = $ttl unless $DNS_Cache{$que}{ttl};
-			log_info ("[GETDNST2] type=$typ, query=$que, cache='".(hash_to_str(%{$DNS_Cache{$que}}))."'") if wantsdebug (qw[ all thisrequest dns getdns ]);
+			log_info ("[GETDNST2] type=$typ, query=$que, cache='".(hash_to_str($DNS_Cache{$que}))."'") if wantsdebug (qw[ all thisrequest dns getdns ]);
 		};
 	};
 	return $que if (@addrs || $res);
@@ -1652,7 +1656,7 @@ sub rbl_prepare_lookups {
 	# query parent cache
 	} elsif (   not($postfwd_settings{dns}{noparent})
 		and not((my $pans = cache_query ("CMD=".$postfwd_commands{getcacheitem}.";TYPE=dns;ITEM=$myquery")) eq '<undef>') ) {
-		%{$DNS_Cache{$myquery}} = str_to_hash($pans); delete $DNS_Cache{$myquery}{'log'} if $DNS_Cache{$myquery}{'log'};
+		%{$DNS_Cache{$myquery}} = str_to_hash(\$pans); delete $DNS_Cache{$myquery}{'log'} if $DNS_Cache{$myquery}{'log'};
 		if ($DNS_Cache{$myquery}{A}) {
 			ref $DNS_Cache{$myquery}{A} eq 'ARRAY' or $DNS_Cache{$myquery}{A} = [ $DNS_Cache{$myquery}{A} ];
 			ANSWER2: foreach (@{$DNS_Cache{$myquery}{A}}) { last ANSWER2 if $myresult = ( $_ =~ /$mypat/ ) };
@@ -1698,7 +1702,7 @@ sub rbl_check {
     # query our cache
     return $myresult unless ( $myresult = (defined $DNS_Cache{$myquery} and not(defined $DNS_Cache{$myquery}{'timed'})) );
     if (not($postfwd_settings{dns}{noparent}) and defined $DNS_Cache{$myquery}{'log'}) {
-	my $pdns = "CMD=".$postfwd_commands{setcacheitem}.";TYPE=dns;ITEM=$myquery".hash_to_str(%{$DNS_Cache{$myquery}});
+	my $pdns = "CMD=".$postfwd_commands{setcacheitem}.";TYPE=dns;ITEM=$myquery".hash_to_str($DNS_Cache{$myquery});
 	cache_query ($pdns);
     };
     if ( $myresult  = ($#{$DNS_Cache{$myquery}{A}} >= 0) ) {
@@ -1753,7 +1757,7 @@ sub dns_query_net_dns {
 	# query parent cache
 	} elsif (   not($postfwd_settings{dns}{noparent})
 	    and not(($pans = cache_query ("CMD=".$postfwd_commands{getcacheitem}.";TYPE=dns;ITEM=$item")) eq '<undef>')
-	    and (%{$DNS_Cache{$item}} = str_to_hash($pans))
+	    and (%{$DNS_Cache{$item}} = str_to_hash(\$pans))
 	    and (defined $DNS_Cache{$item}{$type}) and (defined $DNS_Cache{$item}{'until'}) and ($DNS_Cache{$item}{'until'} >= $now) ) {
 	    $DNS_Cache{$item}{$type} = [ $DNS_Cache{$item}{$type} ] unless (ref $DNS_Cache{$item}{$type} eq 'ARRAY');
 	    log_info ("[DNS] dnspcache: item=$item, type=$type -> ".(join ',', @{$DNS_Cache{$item}{$type}})." (ttl: ".($DNS_Cache{$item}{ttl} || 0).")")
@@ -1795,7 +1799,7 @@ sub dns_query_net_dns {
 		$DNS_Cache{$item}{ttl} = $ttl;
 		$DNS_Cache{$item}{'until'} = $now + $ttl;
 		$DNS_Cache{$item}{delay} = ($DNS_Cache{delay}) ? $now - $DNS_Cache{delay} : 0;
-		cache_query ( "CMD=".$postfwd_commands{setcacheitem}.";TYPE=dns;ITEM=$item".hash_to_str(%{$DNS_Cache{$item}}) )
+		cache_query ( "CMD=".$postfwd_commands{setcacheitem}.";TYPE=dns;ITEM=$item".hash_to_str($DNS_Cache{$item}) )
 		    unless ($postfwd_settings{dns}{noparent});
 		$DNS_Cache{$item}{'log'} = 1;
 		log_info ("[DNS] dnsanswers: item=$item, type=$type -> $rname=".((@{$DNS_Cache{$item}{$type}}) ? join ',', @{$DNS_Cache{$item}{$type}} : '')." (delay: ".ts($DNS_Cache{$item}{delay}).", ttl: $ttl)")
@@ -1823,50 +1827,45 @@ sub dns_query_net_dns {
 #
 %postfwd_items = (
 	"__builtin__" => sub {
-		my(%request) = @_; my(%result) = ();
+		my($request) = shift;
 		# postfwd version
-		$result{version} = $postfwd_settings{name}." ".$postfwd_settings{version};
+		$request->{version} = $postfwd_settings{name}." ".$postfwd_settings{version};
 		# postfwd server interface
-		$result{postfwd_interface} = $postfwd_settings{server}{interface};
+		$request->{postfwd_interface} = $postfwd_settings{server}{interface};
 		# postfwd server port
-		$result{postfwd_port} = $postfwd_settings{server}{port};
+		$request->{postfwd_port} = $postfwd_settings{server}{port};
 		# sender info
-		$request{sender} =~ /(.*)@([^@]*)$/;
-		( $result{sender_localpart}, $result{sender_domain} ) = ( $1, $2 );
+		$request->{sender} =~ /(.*)@([^@]*)$/;
+		( $request->{sender_localpart}, $request->{sender_domain} ) = ( $1, $2 );
 		# recipient info
-		$request{recipient} =~ /(.*)@([^@]*)$/;
-		( $result{recipient_localpart}, $result{recipient_domain} ) = ( $1, $2 );
+		$request->{recipient} =~ /(.*)@([^@]*)$/;
+		( $request->{recipient_localpart}, $request->{recipient_domain} ) = ( $1, $2 );
 		# reverted ip address (for lookups)
-		if ( $request{client_address} =~ /\./ ) {
+		if ( $request->{client_address} =~ /\./ ) {
 			# IPv4
-			$result{reverse_address} = join(".", reverse(split(/\./,$request{client_address})));
-		} elsif ( $request{client_address} =~ /:/ ) {
+			$request->{reverse_address} = join(".", reverse(split(/\./,$request->{client_address})));
+		} elsif ( $request->{client_address} =~ /:/ ) {
 			# IPv6
-			$result{reverse_address} = join('.', (reverse split '', (join '', (map { $_ = sprintf "%04s", $_ } (split /:/, $request{client_address})))))
+			$request->{reverse_address} = join('.', (reverse split '', (join '', (map { $_ = sprintf "%04s", $_ } (split /:/, $request->{client_address})))))
 				if ($postfwd_settings{dns}{ipv6_dnsbl});
 		};
-		return %result;
 	},
 	"sender_dns" => sub {
-		my(%request) = @_; my(%result) = ();
-		map { $result{$_} = $request{sender_domain} } ($COMP_NS_NAME, $COMP_NS_ADDR, $COMP_MX_NAME, $COMP_MX_ADDR);
-		$result{$COMP_HELO_ADDR} = $request{helo_name};
-		return %result;
+		my($request) = @_;
+		map { $request->{$_} = $request->{sender_domain} } ($COMP_NS_NAME, $COMP_NS_ADDR, $COMP_MX_NAME, $COMP_MX_ADDR);
+		$request->{$COMP_HELO_ADDR} = $request->{helo_name};
 	},
 );
 # returns additional request information
 # for all postfwd_items
 sub postfwd_items {
-    my(%request) = @_;
-    my(%result) = ();
+    my($request) = shift;
     foreach (sort keys %postfwd_items) {
 	log_info ("[PLUGIN] executing postfwd-item ".$_)
 		if wantsdebug (qw[ all thisrequest ]);
-	%result = (%result, &{$postfwd_items{$_}}((%request,%result)))
-		if (defined $postfwd_items{$_});
+	&{$postfwd_items{$_}}($request) if (defined $postfwd_items{$_});
     };
-    map { $result{$_} = '' unless (defined $result{$_}); log_info ("[PLUGIN]  Added key: $_=$result{$_}") if wantsdebug (qw[ all thisrequest ]) } (keys %result);
-    return %result;
+    map { $request->{$_} = '' unless (defined $request->{$_}); log_info ("[PLUGIN]  ATTR: $_=$request->{$_}") if wantsdebug (qw[ all thisrequest ]) } (keys %{$request});
 };
 #
 # compare item subroutines
@@ -1875,7 +1874,7 @@ sub postfwd_items {
 %postfwd_compare = (
 	# old version: cidr only for v4, v6 as regex
 	"cidr_postfwd" => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = ($val and $myitem);
 		log_info ("type cidr_postfwd :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
 		if ($myresult) {
@@ -1889,7 +1888,7 @@ sub postfwd_items {
 					$myresult = cidr_match((cidr_parse($val)),$myitem);
 				} else {
 					log_info ("Non IPv4 address. Using type default") if wantsdebug (qw[ all thisrequest ]);
-					return &{$postfwd_compare{default}}($cmp,$val,$myitem,%request);
+					return &{$postfwd_compare{default}}($cmp,$val,$myitem,$request);
 				};
 			};
 		};
@@ -1898,7 +1897,7 @@ sub postfwd_items {
 	},
 	# new version: based on NetAddr::IP
 	"cidr_netaddr" => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = ($val and $myitem);
 		log_info ("type cidr_netaddr :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
 		# compare with NetAddr::IP->within()
@@ -1907,7 +1906,7 @@ sub postfwd_items {
 		return $myresult;
 	},
 	"numeric" => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		log_info ("type numeric :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
 		$myitem ||= "0"; $val ||= "0";
@@ -1933,7 +1932,7 @@ sub postfwd_items {
 		return $myresult;
 	},
 	$COMP_RBL_KEY => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = not($postfwd_settings{dns}{disabled});
 		log_info ("type rbl :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
 		$myresult = ( rbl_check ($COMP_RBL_KEY, $val, $myitem) ) if $myresult;
@@ -1941,7 +1940,7 @@ sub postfwd_items {
 		return $myresult;
 	},
 	$COMP_RHSBL_KEY => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = not($postfwd_settings{dns}{disabled});
 		log_info ("type rhsbl :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
 		$myresult = ( rbl_check ($COMP_RHSBL_KEY, $val, $myitem) ) if $myresult;
@@ -1949,7 +1948,7 @@ sub postfwd_items {
 		return $myresult;
 	},
 	$COMP_MONTHS => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		my($imon) = (split (',', $myitem))[4]; $imon ||= 0;
 		my($rmin,$rmax) = split (/\s*-\s*/, $val);
@@ -1962,7 +1961,7 @@ sub postfwd_items {
 		return $myresult;
 	},
 	$COMP_DAYS => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		my($iday) = (split (',', $myitem))[6]; $iday ||= 0;
 		my($rmin,$rmax) = split (/\s*-\s*/, $val);
@@ -1975,7 +1974,7 @@ sub postfwd_items {
 		return $myresult;
 	},
 	$COMP_DATE => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
 		my($rmin,$rmax) = split (/\s*-\s*/, $val);
@@ -1989,7 +1988,7 @@ sub postfwd_items {
 		return $myresult;
 	},
 	$COMP_TIME => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		my($isec,$imin,$ihour,$iday,$imon,$iyear) = split (',', $myitem);
 		my($rmin,$rmax) = split (/\s*-\s*/, $val);
@@ -2003,44 +2002,44 @@ sub postfwd_items {
 		return $myresult;
 	},
 	$COMP_HELO_ADDR => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		return $myresult if $postfwd_settings{dns}{disabled};
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,A") ) {
 			log_info ("type $COMP_HELO_ADDR : \"".(join ',', @answers)."\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
-			map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+			map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,$request)) ); return $myresult if $myresult } @answers;
 		};
 		return $myresult;
 	},
 	$COMP_NS_NAME => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		return $myresult if $postfwd_settings{dns}{disabled};
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,NS") ) {
 			log_info ("type $COMP_NS_NAME : \"".(join ',', @answers)."\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
-			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,$request)) ); return $myresult if $myresult } @answers;
 		} else {
-			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',%request)) );
+			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',$request)) );
 		};
 		return $myresult;
 	},
 	$COMP_MX_NAME => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		return $myresult if $postfwd_settings{dns}{disabled};
 		return $myresult unless $myitem =~ /\./;
 		if ( my @answers = dns_query ("$myitem,MX") ) {
 			log_info ("type $COMP_MX_NAME : \"".(join ',', @answers)."\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
-			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+			map { $myresult = ( &{$postfwd_compare{default}}(($cmp,$val,$_,$request)) ); return $myresult if $myresult } @answers;
 		} else {
-			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',%request)) );
+			$myresult = ( &{$postfwd_compare{default}}(($cmp,$val,'',$request)) );
 		};
 		return $myresult;
 	},
 	$COMP_NS_ADDR => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		return $myresult if $postfwd_settings{dns}{disabled};
 		return $myresult unless $myitem =~ /\./;
@@ -2048,13 +2047,13 @@ sub postfwd_items {
 			splice (@answers, $postfwd_settings{dns}{max_ns_lookups}) if $postfwd_settings{dns}{max_ns_lookups} and $#answers > $postfwd_settings{dns}{max_ns_lookups};
 			if ( @answers = dns_query (@answers) ) {
 				log_info ("type $COMP_NS_ADDR : \"".(join ',', @answers)."\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
-				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,$request)) ); return $myresult if $myresult } @answers;
 			};
 		};
 		return $myresult;
 	},
 	$COMP_MX_ADDR => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
 		return $myresult if $postfwd_settings{dns}{disabled};
 		return $myresult unless $myitem =~ /\./;
@@ -2062,13 +2061,13 @@ sub postfwd_items {
 			splice (@answers, $postfwd_settings{dns}{max_mx_lookups}) if $postfwd_settings{dns}{max_mx_lookups} and $#answers > $postfwd_settings{dns}{max_mx_lookups};
 			if ( @answers = dns_query (@answers) ) {
 				log_info ("type $COMP_MX_ADDR : \"".(join ',', @answers)."\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
-				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,%request)) ); return $myresult if $myresult } @answers;
+				map { $myresult = ( &{$postfwd_compare{cidr}}(($cmp,$val,$_,$request)) ); return $myresult if $myresult } @answers;
 			};
 		};
 		return $myresult;
 	},
 	"default" => sub {
-		my($cmp,$val,$myitem,%request) = @_;
+		my($cmp,$val,$myitem,$request) = @_;
 		my($var,$myresult) = undef;
 		log_info ("type default :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
 		# backward compatibility
@@ -2120,11 +2119,11 @@ sub postfwd_items {
 	#	my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
 	#	my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 	#	...
-	#	return ($stop,$index,$myaction,$myline,%request);
+	#	return ($stop,$index,$myaction,$myline);
 	# },
 	# jump() command
 	"jump"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		if (defined $Rule_by_ID{$myarg}) {
 			my($ruleno) = $Rule_by_ID{$myarg};
@@ -2135,16 +2134,16 @@ sub postfwd_items {
 		} else {
 			log_warn ("[RULES] ".$myline." - error: jump failed, can not find rule-id ".$myarg." - ignoring");
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# set() command
 	"set"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		foreach ( split (",", $myarg) ) {
 			if ( /^\s*([^=]+?)\s*([\.\-\*\/\+=]=|=[\.\-\*\/\+=]|=)\s*(.*?)\s*$/ ) {
 				my($r_var, $mod, $r_val) = ($1, $2, $3);
-				my($m_val) = (defined $request{$r_var}) ? $request{$r_var} : 0;
+				my($m_val) = (defined $request->{$r_var}) ? $request->{$r_var} : 0;
 				# saves some ifs
 				if (($mod eq '=') or ($mod eq '==')) {
 					$m_val = $r_val;
@@ -2162,22 +2161,22 @@ sub postfwd_items {
 					$m_val = $r_val;
 				};
 				$m_val = $1.($2 || '').($3 || '') if ( $m_val =~ /^(\-?\d+)([\.,]\d+)?(.*)$/ );
-				(defined $request{$r_var})
-					? log_info ("notice", "[RULES] ".$myline.", redefining existing ".$r_var."=".$request{$r_var}." with ".$r_var."=".$m_val)
+				(defined $request->{$r_var})
+					? log_info ("notice", "[RULES] ".$myline.", redefining existing ".$r_var."=".$request->{$r_var}." with ".$r_var."=".$m_val)
 					: log_info ("[RULES] ".$myline.", defining ".$r_var."=".$m_val)
 					if wantsdebug (qw[ all thisrequest verbose ]);
-				$request{$r_var} = $m_val;
+				$request->{$r_var} = $m_val;
 			} else {
 				log_warn ("[RULES] ".$myline.", ignoring unknown set() attribute ".$_);
 			};
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# score() command
 	"score"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
-		my($score) = (defined $request{request_score}) ? $request{request_score} : 0;
+		my($score) = (defined $request->{request_score}) ? $request->{request_score} : 0;
 		if ($myarg =~/^([\+\-\*\/\=]?)(\d+)([\.,](\d+))?$/) {
 			my($mod, $val) = ($1, $2 + ((defined $4) ? "0.$4" : 0));
 			if ($mod eq '-') {
@@ -2194,7 +2193,7 @@ sub postfwd_items {
 			$score = $1.((defined $2) ? $2 : '.0') if ( $score =~ /^(\-?\d+)([\.,]\d\d?)?/ );
 			log_info ("[SCORE] ".$myline.", modifying score about ".$myarg." points to ". $score)
 				if wantsdebug (qw[ all thisrequest verbose ]);
-			$request{score} = $request{request_score} = $score;
+			$request->{score} = $request->{request_score} = $score;
 		} elsif ($myarg) {
 			log_warn ("[RULES] ".$myline.", invalid value for score \"$myarg\" - ignoring");
 		};
@@ -2205,11 +2204,11 @@ sub postfwd_items {
 				$stop = $score; last MAXSCORE;
 			};
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# mail() command
 	"mail"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		my($mserver,$mhelo,$mfrom,$mto,$msubject,$mbody) = split "/", $myarg, 6;
 		($mserver, my $mport) = split ":", $mserver; my $res = "";
@@ -2237,11 +2236,11 @@ sub postfwd_items {
 		} else {
 			log_info ("[MAIL] ".$myline.", could not open socket to $mserver:$mport: '$!'");
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# sendmail()
 	"sendmail" => sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		my($mcmd,$mfrom,$mto,$msubject,$mbody) = split '::', $myarg, 5;
 		my($msg) = "From: $mfrom\nTo: $mto\nSubject: $msubject\n\n$mbody\n";
@@ -2255,18 +2254,18 @@ sub postfwd_items {
 		} else {
 			log_note ("[SENDMAIL] ".$myline.", could not open pipe to $mcmd: '$!'");
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# rate() command
 	"rate"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0; my $prate = '';
 		my($ratetype,$ratecount,$ratetime,$ratecmd) = split "/", $myarg, 4;
-		my($rcount) = ( ($mycmd =~ /^size/) ? $request{size} : (($mycmd =~ /^rcpt/) ? $request{recipient_count} : 1 ) );
+		my($rcount) = ( ($mycmd =~ /^size/) ? $request->{size} : (($mycmd =~ /^rcpt/) ? $request->{recipient_count} : 1 ) );
 		if ($ratetype and $ratecount and $ratetime and $ratecmd and $rcount) {
 		  my $crate = $Rules[$index]{$COMP_ID}.'+'.$ratecount.'_'.$ratetime;
-		  if ( defined $request{$ratetype} ) {
-                        my $r = $request{$ratetype};
+		  if ( defined $request->{$ratetype} ) {
+                        my $r = $request->{$ratetype};
                         unless ($mycmd =~ /5321$/) {
                                 $r = lc($r);
                         } else {
@@ -2289,7 +2288,7 @@ sub postfwd_items {
 					$rate_exists = ( $prate ne '<undef>' );
 					if ( $rate_exists ) {
 						# Parent hit, populate local cache
-						%{$Rate_Cache{$ratetype}{$crate}} = str_to_hash($prate);
+						%{$Rate_Cache{$ratetype}{$crate}} = str_to_hash(\$prate);
 						push @{$Rate_Cache{$ratetype}{'list'}}, $crate;
 						@{$Rate_Cache{$ratetype}{'list'}} = uniq(@{$Rate_Cache{$ratetype}{'list'}});
 					};
@@ -2312,7 +2311,7 @@ sub postfwd_items {
 						action		=> $ratecmd,
 					};
 					unless ($postfwd_settings{rate}{noparent}) {
-						$prate = "CMD=".$postfwd_commands{setrateitem}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str(%{$Rate_Cache{$ratetype}{$crate}});
+						$prate = "CMD=".$postfwd_commands{setrateitem}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
 						log_info ("updating parent rate limit object '".$prate."'") if wantsdebug (qw[ all thisrequest rates setcache ]);
 						cache_query ($prate);
 					};
@@ -2331,7 +2330,7 @@ sub postfwd_items {
                                         action          => $ratecmd,
                                 };
                                 unless ($postfwd_settings{rate}{noparent}) {
-                                        $prate = "CMD=".$postfwd_commands{setrateitem2}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str(%{$Rate_Cache{$ratetype}{$crate}});
+                                        $prate = "CMD=".$postfwd_commands{setrateitem2}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
                                         log_info ("updating parent rate limit object '".$prate."'") if wantsdebug (qw[ all thisrequest rates setcache ]);
                                         $prate = cache_query ($prate);
                                 };
@@ -2341,7 +2340,7 @@ sub postfwd_items {
 			$stop = ( $Rate_Cache{$ratetype}{$crate}{count} > $Rate_Cache{$ratetype}{$crate}{maxcount} );
 			if ($stop) {
 				$myaction=$Rate_Cache{$ratetype}{$crate}{action};
-				$request{'ratecount'} = $prate;
+				$request->{'ratecount'} = $prate;
 				$myline .= ", rate=".$Rate_Cache{$ratetype}{$crate}{type}."/".$Rate_Cache{$ratetype}{$crate}{count}."/".ts($now - $Rate_Cache{$ratetype}{$crate}{'time'})."s";
 			};
 		  } else {
@@ -2350,7 +2349,7 @@ sub postfwd_items {
 		} else {
 			log_note ("[RULES] ".$myline.(($rcount) ? ", ignoring unknown ".$mycmd."() attribute \'".$myarg."\'" : ", ignoring empty counter"));
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# size() command
 	"size"	=> sub { return &{$postfwd_actions{rate}}(@_); },
@@ -2364,98 +2363,100 @@ sub postfwd_items {
 	"size5321"      => sub { return &{$postfwd_actions{rate}}(@_); },
 	# groupadd() command
 	"groupadd"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default};
 		my($groupname,$groupitem,$groupttl,$stop) = split "/", $myarg, 4; $stop ||= 0;
 		$groupname =~ s/^$COMP_GROUP//; $groupitem =~ s/^$COMP_VAR//;
-		if ( $groupname and $groupitem and $request{$groupitem} ) {
+		if ( $groupname and $groupitem and $request->{$groupitem} ) {
 			$groupttl ||= $postfwd_settings{group}{ttl};
-			log_info ("[RULES] ".$myline.", adding item '".$request{$groupitem}."' to group '".$groupname."' with ttl=".$groupttl."s") if wantsdebug (qw[ all thisrequest groups ]);
+			log_info ("[RULES] ".$myline.", adding item '".$request->{$groupitem}."' to group '".$groupname."' with ttl=".$groupttl."s") if wantsdebug (qw[ all thisrequest groups ]);
 			if ($postfwd_settings{group}{noparent}) {
-				$Group_Cache{$groupname}{$request{$groupitem}} = $now + $groupttl unless (
-					(defined $Group_Cache{$groupname}{$request{$groupitem}} and $Group_Cache{$groupname}{$request{$groupitem}} > $now)
+				$Group_Cache{$groupname}{$request->{$groupitem}} = $now + $groupttl unless (
+					(defined $Group_Cache{$groupname}{$request->{$groupitem}} and $Group_Cache{$groupname}{$request->{$groupitem}} > $now)
 					or (scalar keys %{$Group_Cache{$groupname}} >= $postfwd_settings{group}{maxitems})
 					or ($postfwd_settings{group}{maxitems} < 0)
 				);
 			} else {
-				my $cmd = "CMD=".$postfwd_commands{groupadd}.";TYPE=$groupname;ITEM=".$request{$groupitem}.$postfwd_settings{seplim}.($now + $groupttl);
+				my $cmd = "CMD=".$postfwd_commands{groupadd}.";TYPE=$groupname;ITEM=".$request->{$groupitem}.$postfwd_settings{seplim}.($now + $groupttl);
 				my $res = cache_query ($cmd);
 				log_info ("parent group update '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
 			};
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# groupdel() command
 	"groupdel"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default};
 		my($groupname,$groupitem,$stop) = split "/", $myarg, 3; $stop ||= 0;
 		$groupname =~ s/^$COMP_GROUP//; $groupitem =~ s/^$COMP_VAR//;
-		if ( $groupname and $groupitem and $request{$groupitem} ) {
+		if ( $groupname and $groupitem and $request->{$groupitem} ) {
 			if ($postfwd_settings{group}{noparent}) {
-				if ( defined $Group_Cache{$groupname}{$request{$groupitem}} ) {
-					log_info ("[RULES] ".$myline.", removing item '".$request{$groupitem}."' from group '".$groupname."'") if wantsdebug (qw[ all thisrequest groups ]);
-					delete $Group_Cache{$groupname}{$request{$groupitem}};
+				if ( defined $Group_Cache{$groupname}{$request->{$groupitem}} ) {
+					log_info ("[RULES] ".$myline.", removing item '".$request->{$groupitem}."' from group '".$groupname."'") if wantsdebug (qw[ all thisrequest groups ]);
+					delete $Group_Cache{$groupname}{$request->{$groupitem}};
 				} else {
-					log_note ("[RULES] ".$myline.", item '".($request{$groupitem} || '<undef>')."' not in group '".($groupname || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
+					log_note ("[RULES] ".$myline.", item '".($request->{$groupitem} || '<undef>')."' not in group '".($groupname || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
 				};
 			} else {
-				my $cmd = "CMD=".$postfwd_commands{groupdel}.";TYPE=$groupname;ITEM=".$request{$groupitem};
+				my $cmd = "CMD=".$postfwd_commands{groupdel}.";TYPE=$groupname;ITEM=".$request->{$groupitem};
 				my $res = cache_query ($cmd);
 				log_info ("parent group update '".$cmd."' -> '".($res || '<undef>')."'") if wantsdebug (qw[ all thisrequest groups ]);
 			};
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# wait() command
 	"wait"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		log_info ("[RULES] ".$myline.", delaying for $myarg seconds");
 		sleep $myarg;
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# note() command
 	"note"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		log_info ("[RULES] ".$myline." - note: ".$myarg) if $myarg;
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# debug() command
 	"debug"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		log_info ("[RULES] ".$myline.", DEBUG=$myarg");
 		($myarg =~ /^(1|y(es)?|on)$/i) ? $postfwd_settings{debug}{thisrequest} = 1 : delete $postfwd_settings{debug}{thisrequest};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# quit() command - not supported in this version
 	"quit"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
+		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		log_warn ("[RULES] ".$myline." - critical: quit (".$myarg.") unsupported in this version - ignoring");
+		return ($stop,$index,$myaction,$myline);
 	},
 	# file() command
 	"file"	=> sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		log_warn ("[RULES] ".$myline." - error: command ".$mycmd."() has not been implemented yet - ignoring");
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# dumpcache() command
 	"dumpcache" => sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		map { log_info ("[RULES] DUMPCACHE: $_") } (dump_cache());
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# ask() command
 	"ask"  => sub {
-		my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		log_info ("Opening socket to '$myarg'") if wantsdebug (qw[ all thisrequest ]);
 		my($addr,$port,$ignore) = split ':', $myarg;
-		my %orig = str_to_hash ($request{orig});
+		my %orig = str_to_hash (\$request->{orig});
 		if ( ($addr and $port) and my $socket = new IO::Socket::INET (
 			PeerAddr => $addr,
 			PeerPort => $port,
@@ -2486,7 +2487,7 @@ sub postfwd_items {
 		} else {
 			log_note ("Could not open socket to '$myarg' - $!");
 		};
-		return ($stop,$index,$myaction,$myline,%request);
+		return ($stop,$index,$myaction,$myline);
 	},
 	# exec() command
 	"exec"	=> sub { return &{$postfwd_actions{file}}(@_); },
@@ -2562,10 +2563,10 @@ sub compare_item {
 	log_info ("deneg $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"") if ($neg and wantsdebug (qw[ all thisrequest ]));
 	next ITEM unless (defined $val);
 	# substitute check for $$vars in rule item
-	if ( $var = devar_item ($cmp,$val,$myitem,%request) ) {
+	if ( $var = devar_item ($cmp,$val,$myitem,\%request) ) {
 		$val = $var; $val =~ s/([^-_@\.\w\s])/\\$1/g unless ($cmp eq '==');
 	};
-	$myresult = &{$postfwd_compare{$postfwd_compare_proc}}($cmp,$val,$myitem,%request);
+	$myresult = &{$postfwd_compare{$postfwd_compare_proc}}($cmp,$val,$myitem,\%request);
 	log_info ("match $mykey:  ".($myresult ? "TRUE" : "FALSE")) if wantsdebug (qw[ all thisrequest ]);
 	if ($neg) {
 		$myresult = not($myresult);
@@ -2866,15 +2867,13 @@ sub smtpd_access_policy {
     my($mykey,$cacheid,$myline,$checkreq,$checkval,$var,$ratehit,$rateindex,$rulehits) = "";
 
     # save original request
-    $request{orig} = hash_to_str (%request);
+    $request{orig} = hash_to_str (\%request);
 
     # replace empty sender with <>
     $request{sender} = '<>' unless ($request{sender});
 
     # load postfwd_items attributes
-    if ( my(%postfwd_items_attr) = postfwd_items (%request) ) {
-	%request = (%request, %postfwd_items_attr);
-    };
+    postfwd_items (\%request);
 
     # wipe out old group members
     if ( $postfwd_settings{group}{noparent} and $Cleanup_Groups and (scalar keys %Group_Cache > 0) and (($now - ($Cleanup_Groups || 0)) > $postfwd_settings{group}{cleanup}) ) {
@@ -2924,7 +2923,7 @@ sub smtpd_access_policy {
 				my($it, $ri) = split $postfwd_settings{seplim}, $i;
 				if ($it and $ri and $r) {
 					$ratehit = $it; $rateindex = $ri;
-					%{$Rate_Cache{$it}{$ri}} = str_to_hash ($r);
+					%{$Rate_Cache{$it}{$ri}} = str_to_hash (\$r);
 					push @{$Rate_Cache{$it}{'list'}}, $ri;
 					@{$Rate_Cache{$it}{'list'}} = uniq(@{$Rate_Cache{$it}{'list'}});
 					$request{'ratecount'} = $Rate_Cache{$it}{$ri}{'count'}
@@ -2978,7 +2977,7 @@ sub smtpd_access_policy {
 	$Matches{$Rate_Cache{$ratehit}{$rateindex}{rule}}++;
 	$myaction = $Rate_Cache{$ratehit}{$rateindex}{action};
 	# substitute check for $$vars in action
-	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
+	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",\%request) );
 	log_info ("[RATES] rule=".$Rule_by_ID{$Rate_Cache{$ratehit}{$rateindex}{rule}}
 		. ", id=".$Rate_Cache{$ratehit}{$rateindex}{rule}
 		. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
@@ -3097,7 +3096,7 @@ sub smtpd_access_policy {
 				$request{$COMP_HITS} .= ';' if (defined $request{$COMP_HITS});
 				$request{$COMP_HITS} .= $Rules[$index]{$COMP_ID};
 				# substitute check for $$vars in action
-				$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
+				$myaction = $var if ( $var = devar_item ("==",$myaction,"action",\%request) );
 				$myline = "rule=".$index
 					. ", id=".$Rules[$index]{$COMP_ID}
 					. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
@@ -3111,14 +3110,14 @@ sub smtpd_access_policy {
 
 				# check for postfwd action
 				$ai = 0; # (re)set max_command_recursion counter
-				while ($ai++ < $postfwd_settings{max_command_recursion} and $myaction =~ /^(\w[\-\w]+)\s*\(\s*(.*?)\s*\)$/) {
+				while ($ai++ < $postfwd_settings{max_command_recursion} and $myaction =~ /$COMP_ACTION_MATCH/) {
 					my($mycmd,$myarg) = ($1, $2); $stop = 0;
 					if (defined $postfwd_actions{$mycmd}) {
 						log_info ("[PLUGIN] executing postfwd-action $mycmd") if wantsdebug (qw[ all thisrequest ]);
-						($stop, $index, $myaction, $myline, %request) = &{$postfwd_actions{$mycmd}}($index, $now, $mycmd, $myarg, $myline, %request);
+						($stop, $index, $myaction, $myline) = &{$postfwd_actions{$mycmd}}($index, $now, $mycmd, $myarg, $myline, \%request);
 						$rhit = "rate" if ($stop and $mycmd =~ /^(rate|size|rcpt)$/);
 						# substitute again after postfwd-actions
-						$myaction = $var if ( $var = devar_item ("==",$myaction,"action",%request) );
+						$myaction = $var if ( $var = devar_item ("==",$myaction,"action",\%request) );
 					} else {
 						log_warn ("[RULES] ".$myline." - error: unknown command \"".$1."\" - ignoring");
 						$myaction = $postfwd_settings{default};
@@ -3136,7 +3135,7 @@ sub smtpd_access_policy {
 						$Request_Cache{$cacheid}{$COMP_ID}    	    = $Rules[$index]{$COMP_ID};
 						$Request_Cache{$cacheid}{hit}	    	    = $matched;
 						$Request_Cache{$cacheid}{hits}		    = $request{$COMP_HITS};
-						cache_query ("CMD=".$postfwd_commands{setcacheitem}.";TYPE=request;ITEM=$cacheid".hash_to_str(%{$Request_Cache{$cacheid}}))
+						cache_query ("CMD=".$postfwd_commands{setcacheitem}.";TYPE=request;ITEM=$cacheid".hash_to_str($Request_Cache{$cacheid}))
 							unless ($postfwd_settings{request}{noparent});
 					};
 					last RULE;
@@ -3157,9 +3156,9 @@ sub smtpd_access_policy {
 	};
     };
     $myaction = $postfwd_settings{default} if ($postfwd_settings{test} or !($myaction));
-    map { log_info ("  %$_") } hash_to_list ('Request_Cache', %Request_Cache)	if wantsdebug (qw[ child_cache child_request_cache ]);
-    map { log_info ("  %$_") } hash_to_list ('Rate_Cache', %Rate_Cache)		if wantsdebug (qw[ child_cache child_rate_cache ]);
-    map { log_info ("  %$_") } hash_to_list ('DNS_Cache', %DNS_Cache)		if wantsdebug (qw[ child_cache child_dns_cache ]);
+    map { log_info ("  %$_") } hash_to_list ('Request_Cache', \%Request_Cache)	if wantsdebug (qw[ child_cache child_request_cache ]);
+    map { log_info ("  %$_") } hash_to_list ('Rate_Cache', \%Rate_Cache)	if wantsdebug (qw[ child_cache child_rate_cache ]);
+    map { log_info ("  %$_") } hash_to_list ('DNS_Cache', \%DNS_Cache)		if wantsdebug (qw[ child_cache child_dns_cache ]);
     return $myaction;
 };
 
@@ -3609,10 +3608,10 @@ if (defined $options{'showconfig'}) {
 
 # show program settings
 if (defined $options{'defaults'}) {
-	print "\n"; map { print "  %$_\n" } hash_to_list ('postfwd_settings', %postfwd_settings);
+	print "\n"; map { print "  %$_\n" } hash_to_list ('postfwd_settings', \%postfwd_settings);
 	if (wantsdebug (qw[ all verbose ])) {
-		map { print "  %$_\n" } hash_to_list ('postfwd_commands', %postfwd_commands);
-		map { print "  %$_\n" } hash_to_list ('postfwd_patterns', %postfwd_patterns);
+		map { print "  %$_\n" } hash_to_list ('postfwd_commands', \%postfwd_commands);
+		map { print "  %$_\n" } hash_to_list ('postfwd_patterns', \%postfwd_patterns);
 	};
 	print "\n"; exit;
 };
@@ -3779,7 +3778,7 @@ sub spawn_daemon {
  		$service{syslog_logsock} = $postfwd_settings{syslog}{socktype} if defined $postfwd_settings{syslog}{socktype};
  		$service{syslog_facility} = $postfwd_settings{syslog}{facility} if defined $postfwd_settings{syslog}{facility};
 		my %daemonopts = (%{$postfwd_settings{base}}, %service);
-		map { log_info("spawn $_") } (hash_to_list($type, %daemonopts)) if wantsdebug (qw[ all verbose daemon spawn ]);
+		map { log_info("spawn $_") } (hash_to_list($type, \%daemonopts)) if wantsdebug (qw[ all verbose daemon spawn ]);
 		my $daemon = bless { server => { %daemonopts } }, "postfwd3::$type";
 		$daemon->set_personality();
 		$daemon->run();
@@ -4630,13 +4629,13 @@ policy delegation protocol. This allows you to create your own checks.
 plugin-items can not be used selective. these functions will be executed for every
 request postfwd receives, so keep performance in mind.
 
-	SYNOPSIS: %result = postfwd_items_plugin{<name>}(%request)
+	SYNOPSIS: postfwd_items_plugin{<name>}($request)
 
-means that your subroutine, called <name>, has access to a hash called %request,
-which contains all request attributes, like $request{client_name} and must
-return a value in the following form:
+means that your subroutine, called <name>, has access to a hash-reference called
+$request, which contains all request attributes, like $request->{client_name} and
+saves values in the following form:
 
-	save: $result{<item>} = <value>
+	save: $result->{<item>} = <value>
 
 this creates the new item <item> containing <value>, which will be integrated in
 the policy delegation request and therefore may be used in postfwd's ruleset.
@@ -4648,22 +4647,17 @@ the policy delegation request and therefore may be used in postfwd's ruleset.
 		
 			# allows to check postfwd version in ruleset
 	        	"version" => sub {
-       	 		       	my(%request) = @_;
-				my(%result) = (
-       	 	        		"version" => $NAME." ".$VERSION,
-				);
-       	 		       	return %result;
+       	 		       	my($request) = shift;
+       	 	        	$request->{version} => $NAME." ".$VERSION,
 			},
 		
 			# sender_domain and recipient_domain
        	 		"address_parts" => sub {
-       	 		       	my(%request) = @_;
-				my(%result) = ();
-       	 			$request{sender} =~ /@([^@]*)$/;
-       	 			$result{sender_domain} = ($1 || '');
-       	 			$request{recipient} =~ /@([^@]*)$/;
-				$result{recipient_domain} = ($1 || '');
-       			       	return %result;
+       	 		       	my($request) = shift;
+       	 			$request->{sender} =~ /@([^@]*)$/;
+       	 			$request->{sender_domain} = ($1 || '');
+       	 			$request->{recipient} =~ /@([^@]*)$/;
+				$request->{recipient_domain} = ($1 || '');
 			},
 
 	# do NOT remove the next line
@@ -4691,7 +4685,7 @@ will be used.
 			# Complex example
 			# SYNOPSIS:  <result> = <item>(<operator>, <ruleset value>, <request value>, <request>)
 			"numeric" => sub {
-				my($cmp,$val,$myitem,%request) = @_;
+				my($cmp,$val,$myitem,$request) = @_;
 				my($myresult) = undef;	$myitem ||= "0"; $val ||= "0";
 				if ($cmp eq '==') {
 					$myresult = ($myitem == $val);
@@ -4723,7 +4717,7 @@ B<ACTIONS>
 Action plugins allow to define new postfwd actions. By setting the $stop-flag you can decide to
 continue or to stop parsing the ruleset.
 
-	SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>, <request>) =
+	SYNOPSIS:  (<stop rule parsing>, <next rule index>, <return action>, <logprefix>) =
 			<action> (<current rule index>, <current time>, <command name>, <argument>, <logprefix>, <request>)
 
 	# do NOT remove the next line
@@ -4733,26 +4727,26 @@ continue or to stop parsing the ruleset.
 	
 			# note(<logstring>) command
 			"note"  => sub {
-				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+				my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 				my($myaction) = 'dunno'; my($stop) = 0;
 				log_info "[RULES] ".$myline." - note: ".$myarg if $myarg;
-				return ($stop,$index,$myaction,$myline,%request);
+				return ($stop,$index,$myaction,$myline);
 			},
 	
 			# skips next <myarg> rules
         		"skip" => sub {
-				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+				my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 				my($myaction) = 'dunno'; my($stop) = 0;
 				$index += $myarg if ( $myarg and not(($index + $myarg) > $#Rules) );
-				return ($stop,$index,$myaction,$myline,%request);
+				return ($stop,$index,$myaction,$myline);
         		},
 	
 			# dumps current request contents to syslog
         		"dumprequest" => sub {
-				my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+				my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
 				my($myaction) = 'dunno'; my($stop) = 0;
-				map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %request);
-				return ($stop,$index,$myaction,$myline,%request);
+				map { log_info "[DUMP] rule=$index, Attribute: $_=$request{$_}" } (keys %{$request});
+				return ($stop,$index,$myaction,$myline);
         		},
 
 	# do NOT remove the next line

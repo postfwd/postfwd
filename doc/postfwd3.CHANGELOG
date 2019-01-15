@@ -1,3 +1,9 @@
+postfwd3 1.99-devel9
+====================
+- code:    Performance and memory tuning.
+	   ATTENTION: This breaks existing plugins! The <request> argument
+             	      is now called as hash reference instead of a hash!
+
 postfwd3 1.99-devel8
 ====================
 - feature: Dynamic groups allow to store and compare request items
