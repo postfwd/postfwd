@@ -72,7 +72,7 @@ EXPOSE ${PORT}
 # start postfwd - don't worry about versions: postfwd1 will silently ignore postfwd2-specific arguments
 ENTRYPOINT exec ${TARGET}/sbin/${PROG} --file ${ETC}/${CONF} --user ${USER} --group ${GROUP} \
 	--server_socket tcp:0.0.0.0:${PORT} --cache_socket=unix::${HOME}/postfwd.cache \
-	--pidfile=${HOME}/postfwd.pid --save_rates=${HOME}/postfwd.rates \
+	--pidfile=${HOME}/postfwd.pid --save_rates=${HOME}/postfwd.rates --save_groups=${HOME}/postfwd.groups \
 	--cache=${CACHE} ${EXTRA} \
 	--stdout --nodaemon
 

@@ -159,6 +159,7 @@ our %postfwd_settings = (
 		cleanup		=> 600,
 		noparent	=> 0,
 		aggregate_addrs	=> 0,
+		store		=> undef,
 	},
 	scores => {
 		"5.0"		=> "554 5.7.1 ".$NAME." score exceeded",
@@ -194,6 +195,7 @@ our %postfwd_settings = (
 	verbose		=> 0,
 	test		=> 0,
 	keep_rates	=> 0,
+	keep_groups	=> 0,
 	aggregate_addrs	=> 0,
 	max_command_recursion => 64,
         timeformat	=> ( ($TIMEHIRES) ? '%.2f' : '%d' ),
@@ -761,6 +763,36 @@ sub load_rates {
     };
 };
 
+# saves group cache to disk
+sub save_groups {
+    return unless ($STORABLE and $postfwd_settings{group}{store} and %Groups);
+    cleanup_groups (time());
+    eval {
+	local $SIG{__DIE__} = sub { log_note ("ERROR: Could not store group cache to ".$postfwd_settings{group}{store}.": $! @_") };
+	store (%Groups, $postfwd_settings{group}{store});
+    };
+    unless( $@ ) {
+        log_info ("Saved ".(scalar %Groups)." groups to ".$postfwd_settings{group}{store})
+                if wantsdebug(qw[ all verbose groups savegroups ]);
+    };
+};
+
+# loads group cache from disk
+sub load_groups {
+    my $loadgroup = undef;
+    return unless ($STORABLE and $postfwd_settings{group}{store} and (-f $postfwd_settings{group}{store}));
+    eval {
+	local $SIG{__DIE__} = sub { log_note ("Could not load group cache from ".$postfwd_settings{group}{store}.": $! @_") };
+	$loadgroup = retrieve($postfwd_settings{group}{store});
+    };
+    if ( not($@) and defined $loadgroup ) {
+	%Groups = $loadgroup;
+        log_info ("Fetched ".(scalar %Groups)." groups from ".$postfwd_settings{group}{store})
+                if wantsdebug(qw[ all verbose groups loadgroups ]);
+	cleanup_groups (time());
+    };
+};
+
 sub set_personality {};
 
 
@@ -782,6 +814,7 @@ sub pre_loop_hook() {
 	$0 = $self->{server}->{commandline} = " ".$postfwd_settings{name}.'::cache';
 	$postfwd_settings{name} .= "/cache";
 	load_rates();
+	load_groups();
 	$StartTime = $Summary = $Cleanup{request} = $Cleanup{rate} = $Cleanup{dns} = $Cleanup{group} = time();
 	log_info ("ready for input");
 };
@@ -790,6 +823,7 @@ sub pre_loop_hook() {
 sub post_child_cleanup_hook {
 	my $self = shift;
 	save_rates();
+	save_groups();
 };
 
 # cache process request
@@ -804,8 +838,9 @@ sub mux_input {
 		log_info ("request: '$request'") if wantsdebug (qw[ all ]);
 		if ($Reload_Conf) {
 			undef $Reload_Conf; my $s = ''; delete $Cache{request};
-			unless ($postfwd_settings{keep_rates}) { delete $Cache{rate}; $s = 'and rate' }; 
-			log_info ("request".(($s) ? " $s" : '')." cache cleared") if wantsdebug (qw[ all verbose ]);
+			unless ($postfwd_settings{keep_rates}) { delete $Cache{rate}; $s = ' and rate' }; 
+			unless ($postfwd_settings{keep_groups}) { %Groups = (); $s = ' and group' }; 
+			log_info ("request".(($s) ? "$s" : '')." cache cleared") if wantsdebug (qw[ all verbose ]);
 		};
 		if ($request eq $postfwd_patterns{ping}) {
 			$action = $postfwd_patterns{pong};
@@ -1468,6 +1503,7 @@ sub read_config {
 	# init, cleanup cache and config vars
 	@Rules = (); %Rule_by_ID = %Request_Cache = (); @Rate_Items = ();
 	%Rate_Cache = () unless $postfwd_settings{keep_rates};
+	%Group_Cache = () unless $postfwd_settings{keep_groups};
 
 	# parse configurations
 	for $config (@{$postfwd_settings{Configs}}) {
@@ -3472,7 +3508,9 @@ GetOptions( \%options,
 	# Limits
 	"cleanup-rates=i"	  => \$postfwd_settings{rate}{cleanup},
 	"keep_rates|keep_limits|keep_rates_on_reload" => \$postfwd_settings{keep_rates},
+	"keep_groups|keep_groups_on_reload" => \$postfwd_settings{keep_groups},
 	"save_rates|save_limits|save_rates_on_restart=s" => \$postfwd_settings{rate}{store},
+	"save_groups|save_groups_on_restart=s" => \$postfwd_settings{group}{store},
 	"fast_limit_evaluation"	  => \$postfwd_settings{rate}{fast_eval},
 	# Control
 	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable: $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
@@ -3927,6 +3965,8 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
             --norulestats		disables per rule statistics
 	-I, --instantcfg		reloads ruleset on every new request
 	    --config_timeout <i>	parser timeout in seconds
+            --keep_groups		do not clear group cache on reload
+            --save_groups <file>	save and load group cache on disk
             --keep_rates		do not clear rate limit counters on reload
             --save_rates <file>		save and load rate limits on disk
 	    --fast_limit_evaluation	evaluate rate limits before ruleset is parsed
@@ -5016,6 +5056,16 @@ These parameters influence the way postfwd3 is working. Any of them can be combi
 	timeout in seconds to parse a single configuration line. if exceeded, the rule will
 	be skipped. this is used to prevent problems due to large files or loops.
 	
+	--keep_groups    (default=0)
+	With this option set postfwd3 does not clear the group cache on reload. Please
+	note that you have to restart (not reload) postfwd with this option if you change
+	any group based rules.
+
+        --save_groups    (default=none)
+        With this option postfwd saves existing groups to disk and reloads them on program
+	start. This allows persistent rate limits across program restarts or reboots.
+        Please note that postfwd needs read and write access to the specified file.
+
 	--keep_rates    (default=0)
 	With this option set postfwd3 does not clear the rate limit counters on reload. Please
 	note that you have to restart (not reload) postfwd with this option if you change

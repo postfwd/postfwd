@@ -136,6 +136,8 @@
             --norulestats               disables per rule statistics
         -I, --instantcfg                reloads ruleset on every new request
             --config_timeout &lt;i&gt;        parser timeout in seconds
+            --keep_groups               do not clear group cache on reload
+            --save_groups &lt;file&gt;        save and load group cache on disk
             --keep_rates                do not clear rate limit counters on reload
             --save_rates &lt;file&gt;         save and load rate limits on disk
             --fast_limit_evaluation     evaluate rate limits before ruleset is parsed
@@ -1171,6 +1173,16 @@
         timeout in seconds to parse a single configuration line. if exceeded, the rule will
         be skipped. this is used to prevent problems due to large files or loops.
         
+        --keep_groups    (default=0)
+        With this option set postfwd3 does not clear the group cache on reload. Please
+        note that you have to restart (not reload) postfwd with this option if you change
+        any group based rules.
+
+        --save_groups    (default=none)
+        With this option postfwd saves existing groups to disk and reloads them on program
+        start. This allows persistent rate limits across program restarts or reboots.
+        Please note that postfwd needs read and write access to the specified file.
+
         --keep_rates    (default=0)
         With this option set postfwd3 does not clear the rate limit counters on reload. Please
         note that you have to restart (not reload) postfwd with this option if you change
