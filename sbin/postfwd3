@@ -2530,7 +2530,7 @@ sub get_plugins {
 # compare item main
 # use: compare_item ( $TYPE, $RULEITEM, $MINIMUMHITS, $REQUESTITEM, %REQUEST, %REQUESTINFO );
 sub compare_item {
-    my($now,$mykey,$mymask,$mymin,$myitem,%request) = @_;
+    my($now,$mykey,$mymask,$mymin,$myitem,$request) = @_;
     my($val,$var,$cmp,$neg,$myresult,$postfwd_compare_proc);
     my($rcount) = 0;
     $mymin ||= 1;
@@ -2563,10 +2563,10 @@ sub compare_item {
 	log_info ("deneg $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"") if ($neg and wantsdebug (qw[ all thisrequest ]));
 	next ITEM unless (defined $val);
 	# substitute check for $$vars in rule item
-	if ( $var = devar_item ($cmp,$val,$myitem,\%request) ) {
+	if ( $var = devar_item ($cmp,$val,$myitem,$request) ) {
 		$val = $var; $val =~ s/([^-_@\.\w\s])/\\$1/g unless ($cmp eq '==');
 	};
-	$myresult = &{$postfwd_compare{$postfwd_compare_proc}}($cmp,$val,$myitem,\%request);
+	$myresult = &{$postfwd_compare{$postfwd_compare_proc}}($cmp,$val,$myitem,$request);
 	log_info ("match $mykey:  ".($myresult ? "TRUE" : "FALSE")) if wantsdebug (qw[ all thisrequest ]);
 	if ($neg) {
 		$myresult = not($myresult);
@@ -2587,7 +2587,7 @@ sub compare_item {
 # compare request against a single rule
 #
 sub compare_rule {
-    my($now,$index,$date,%request) = @_;
+    my($now,$index,$date,$request) = @_;
     my(@ruleitems) = keys %{$Rules[$index]};
     my($has_rbl) = exists($Rules[$index]{$COMP_RBL_KEY});
     my($has_rhl) = (
@@ -2633,8 +2633,8 @@ sub compare_rule {
 			# prepare date check
 			? $date
 			# default: compare against request attribute
-			: $request{$mykey};
-		$myresult[0] = ($res = compare_item($now, $mykey, $Rules[$index]{$mykey}, $num, ((defined $val) ? $val : ''), %request)) ? ($myresult[0] + $res) : 0;
+			: $request->{$mykey};
+		$myresult[0] = ($res = compare_item($now, $mykey, $Rules[$index]{$mykey}, $num, ((defined $val) ? $val : ''), $request)) ? ($myresult[0] + $res) : 0;
 	};
 	last ITEM unless ($myresult[0] > 0);
     };
@@ -2658,22 +2658,22 @@ sub compare_rule {
 	map { $timed .= (($timed) ? ", $_" : $_) if $Timeouts{$_} > $postfwd_settings{dns}{max_timeout} } (keys %Timeouts);
 	log_note ("[DNSBL] skipping rbls: $timed - too much timeouts") if $timed;
 
-	push @queries, rbl_prepare_lookups ( $COMP_RBL_KEY, $request{reverse_address}, @{$Rules[$index]{$COMP_RBL_KEY}} )
+	push @queries, rbl_prepare_lookups ( $COMP_RBL_KEY, $request->{reverse_address}, @{$Rules[$index]{$COMP_RBL_KEY}} )
 		if (defined $Rules[$index]{$COMP_RBL_KEY});
 
-	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY, $request{client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY}} )
+	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY, $request->{client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY}} )
 		if (defined $Rules[$index]{$COMP_RHSBL_KEY});
 
-	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_CLIENT, $request{client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY_CLIENT}} )
+	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_CLIENT, $request->{client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY_CLIENT}} )
 		if (defined $Rules[$index]{$COMP_RHSBL_KEY_CLIENT});
 
-	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_RCLIENT, $request{reverse_client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY_RCLIENT}} )
+	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_RCLIENT, $request->{reverse_client_name}, @{$Rules[$index]{$COMP_RHSBL_KEY_RCLIENT}} )
 		if (defined $Rules[$index]{$COMP_RHSBL_KEY_RCLIENT});
 
-	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_HELO, $request{helo_name}, @{$Rules[$index]{$COMP_RHSBL_KEY_HELO}} )
+	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_HELO, $request->{helo_name}, @{$Rules[$index]{$COMP_RHSBL_KEY_HELO}} )
 		if (defined $Rules[$index]{$COMP_RHSBL_KEY_HELO});
 
-	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_SENDER, $request{sender_domain}, @{$Rules[$index]{$COMP_RHSBL_KEY_SENDER}} )
+	push @queries, rbl_prepare_lookups ( $COMP_RHSBL_KEY_SENDER, $request->{sender_domain}, @{$Rules[$index]{$COMP_RHSBL_KEY_SENDER}} )
 		if (defined $Rules[$index]{$COMP_RHSBL_KEY_SENDER});
 
 	# send dns queries
@@ -2770,8 +2770,8 @@ sub compare_rule {
 			$COMP_RBL_KEY,
 			$Rules[$index]{$COMP_RBL_KEY},
 			($Rules[$index]{$COMP_RBL_CNT} ||= 1),
-			$request{reverse_address},
-			%request
+			$request->{reverse_address},
+			$request
 		);
 		$myresult[0] = ($res or ($Rules[$index]{$COMP_RBL_CNT} eq 'all')) ? ($myresult[0] + $res) : 0;
 		$myresult[1] = ($res) ? $res : 0;
@@ -2784,8 +2784,8 @@ sub compare_rule {
 					$COMP_RHSBL_KEY,
 					$Rules[$index]{$COMP_RHSBL_KEY},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
-					$request{client_name},
-					%request
+					$request->{client_name},
+					$request
 				);
 				$myresult[0] = ($res or ($Rules[$index]{$COMP_RHSBL_CNT} eq 'all')) ? ($myresult[0] + $res) : 0;
 				$myresult[2] += $res if $res;
@@ -2796,8 +2796,8 @@ sub compare_rule {
 					$COMP_RHSBL_KEY_CLIENT,
 					$Rules[$index]{$COMP_RHSBL_KEY_CLIENT},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
-					$request{client_name},
-					%request
+					$request->{client_name},
+					$request
 				);
 				$myresult[0] = ($res or ($Rules[$index]{$COMP_RHSBL_CNT} eq 'all')) ? ($myresult[0] + $res) : 0;
 				$myresult[2] += $res if $res;
@@ -2808,8 +2808,8 @@ sub compare_rule {
 					$COMP_RHSBL_KEY_SENDER,
 					$Rules[$index]{$COMP_RHSBL_KEY_SENDER},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
-					$request{sender_domain},
-					%request
+					$request->{sender_domain},
+					$request
 				);
 				$myresult[0] = ($res or ($Rules[$index]{$COMP_RHSBL_CNT} eq 'all')) ? ($myresult[0] + $res) : 0;
 				$myresult[2] += $res if $res;
@@ -2820,8 +2820,8 @@ sub compare_rule {
 					$COMP_RHSBL_KEY_HELO,
 					$Rules[$index]{$COMP_RHSBL_KEY_HELO},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
-					$request{helo_name},
-					%request
+					$request->{helo_name},
+					$request
 				);
 				$myresult[0] = ($res or ($Rules[$index]{$COMP_RHSBL_CNT} eq 'all')) ? ($myresult[0] + $res) : 0;
 				$myresult[2] += $res if $res;
@@ -2832,8 +2832,8 @@ sub compare_rule {
 					$COMP_RHSBL_KEY_RCLIENT,
 					$Rules[$index]{$COMP_RHSBL_KEY_RCLIENT},
 					($Rules[$index]{$COMP_RHSBL_CNT} ||= 1),
-					$request{reverse_client_name},
-					%request
+					$request->{reverse_client_name},
+					$request
 				);
 				$myresult[0] = ($res or ($Rules[$index]{$COMP_RHSBL_CNT} eq 'all')) ? ($myresult[0] + $res) : 0;
 				$myresult[2] += $res if $res;
@@ -2855,7 +2855,7 @@ sub compare_rule {
 
 # access policy routine
 sub smtpd_access_policy {
-    my($parent,%request)		      		= @_;
+    my($parent,$request)		      		= @_;
     my($myaction)			      		= $postfwd_settings{default};
     my($index)				      		= 1;
     my($stop)				      		= 1;
@@ -2867,13 +2867,13 @@ sub smtpd_access_policy {
     my($mykey,$cacheid,$myline,$checkreq,$checkval,$var,$ratehit,$rateindex,$rulehits) = "";
 
     # save original request
-    $request{orig} = hash_to_str (\%request);
+    $request->{orig} = hash_to_str ($request);
 
     # replace empty sender with <>
-    $request{sender} = '<>' unless ($request{sender});
+    $request->{sender} = '<>' unless ($request->{sender});
 
     # load postfwd_items attributes
-    postfwd_items (\%request);
+    postfwd_items ($request);
 
     # wipe out old group members
     if ( $postfwd_settings{group}{noparent} and $Cleanup_Groups and (scalar keys %Group_Cache > 0) and (($now - ($Cleanup_Groups || 0)) > $postfwd_settings{group}{cleanup}) ) {
@@ -2912,9 +2912,9 @@ sub smtpd_access_policy {
 
     # increase rate limits
     if (@Rate_Items and $postfwd_settings{rate}{fast_eval}) {
-	map { $checkval .= $_."=".lc($request{$_}).$postfwd_settings{seplst} if $request{$_} } (@Rate_Items);
+	map { $checkval .= $_."=".lc($request->{$_}).$postfwd_settings{seplst} if $request->{$_} } (@Rate_Items);
 	if ($checkval) {
-		$checkval = "CMD=".$postfwd_commands{checkrate}.";TYPE=rate;ITEM=$checkval;SIZE=".($request{'size'} || 0).";RCPT=".($request{'recipient_count'} || 0);
+		$checkval = "CMD=".$postfwd_commands{checkrate}.";TYPE=rate;ITEM=$checkval;SIZE=".($request->{'size'} || 0).";RCPT=".($request->{'recipient_count'} || 0);
 			log_info ("[RATES] parent rate limit query: ".$checkval) if wantsdebug (qw[ all thisrequest verbose rates ]);
 			$checkval = cache_query ($checkval);
 			log_info ("[RATES] parent rate limit answer: ".$checkval) if wantsdebug (qw[ all thisrequest verbose rates ]);
@@ -2926,9 +2926,9 @@ sub smtpd_access_policy {
 					%{$Rate_Cache{$it}{$ri}} = str_to_hash (\$r);
 					push @{$Rate_Cache{$it}{'list'}}, $ri;
 					@{$Rate_Cache{$it}{'list'}} = uniq(@{$Rate_Cache{$it}{'list'}});
-					$request{'ratecount'} = $Rate_Cache{$it}{$ri}{'count'}
-						+ ( ($Rate_Cache{$it}{$ri}{type} eq 'size') ? $request{size}
-						: (($Rate_Cache{$it}{$ri}{type} eq 'rcpt') ? $request{recipient_count} : 1 ) );
+					$request->{'ratecount'} = $Rate_Cache{$it}{$ri}{'count'}
+						+ ( ($Rate_Cache{$it}{$ri}{type} eq 'size') ? $request->{size}
+						: (($Rate_Cache{$it}{$ri}{type} eq 'rcpt') ? $request->{recipient_count} : 1 ) );
 				};
 			};
 	};
@@ -2938,18 +2938,18 @@ sub smtpd_access_policy {
     if ( $postfwd_settings{request}{ttl} > 0 ) {
     	# construct cache identifier
 	if ($postfwd_settings{cacheid}) {
-		map { $cacheid .= $request{$_}.';' if (defined $request{$_}) } @{$postfwd_settings{cacheid}};
+		map { $cacheid .= $request->{$_}.';' if (defined $request->{$_}) } @{$postfwd_settings{cacheid}};
 	} else {
-		REQITEM: foreach $checkreq (sort keys %request) {
-			next REQITEM unless $request{$checkreq};
+		REQITEM: foreach $checkreq (sort keys %{$request}) {
+			next REQITEM unless $request->{$checkreq};
 			next REQITEM if %AutoCacheID and not defined $AutoCacheID{lc($checkreq)};
 			next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") or ($checkreq eq "orig"));
 			next REQITEM if ( $postfwd_settings{request}{no_size} and ($checkreq eq "size") );
 			next REQITEM if ( $postfwd_settings{request}{no_sender} and ($checkreq eq "sender") );
 			if ( $postfwd_settings{request}{rdomain_only} and ($checkreq eq "recipient") ) {
-				$cacheid .= $request{recipient_domain}.';';
+				$cacheid .= $request->{recipient_domain}.';';
 			} else {
-				$cacheid .= $request{$checkreq}.';';
+				$cacheid .= $request->{$checkreq}.';';
 			};
 		};
 	};
@@ -2977,21 +2977,21 @@ sub smtpd_access_policy {
 	$Matches{$Rate_Cache{$ratehit}{$rateindex}{rule}}++;
 	$myaction = $Rate_Cache{$ratehit}{$rateindex}{action};
 	# substitute check for $$vars in action
-	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",\%request) );
+	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",$request) );
 	log_info ("[RATES] rule=".$Rule_by_ID{$Rate_Cache{$ratehit}{$rateindex}{rule}}
 		. ", id=".$Rate_Cache{$ratehit}{$rateindex}{rule}
-		. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
-		. ", client=".$request{client_name}."[".$request{client_address}."]"
-		. ( ($request{sasl_username}) ? ", user=".$request{sasl_username} : '' )
-		. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
-		. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
-		. ", helo=<".$request{helo_name}.">"
-		. ", proto=".$request{protocol_name}
-		. ", state=".$request{protocol_state}
+		. ( ($request->{queue_id}) ? ", queue=".$request->{queue_id} : '' )
+		. ", client=".$request->{client_name}."[".$request->{client_address}."]"
+		. ( ($request->{sasl_username}) ? ", user=".$request->{sasl_username} : '' )
+		. ", sender=<".(($request->{sender} eq '<>') ? "" : $request->{sender}).">"
+		. ( ($request->{recipient}) ? ", recipient=<".$request->{recipient}.">" : '' )
+		. ", helo=<".$request->{helo_name}.">"
+		. ", proto=".$request->{protocol_name}
+		. ", state=".$request->{protocol_state}
 		. ", delay=".ts(time() - $now)."s"
 		. ", action=".$myaction." (item: '".$ratehit."'"
 		. ", type: ".$Rate_Cache{$ratehit}{$rateindex}{type}
-		. ", count: ".$request{ratecount}."/".$Rate_Cache{$ratehit}{$rateindex}{maxcount}
+		. ", count: ".$request->{ratecount}."/".$Rate_Cache{$ratehit}{$rateindex}{maxcount}
 		. ", time: ".ts($now - $Rate_Cache{$ratehit}{$rateindex}{"time"})."/".$Rate_Cache{$ratehit}{$rateindex}{ttl}."s)"
 		) unless $postfwd_settings{request}{nolog};
 
@@ -3005,14 +3005,14 @@ sub smtpd_access_policy {
 		$rulehits = join $postfwd_settings{sepreq}, (split ';', $Request_Cache{$cacheid}{hits}) if $Request_Cache{$cacheid}{hits};
 		log_info ("[CACHE] rule=".$Rule_by_ID{$Request_Cache{$cacheid}{$COMP_ID}}
 			. ", id=".$Request_Cache{$cacheid}{$COMP_ID}
-			. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
-			. ", client=".$request{client_name}."[".$request{client_address}."]"
-			. ( ($request{sasl_username}) ? ", user=".$request{sasl_username} : '' )
-			. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
-			. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
-			. ", helo=<".$request{helo_name}.">"
-			. ", proto=".$request{protocol_name}
-			. ", state=".$request{protocol_state}
+			. ( ($request->{queue_id}) ? ", queue=".$request->{queue_id} : '' )
+			. ", client=".$request->{client_name}."[".$request->{client_address}."]"
+			. ( ($request->{sasl_username}) ? ", user=".$request->{sasl_username} : '' )
+			. ", sender=<".(($request->{sender} eq '<>') ? "" : $request->{sender}).">"
+			. ( ($request->{recipient}) ? ", recipient=<".$request->{recipient}.">" : '' )
+			. ", helo=<".$request->{helo_name}.">"
+			. ", proto=".$request->{protocol_name}
+			. ", state=".$request->{protocol_state}
 			. ", delay=".ts(time() - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
 			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
@@ -3031,14 +3031,14 @@ sub smtpd_access_policy {
 		$rulehits = join $postfwd_settings{sepreq}, (split ';', $Request_Cache{$cacheid}{hits}) if $Request_Cache{$cacheid}{hits};
 		log_info ("[CACHE] rule=".$Rule_by_ID{$Request_Cache{$cacheid}{$COMP_ID}}
 			. ", id=".$Request_Cache{$cacheid}{$COMP_ID}
-			. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
-			. ", client=".$request{client_name}."[".$request{client_address}."]"
-			. ( ($request{sasl_username}) ? ", user=".$request{sasl_username} : '' )
-			. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
-			. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
-			. ", helo=<".$request{helo_name}.">"
-			. ", proto=".$request{protocol_name}
-			. ", state=".$request{protocol_state}
+			. ( ($request->{queue_id}) ? ", queue=".$request->{queue_id} : '' )
+			. ", client=".$request->{client_name}."[".$request->{client_address}."]"
+			. ( ($request->{sasl_username}) ? ", user=".$request->{sasl_username} : '' )
+			. ", sender=<".(($request->{sender} eq '<>') ? "" : $request->{sender}).">"
+			. ( ($request->{recipient}) ? ", recipient=<".$request->{recipient}.">" : '' )
+			. ", helo=<".$request->{helo_name}.">"
+			. ", proto=".$request->{protocol_name}
+			. ", state=".$request->{protocol_state}
 			. ", delay=".ts(time() - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
 			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
@@ -3071,20 +3071,20 @@ sub smtpd_access_policy {
 		};
 
 		# prepares hit counters
-		$request{$COMP_MATCHES}   = 0;
-		$request{$COMP_RBL_CNT}   = 0;
-		$request{$COMP_RHSBL_CNT} = 0;
+		$request->{$COMP_MATCHES}   = 0;
+		$request->{$COMP_RBL_CNT}   = 0;
+		$request->{$COMP_RHSBL_CNT} = 0;
 
 		RULE: for ($index=0;$index<=$#Rules;$index++) {
 
 			# compare request against rule
 			next unless exists $Rules[$index];
-			($matched,$rblcnt,$rhlcnt,my $compcnt) = compare_rule ($now, $index, $date, %request);
+			($matched,$rblcnt,$rhlcnt,my $compcnt) = compare_rule ($now, $index, $date, $request);
 
 			# enables/overrides hit counters for later use
-			$request{$COMP_MATCHES}    = $matched;
-			$request{$COMP_RBL_CNT}    = $rblcnt;
-			$request{$COMP_RHSBL_CNT}  = $rhlcnt;
+			$request->{$COMP_MATCHES}    = $matched;
+			$request->{$COMP_RBL_CNT}    = $rblcnt;
+			$request->{$COMP_RHSBL_CNT}  = $rhlcnt;
 			$counters .= $postfwd_settings{sepreq}.$compcnt if $compcnt;
 
 			# matched? prepare logline, increase counters
@@ -3093,20 +3093,20 @@ sub smtpd_access_policy {
 				$Matches{$Rules[$index]{$COMP_ID}}++;
 				$rulehits .= $postfwd_settings{sepreq} if $rulehits;
 				$rulehits .= $Rules[$index]{$COMP_ID};
-				$request{$COMP_HITS} .= ';' if (defined $request{$COMP_HITS});
-				$request{$COMP_HITS} .= $Rules[$index]{$COMP_ID};
+				$request->{$COMP_HITS} .= ';' if (defined $request->{$COMP_HITS});
+				$request->{$COMP_HITS} .= $Rules[$index]{$COMP_ID};
 				# substitute check for $$vars in action
-				$myaction = $var if ( $var = devar_item ("==",$myaction,"action",\%request) );
+				$myaction = $var if ( $var = devar_item ("==",$myaction,"action",$request) );
 				$myline = "rule=".$index
 					. ", id=".$Rules[$index]{$COMP_ID}
-					. ( ($request{queue_id}) ? ", queue=".$request{queue_id} : '' )
-					. ", client=".$request{client_name}."[".$request{client_address}."]"
-					. ( ($request{sasl_username}) ? ", user=".$request{sasl_username} : '' )
-					. ", sender=<".(($request{sender} eq '<>') ? "" : $request{sender}).">"
-					. ( ($request{recipient}) ? ", recipient=<".$request{recipient}.">" : '' )
-					. ", helo=<".$request{helo_name}.">"
-					. ", proto=".$request{protocol_name}
-					. ", state=".$request{protocol_state};
+					. ( ($request->{queue_id}) ? ", queue=".$request->{queue_id} : '' )
+					. ", client=".$request->{client_name}."[".$request->{client_address}."]"
+					. ( ($request->{sasl_username}) ? ", user=".$request->{sasl_username} : '' )
+					. ", sender=<".(($request->{sender} eq '<>') ? "" : $request->{sender}).">"
+					. ( ($request->{recipient}) ? ", recipient=<".$request->{recipient}.">" : '' )
+					. ", helo=<".$request->{helo_name}.">"
+					. ", proto=".$request->{protocol_name}
+					. ", state=".$request->{protocol_state};
 
 				# check for postfwd action
 				$ai = 0; # (re)set max_command_recursion counter
@@ -3114,17 +3114,17 @@ sub smtpd_access_policy {
 					my($mycmd,$myarg) = ($1, $2); $stop = 0;
 					if (defined $postfwd_actions{$mycmd}) {
 						log_info ("[PLUGIN] executing postfwd-action $mycmd") if wantsdebug (qw[ all thisrequest ]);
-						($stop, $index, $myaction, $myline) = &{$postfwd_actions{$mycmd}}($index, $now, $mycmd, $myarg, $myline, \%request);
+						($stop, $index, $myaction, $myline) = &{$postfwd_actions{$mycmd}}($index, $now, $mycmd, $myarg, $myline, $request);
 						$rhit = "rate" if ($stop and $mycmd =~ /^(rate|size|rcpt)$/);
 						# substitute again after postfwd-actions
-						$myaction = $var if ( $var = devar_item ("==",$myaction,"action",\%request) );
+						$myaction = $var if ( $var = devar_item ("==",$myaction,"action",$request) );
 					} else {
 						log_warn ("[RULES] ".$myline." - error: unknown command \"".$1."\" - ignoring");
 						$myaction = $postfwd_settings{default};
 					};
 				};
 				if ($stop) {
-					$myline .= ", delay=".ts(time() - $now)."s, hits=".$request{$COMP_HITS}.", action=".$myaction;
+					$myline .= ", delay=".ts(time() - $now)."s, hits=".$request->{$COMP_HITS}.", action=".$myaction;
     					log_info ("[RULES] ".$myline) unless $postfwd_settings{request}{nolog};
 					$counters .= $postfwd_settings{sepreq}.$rhit."=1";
 					# update cache
@@ -3134,7 +3134,7 @@ sub smtpd_access_policy {
 						$Request_Cache{$cacheid}{$COMP_ACTION}	    = $myaction;
 						$Request_Cache{$cacheid}{$COMP_ID}    	    = $Rules[$index]{$COMP_ID};
 						$Request_Cache{$cacheid}{hit}	    	    = $matched;
-						$Request_Cache{$cacheid}{hits}		    = $request{$COMP_HITS};
+						$Request_Cache{$cacheid}{hits}		    = $request->{$COMP_HITS};
 						cache_query ("CMD=".$postfwd_commands{setcacheitem}.";TYPE=request;ITEM=$cacheid".hash_to_str($Request_Cache{$cacheid}))
 							unless ($postfwd_settings{request}{noparent});
 					};
@@ -3362,7 +3362,7 @@ sub process_input {
 		unless ( (defined $$attr{request}) and ($$attr{request} eq "smtpd_access_policy") ) {
 			log_note ("Ignoring unrecognized request type: '".((defined $$attr{request}) ? substr($$attr{request},0,100) : '')."'");
 		} else {
-			my $action = smtpd_access_policy($parent, %$attr) || $postfwd_settings{default};
+			my $action = smtpd_access_policy($parent, $attr) || $postfwd_settings{default};
 			log_info ("Action: $action") if wantsdebug (qw[ all thisrequest verbose ]);
 			if ($client) {
 				print $client ("action=$action\n\n");
