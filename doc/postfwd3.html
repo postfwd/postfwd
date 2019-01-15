@@ -79,6 +79,7 @@
             --cache_socket &lt;sock&gt;       e.g. tcp:127.0.0.1:10043
             --cache_umask &lt;mask&gt;        umask for cache filepermissions
             --cacheid &lt;list&gt;            list of request items for cache-id
+            --cacheid_md5               cacheid =&gt; md5sum(request)
             --cache-rdomain-only        skip recipient localpart for cache-id
             --cache-no-sender           skip sender address for cache-id
             --cache-no-size             skip size for cache-id
@@ -1073,6 +1074,9 @@
                 postfwd3 --cache=3600 --cacheid=client_name,client_address
         This increases efficiency of caching and improves postfwd&#39;s performance.
         Warning: You should list all items here, which are used in your ruleset!
+
+        --cacheid_md5, --nocacheid_md5    (default=1)
+        The cacheid will be created with a md5sum of the request items.
 
         --cleanup-requests &lt;interval&gt;    (default=600)
         The request cache will be searched for timed out items after this &lt;interval&gt; in

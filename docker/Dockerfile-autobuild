@@ -28,7 +28,7 @@ ENV PORT=10040
 # request cache in seconds. use '0' to disable
 ENV CACHE=60
 # additional arguments, see postfwd -h or man page for more
-ENV EXTRA="--noidlestats --summary=600"
+ENV EXTRA="--summary=600 --noidlestats"
 # get config file from ARG
 ENV CONF=postfwd.cf
 
@@ -60,18 +60,19 @@ RUN mkdir -p ${ETC} ${HOME}
 # copy stuff
 COPY ./etc/	${ETC}/
 COPY ./sbin/    ${TARGET}/sbin/
+COPY ./docker/postfwd-docker.sh /usr/bin/postfwd-docker
 
 # set ownership & permissions
 RUN chown -R root:${GROUP} ${ETC} && chmod 0750 ${ETC} && chmod 0640 ${ETC}/*
 RUN chown -R ${USER}:${GROUP} ${HOME} && chmod -R 0700 ${HOME}
-RUN chown root:root ${TARGET}/sbin/postfwd* && chmod 0755 ${TARGET}/sbin/postfwd*
+RUN chown root:root ${TARGET}/sbin/postfwd* /usr/bin/postfwd-docker && chmod 0755 ${TARGET}/sbin/postfwd* /usr/bin/postfwd-docker
 
 # open port
 EXPOSE ${PORT}
 
 # start postfwd - don't worry about versions: postfwd1 will silently ignore postfwd2-specific arguments
-ENTRYPOINT exec ${TARGET}/sbin/${PROG} --file ${ETC}/${CONF} --user ${USER} --group ${GROUP} \
-	--server_socket tcp:0.0.0.0:${PORT} --cache_socket=unix::${HOME}/postfwd.cache \
+ENTRYPOINT exec ${TARGET}/sbin/${PROG} --file=${ETC}/${CONF} --user=${USER} --group=${GROUP} \
+	--server_socket=tcp:0.0.0.0:${PORT} --cache_socket=unix::${HOME}/postfwd.cache \
 	--pidfile=${HOME}/postfwd.pid --save_rates=${HOME}/postfwd.rates --save_groups=${HOME}/postfwd.groups \
 	--cache=${CACHE} ${EXTRA} \
 	--stdout --nodaemon

@@ -1,9 +1,14 @@
 postfwd3 1.99-devel9
 ====================
 - feature: arguments --load_groups and --keep_groups
-- code:    Performance and memory tuning.
-	   ========> This breaks existing plugins! The <request> argument
-           ========> is now called as hash reference instead of a hash!
+- feature: argument --cacheid_md5, --nocacheid_md5
+- feature: postfwd-docker: shortcut to run postfwd commands in a container
+- code:    Performance and memory tuning (mainly hash -> hashref).
+	   **********************************************************
+	   ** This breaks existing plugins! The <request> argument **
+           ** is now called as hash reference instead of a hash!   **
+           ** Please look at the manual for more info.             **
+	   **********************************************************
 
 postfwd3 1.99-devel8
 ====================

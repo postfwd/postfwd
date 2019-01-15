@@ -18,10 +18,10 @@ our @EXPORT_OK = qw(
 	%postfwd_commands
 	&wantsdebug &hash_to_list
 	&hash_to_str &str_to_hash
-	&check_inet &check_unix
-	&ts $TIMEHIRES $STORABLE $NETADDR
+	&check_inet &check_unix &ts
+	$TIMEHIRES $STORABLE $NETADDR $DIGESTMD5
 );
-our($TIMEHIRES); our($STORABLE); our($NETADDR);
+our($TIMEHIRES); our($STORABLE); our($NETADDR); our($DIGESTMD5);
 BEGIN {
 	# use Time::HiRes if available
 	eval { require Time::HiRes };
@@ -31,6 +31,8 @@ BEGIN {
 	$STORABLE = ($@) ? 0 : (Storable->VERSION || 'available');
 	eval { require NetAddr::IP };
 	$NETADDR = ($@) ? 0 : (NetAddr::IP->VERSION || 'available');
+	eval { require Digest::MD5 };
+	$DIGESTMD5 = ($@) ? 0 : (Digest::MD5->VERSION || 'available');
 };
 
 
@@ -130,6 +132,7 @@ our %postfwd_settings = (
 		nolog		=> 0,
 		noparent	=> 0,
 		autocacheid	=> 0,
+		usemd5		=> 1,
 	},
 	dns => {
 		disable		=> 0,
@@ -423,7 +426,7 @@ package postfwd3::cache;
 use warnings;
 use strict;
 use base 'Net::Server::Multiplex';
-import postfwd3::basic qw(:DEFAULT &wantsdebug &hash_to_list &hash_to_str &ts $TIMEHIRES $STORABLE $NETADDR);
+import postfwd3::basic qw(:DEFAULT &wantsdebug &hash_to_list &hash_to_str &ts $TIMEHIRES $STORABLE $NETADDR $DIGESTMD5);
 use vars qw( %Cache %Groups %Cleanup %Count %Interval %Top $Reload_Conf $Summary $StartTime );
 BEGIN {
 	# use Time::HiRes if available
@@ -947,17 +950,22 @@ use IO::Socket qw(SOCK_STREAM);
 use Net::DNS;
 use Net::Server::PreFork;
 use Net::Server::Multiplex;
-import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_str &str_to_hash &hash_to_list &ts $TIMEHIRES $NETADDR);
+
+import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_str &str_to_hash &hash_to_list &ts $TIMEHIRES $NETADDR $DIGESTMD5);
 # export these functions for '-C' switch
 use Exporter qw(import);
 our @EXPORT_OK = qw(
 	&read_config &show_config &process_input &get_plugins
 );
 our @ISA = ();
-# use Time::HiRes if available
-BEGIN { Time::HiRes->import( qw(time) ) if $TIMEHIRES };
-# use NetAddr::IP if available
-BEGIN { NetAddr::IP->import( qw(Compact) ) if $NETADDR };
+BEGIN {
+	# use Time::HiRes if available
+	Time::HiRes->import( qw(time) ) if $TIMEHIRES;
+	# use NetAddr::IP if available
+	NetAddr::IP->import( qw(Compact) ) if $NETADDR;
+	# use Digest::MD5 if available
+	Digest::MD5->import( qw(md5_hex md5_base64) ) if $DIGESTMD5;
+};
 
 
 
@@ -2979,6 +2987,7 @@ sub smtpd_access_policy {
 			};
 		};
 	};
+	$cacheid = md5_base64($cacheid) if ($DIGESTMD5 and $postfwd_settings{request}{usemd5} and length($cacheid) > 32);
 	log_info ("created cache-id: $cacheid") if wantsdebug (qw[ all thisrequest cache ]);
 
     	# wipe out old cache entries
@@ -3416,7 +3425,7 @@ use Pod::Usage;
 use Net::Server::Daemonize qw(daemonize);
 # own modules
 # program settings, syslogging
-import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_list $TIMEHIRES $NETADDR);
+import postfwd3::basic qw(:DEFAULT %postfwd_commands &check_inet &check_unix &wantsdebug &hash_to_list $TIMEHIRES $NETADDR $DIGESTMD5);
 # cache daemon (requests, dns, limits), Net::Server::Multiplex
 import postfwd3::cache qw();
 # policy daemon, Net::Server::PreFork 
@@ -3486,6 +3495,7 @@ GetOptions( \%options,
 	"cache_umask=s"		  => \$postfwd_settings{server}{umask},
 	"cache|c=i"		  => \$postfwd_settings{request}{ttl},
 	"cacheid=s"		  => sub { push @{$postfwd_settings{cacheid}}, (split /[,\s]+/, $_[1]) },
+	"cacheid_md5!"		  => \$postfwd_settings{request}{usemd5},
 	"cache-rdomain-only"	  => \$postfwd_settings{request}{rdomain_only},
 	"cache-no-sender"	  => \$postfwd_settings{request}{no_sender},
 	"cache-no-size"		  => \$postfwd_settings{request}{no_size},
@@ -3624,9 +3634,6 @@ if (defined $postfwd_settings{chroot}) {
 # init_log
 init_log ($postfwd_settings{name}."/master");
 
-# check for address aggregation with NetAddr::IP
-$postfwd_settings{aggregate_addrs} = ($options{aggregate_addrs} || 0) if $NETADDR;
-
 # read and display configuration
 if (defined $options{'showconfig'}) {
 	read_config(1);
@@ -3694,9 +3701,25 @@ $SIG{__WARN__} = sub { log_warn("warning: $_[0]") };
 $SIG{__DIE__}  = sub { log_crit("FATAL: $_[0]"); die @_; };
 
 # overload cidr compare function if NetAddr::IP is available
-if ($NETADDR) {
-	log_info("NetAddr::IP found, overloading cidr-compare function") if wantsdebug (qw[ all verbose ]);
+if ($options{aggregate_addrs} and not($NETADDR)) {
+	log_note("Module NetAddr::IP not found, ignoring options --aggregate_addrs");
+	$postfwd_settings{aggregate_addrs} = 0;
+} elsif ($NETADDR) {
+	log_info("Module NetAddr::IP found, overloading cidr-compare function") if wantsdebug (qw[ all verbose ]);
+	$postfwd_settings{aggregate_addrs} = ($options{aggregate_addrs} || 0);
 	$postfwd_compare{cidr} = $postfwd_compare{cidr_netaddr};
+};
+
+# check for Storable
+if (($postfwd_settings{rate}{keep} or $postfwd_settings{group}{keep}) and not($STORABLE)) {
+	log_note("Module Storable not found, ignoring options --save_rates and --save_groups");
+	$postfwd_settings{rate}{keep} = 0; $postfwd_settings{group}{keep} = 0;
+};
+
+# check for Digest::MD5
+if ($postfwd_settings{request}{usemd5} and not($DIGESTMD5)) {
+	log_note("Module Digest::MD5 not found, ignoring option --cache_md5");
+	$postfwd_settings{request}{usemd5} = 0;
 };
 
 # check for --stdin option
@@ -3900,6 +3923,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	    --cache_socket <sock>	e.g. tcp:127.0.0.1:10043
 	    --cache_umask <mask>	umask for cache filepermissions
 	    --cacheid <list>		list of request items for cache-id
+	    --cacheid_md5	        cacheid => md5sum(request)
 	    --cache-rdomain-only	skip recipient localpart for cache-id
 	    --cache-no-sender		skip sender address for cache-id
 	    --cache-no-size		skip size for cache-id
@@ -4948,6 +4972,9 @@ These parameters influence the way postfwd3 is working. Any of them can be combi
 		postfwd3 --cache=3600 --cacheid=client_name,client_address
 	This increases efficiency of caching and improves postfwd's performance.
 	Warning: You should list all items here, which are used in your ruleset!
+
+	--cacheid_md5, --nocacheid_md5    (default=1)
+	The cacheid will be created with a md5sum of the request items.
 
 	--cleanup-requests <interval>    (default=600)
 	The request cache will be searched for timed out items after this <interval> in
