@@ -2553,9 +2553,7 @@ sub compare_item {
 	# prepare_group
 	if ($val =~ /^$COMP_GROUP/) {
 		my @mygroup = degroup_item($now, $val);
-		if (@mygroup) {
-			map { push @items, $cmp.";".$_ } @mygroup if @mygroup;
-		};
+		map { push @items, $cmp.";".$_ } @mygroup if @mygroup;
 		next ITEM;
 	};
 	log_info ("compare $mykey:  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
@@ -3307,9 +3305,9 @@ sub child_init_hook {
 # child process request
 sub process_request {
 	my($self) = shift;
+	my(%attr) = ();
 	my($client) = $self->{server}->{client};
 	my($parent) = $self->{server}->{parent_sock};
-	my(%attr) = ();
 	while (<$client>) {
 		s/\r?\n$//;
 		# respond to masters ping
@@ -3328,8 +3326,8 @@ sub process_request {
 # multiplex process request
 sub mux_input() {
         my ($self, $mux, $client, $data) = @_;
+	my(%attr) = ();
         my ($request) = undef;
-        my (%attr) = ();
         # check request and print output
         while ( $$data =~ s/^([^\r\n]*)\r?\n// ) {
                 # check request line and print output
@@ -3362,7 +3360,7 @@ sub process_input {
 		unless ( (defined $$attr{request}) and ($$attr{request} eq "smtpd_access_policy") ) {
 			log_note ("Ignoring unrecognized request type: '".((defined $$attr{request}) ? substr($$attr{request},0,100) : '')."'");
 		} else {
-			my $action = smtpd_access_policy($parent, $attr) || $postfwd_settings{default};
+			my $action = smtpd_access_policy($parent, \%$attr) || $postfwd_settings{default};
 			log_info ("Action: $action") if wantsdebug (qw[ all thisrequest verbose ]);
 			if ($client) {
 				print $client ("action=$action\n\n");
