@@ -741,10 +741,7 @@ sub save_rates {
 	local $SIG{__DIE__} = sub { log_note ("ERROR: Could not store rate limits to ".$postfwd_settings{rate}{store}.": $! @_") };
 	store ($Cache{rate}, $postfwd_settings{rate}{store});
     };
-    unless( $@ ) {
-        log_info ("Saved ".(scalar %{$Cache{rate}})." rates to ".$postfwd_settings{rate}{store})
-                if wantsdebug(qw[ all verbose rates loadrates saverates ]);
-    };
+    log_info ("Saved ".(scalar %{$Cache{rate}})." rates to ".$postfwd_settings{rate}{store}) unless $@;
 };
 
 # loads rate limits from disk
@@ -757,8 +754,7 @@ sub load_rates {
     };
     if ( not($@) and defined $loadrate ) {
 	$Cache{rate} = $loadrate;
-        log_info ("Fetched ".(scalar %{$Cache{rate}})." rates from ".$postfwd_settings{rate}{store})
-                if wantsdebug(qw[ all verbose rates loadrates saverates ]);
+        log_info ("Fetched ".(scalar %{$Cache{rate}})." rates from ".$postfwd_settings{rate}{store});
 	cleanup_cache ('rate', time());
     };
 };
@@ -771,10 +767,7 @@ sub save_groups {
 	local $SIG{__DIE__} = sub { log_note ("ERROR: Could not store group cache to ".$postfwd_settings{group}{store}.": $! @_") };
 	store (%Groups, $postfwd_settings{group}{store});
     };
-    unless( $@ ) {
-        log_info ("Saved ".(scalar %Groups)." groups to ".$postfwd_settings{group}{store})
-                if wantsdebug(qw[ all verbose groups savegroups ]);
-    };
+    log_info ("Saved ".(scalar %Groups)." groups to ".$postfwd_settings{group}{store}) unless $@;
 };
 
 # loads group cache from disk
@@ -787,8 +780,7 @@ sub load_groups {
     };
     if ( not($@) and defined $loadgroup ) {
 	%Groups = $loadgroup;
-        log_info ("Fetched ".(scalar %Groups)." groups from ".$postfwd_settings{group}{store})
-                if wantsdebug(qw[ all verbose groups loadgroups ]);
+        log_info ("Fetched ".(scalar %Groups)." groups from ".$postfwd_settings{group}{store});
 	cleanup_groups (time());
     };
 };
