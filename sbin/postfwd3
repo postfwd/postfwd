@@ -38,7 +38,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "1.99-devel9";
+our $VERSION	= "2.00-pre1";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -3517,7 +3517,7 @@ GetOptions( \%options,
 	"save_groups|save_groups_on_restart=s" => \$postfwd_settings{group}{store},
 	"fast_limit_evaluation"	  => \$postfwd_settings{rate}{fast_eval},
 	# Control
-	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable: $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
+	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
 	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit; },
 	'manual|m'		  => sub{ # contructing command string (de-tainting $0)
                                           $postfwd_settings{manual} .= ($0 =~ /^([-\@\/\w. ]+)$/) ? " \"".$1 : " \"".$postfwd_settings{name};
@@ -3597,6 +3597,8 @@ if (@ARGV) {
 		$options{'term'} = 1;
 	} elsif ($ARGV[0] =~ /^(hup|reload)$/i) {
 		$options{'hup'} = 1;
+	} elsif ($ARGV[0] =~ /^(defaults)$/i) {
+		$options{'defaults'} = 1;
 	} elsif ($ARGV[0] =~ /^(dumpcache)$/i) {
 		$options{'dumpcache'} = 1;
 	} elsif ($ARGV[0] =~ /^(dumpstats)$/i) {
@@ -3693,7 +3695,7 @@ unless ($postfwd_settings{daemon}) {
 log_info ($postfwd_settings{name}." "
 	.$postfwd_settings{version}." starting [daemons: ".(join ',', sort keys %{$postfwd_settings{daemons}})."]"
 	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : ''));
-log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
+log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
 umask oct($postfwd_settings{base}{umask});
 daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file}) if $postfwd_settings{daemon};
 $0 = $Commandline;
@@ -4022,6 +4024,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	reload				same as --reload
 	dumpcache			same as --dumpcache
 	dumpstats			same as --dumpstats
+	defaults			same as --defaults
 	delcache <item>			same as --delcache <item>
 	delrate <item>			same as --delrate <item>
 

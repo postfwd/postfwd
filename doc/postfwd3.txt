@@ -133,6 +133,7 @@ SYNOPSIS
             reload                          same as --reload
             dumpcache                       same as --dumpcache
             dumpstats                       same as --dumpstats
+            defaults                        same as --defaults
             delcache <item>                 same as --delcache <item>
             delrate <item>                  same as --delrate <item>
 

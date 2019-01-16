@@ -1,8 +1,47 @@
-postfwd3 1.99-devel9
-====================
-- feature: arguments --load_groups and --keep_groups
-- feature: argument --cacheid_md5, --nocacheid_md5
-- feature: postfwd-docker: shortcut to run postfwd commands in a container
+postfwd3 2.00-pre1
+==================
+- code:    First public pre-release Version of postfwd3.
+	   This release will obsolete postfwd1 and postfwd2 when
+	   it leaves pre-release stage.
+
+- code:	   General:
+	   postfwd3 lets you choose between Multiplex and PreFork personality.
+	   Please look at the manpage or at postfwd.org/doc.html for the
+	   --personality argument. if not specified, postfwd chooses the
+	   personality-type by the program-name ("postfwd" and "postfwd1" mean
+	   "Multiplex", "postfwd2" means PreFork).
+- code:    postfwd now takes commands as arguments, e.g.
+	   'postfwd stop' or 'postfwd reload'. Please see the manpage
+	   for more information
+
+- feature: Dynamic groups:
+	   Dynamic groups allow to store request items like "client_address"
+	   or "sender" in groups, which can be queried or modified at
+	   runtime. Please read the manual section about "DYNAMIC GROUPS".
+- feature: arguments --load_groups and --keep_groups allows to save
+	   the contents of the dynamic group cache
+
+- code:    IPv6 support:
+	   postfwd3 optionally uses NetAddr:IP for cidr-compare functions
+	   if available, which allows better IPv6 matching. Please note
+	   that former versions used regex-matching for v6 addresses and
+	   adapt your rulesets if required.
+- code:    IPv6 Support (requires NetAddr::IP module) for
+	   dnsbl lookups (fixed 'reverse_address' item)
+	   Use the --ipv6_dnsbl switch to enable this feature
+
+- feature: Docker support:
+	   Since version 1.36+ postfwd can be run in a docker container.
+	   Script: postfwd-docker: shortcut to run postfwd commands in
+	   a container (found in docker/postfwd-docker.sh in the tarball)
+	   Please visit https://postfwd.org/docker for more information.
+
+- feature: Performance optimisation:
+	   lists of ip and network objects will now be aggregated
+	   automatically using Net::Addr->Compact() function.
+	   This can be disabled by the --noaggregate_addrs switch
+- feature: argument --cacheid_md5, --nocacheid_md5 for short
+	   automatic cacheids (optionally requires Digest::MD5)
 - code:    Performance and memory tuning (mainly hash -> hashref).
 	   **********************************************************
 	   ** This breaks existing plugins! The <request> argument **
@@ -10,51 +49,7 @@ postfwd3 1.99-devel9
            ** Please look at the manual for more info.             **
 	   **********************************************************
 
-postfwd3 1.99-devel8
-====================
-- feature: Dynamic groups allow to store and compare request items
-	   Please read the manual section about "DYNAMIC GROUPS".
-- bugfix:  network aggregation allows mixed items (e.g. lfile:) now
-- code:    --ipv6_dnsbl switch to enable dnsbl lookups for IPv6
+- bugfix:  several small fixes (logging, argument-combinations, ...)
 
-postfwd3 1.99-devel7
-====================
-- bugfix:  deactivated AutoCacheID. needs further development to
-	   not conflict with postfwd_items and plugins.
-
-postfwd3 1.99-devel6
-====================
-- code:    lists of ip and network objects will now be aggregated
-	   automatically using Net::Addr->Compact() function.
-	   This can be disabled by the --noaggregate_addrs switch
-
-postfwd3 1.99-devel5
-====================
-- code:    IPv6 Support (requires NetAddr::IP module) for
-	   dnsbl lookups (fixed 'reverse_address' item)
-
-postfwd3 1.99-devel4
-====================
-- code:    postfwd3 optionally uses NetAddr:IP for cidr-compare functions
-	   if available, which allows better IPv6 matching. Please note
-	   that former versions used regex-matching for v6 addresses and
-	   adapt your rulesets if required.
-
-postfwd3 1.99-devel3
-====================
-- code:    postfwd now takes commands as arguments, e.g.
-	   'postfwd stop' or 'postfwd reload'. Please see the manpage
-	   for more information
-- bugfix:  logging fixes
-
-postfwd3 1.99-devel2
-====================
-- bugfix:  fixed typo in autopersonality-detection for postfwd2
-
-postfwd3 1.99-devel1
-====================
-- code:    First release of postfwd3.
-	   postfwd3 lets you choose between Multiplex and PreFork personality.
-	   This release will obsolete postfwd1 and postfwd2. Please look at the
-	   manpage or at postfwd.org/doc.html for the --personality switch.
+- ToDo:	   review man-page and examples
 
