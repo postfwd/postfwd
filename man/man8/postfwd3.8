@@ -146,12 +146,13 @@ postfwd3 \- postfix firewall daemon
 .PP
 \&\fBpostfwd3\fR [\s-1OPTIONS\s0] \-\-cmd [\s-1SOURCE1, SOURCE2, ...\s0]
 .PP
-.Vb 5
+.Vb 6
 \&        Ruleset: (at least one, multiple use is allowed):
 \&        \-f, \-\-file <file>               reads rules from <file>
 \&        \-r, \-\-rule <rule>               adds <rule> to config
 \&        \-s, \-\-scores <v>=<r>            returns <r> when score exceeds <v>
 \&        \-A, \-\-aggregate_addrs           pre\-compute ip address lists to subnets
+\&            \-\-no_netaddr                don\*(Aqt use NetAddr::IP functions
 \&
 \&        Server:
 \&        \-i, \-\-interface <dev>           listen on interface <dev>
@@ -1166,6 +1167,10 @@ that at least one of the following is required for postfwd3 to work.
 \&           client_address=10.0.0.0/22
 \&
 \&        This increases the performance of cidr\-matching
+\&
+\&        \-\-no_netaddr
+\&        Do not use functions from module NetAddr::IP, even if it was found
+\&        on the system. This option implicitly disables \-\-aggregate_addrs.
 .Ve
 .PP
 \&\fIScoring\fR

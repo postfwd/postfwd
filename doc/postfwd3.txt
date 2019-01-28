@@ -11,6 +11,7 @@ SYNOPSIS
             -r, --rule <rule>               adds <rule> to config
             -s, --scores <v>=<r>            returns <r> when score exceeds <v>
             -A, --aggregate_addrs           pre-compute ip address lists to subnets
+                --no_netaddr                don't use NetAddr::IP functions
 
             Server:
             -i, --interface <dev>           listen on interface <dev>
@@ -966,6 +967,10 @@ DESCRIPTION
                client_address=10.0.0.0/22
 
             This increases the performance of cidr-matching
+
+            --no_netaddr
+            Do not use functions from module NetAddr::IP, even if it was found
+            on the system. This option implicitly disables --aggregate_addrs.
 
     *Scoring*
 
