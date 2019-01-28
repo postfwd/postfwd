@@ -38,7 +38,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.00-pre1";
+our $VERSION	= "2.00-pre2";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -59,7 +59,6 @@ our %postfwd_settings = (
 	base => {
 		user             => 'nobody',
 		group            => 'nobody',
-		#setsid           => 1,
 		log_level        => 2,
 		log_file         => 'Sys::Syslog',
 		syslog_ident     => "$NAME",
@@ -1061,7 +1060,7 @@ my $COMP_DATECALC             = "($COMP_DATE|$COMP_TIME|$COMP_DAYS|$COMP_MONTHS)
 # these items allow whitespace-or-comma-separated values
 my $COMP_CSV                  = "($COMP_NETWORK_CIDRS|$COMP_RBL_KEY|$COMP_RHSBL_KEY|$COMP_RHSBL_KEY_CLIENT|$COMP_RHSBL_KEY_HELO|$COMP_RHSBL_KEY_SENDER|$COMP_RHSBL_KEY_RCLIENT|$COMP_DATECALC)";
 # dont treat these as lists
-my $COMP_SINGLE               = "($COMP_ID|$COMP_ACTION|$COMP_CACHE|$COMP_SCORES|$COMP_RBL_CNT|$COMP_RHSBL_CNT)";
+my $COMP_SINGLE               = "($COMP_ID|$COMP_CACHE|$COMP_SCORES|$COMP_RBL_CNT|$COMP_RHSBL_CNT)";
 
 # date tools
 my %months = (
@@ -1148,7 +1147,7 @@ sub devar_item {
 		} elsif (defined $request->{$var}) {
 			$myresult=$val=$pre.$request->{$var}.$post;
 		};
-		log_info ("substitute :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest verbose ]);
+		log_info ("substitute :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest devar ]);
 	};
 	return $myresult;
 };
@@ -1290,7 +1289,6 @@ sub aggregate_addr {
 	my @keep = my @comp = ();
 	foreach my $addr (@addrs) {
 		# disable aggregation for dynamic elements (lfile, negation, ...)
-		#if ( $addr =~ m@[^[;=<>\~]+[0-9a-fA-F_:/\.\[\]\-]+$@ ) {
 		if ( $addr =~ m@$COMP_ADDRESS_ITEM@ ) {
 			($1) ? push @comp, $1 : push @keep, $addr;
 		} else {
@@ -1319,7 +1317,6 @@ sub acl_parser {
 			if ( $acl and defined $ACLs{$acl} ) {
 				$myline =~ s/\s*$acl\s*/$ACLs{$acl}/g;
 			} else {
-				#return "action=note(undefined macro '$acl')";
 				log_warn ("file $file, ignoring line $num: undefined macro '$acl'");
 				return "";
 			};
@@ -1335,8 +1332,6 @@ sub prepare_pcre {
 	$item = $neg if ($neg = deneg_item($item));
 	# allow // regex
 	$item =~ s/^\/?(.*?)\/?$/$1/;
-	# tested slow
-	#$item = qr/$item/i;
 	# re-enable negation
 	$item = "!!($item)" if $neg;
 	return $item;
@@ -1436,6 +1431,8 @@ sub parse_config_line {
 					$myrule{$mykey} = $myvalue;
 				} elsif ($mykey =~ /^$COMP_CSV$/) {
 					map { push @{$myrule{$mykey}}, prepare_item ($forced_reload, $mycomp, $_) } ( split /\s*,\s*/, $myvalue );
+				} elsif ($mykey =~ /^$COMP_ACTION$/) {
+					push @{$myrule{$mykey}}, $myvalue;
 				} else {
 					push @{$myrule{$mykey}}, prepare_item ($forced_reload, $mycomp, $myvalue);
 				};
@@ -1449,7 +1446,7 @@ sub parse_config_line {
 				log_note ("notice: Rule $myindex ($myfile line $mynum): contains no rule identifier - will use \"$myrule{id}\"") if wantsdebug (qw[ all thisrequest config verbose ]);
 			};
 			map { @{$myrule{$_}} = aggregate_addr($myfile,$mynum,$myindex,$_,@{$myrule{$_}}) if $_ =~ /$COMP_NETWORK_CIDRS/ } (keys %myrule) if ($NETADDR and $postfwd_settings{aggregate_addrs});
-			log_info ("loaded: Rule $myindex ($myfile line $mynum): id->\"$myrule{id}\" action->\"$myrule{action}\"") if wantsdebug (qw[ all thisrequest config verbose ]);
+			log_info ("loaded: Rule $myindex ($myfile line $mynum): id->\"$myrule{id}\" action->\"".(join ' || ', @{$myrule{action}})."\"") if wantsdebug (qw[ all thisrequest config verbose ]);
 		};
 	    };
 	    alarm($prevalert) if $postfwd_settings{timeout}{config};
@@ -1567,7 +1564,7 @@ sub show_config {
 	};
 	for my $index (0 .. $#Rules) {
 		next unless exists $Rules[$index];
-		printf STDOUT "Rule %3d: id->\"%s\"; action->\"%s\"", $index, $Rules[$index]{$COMP_ID}, $Rules[$index]{$COMP_ACTION};
+		printf STDOUT "Rule %3d: id->\"%s\"; action->\"%s\"", $index, $Rules[$index]{$COMP_ID}, join(' || ', @{$Rules[$index]{$COMP_ACTION}});
 		my $line = (wantsdebug (qw[ all verbose ])) ? "\n\t  " : "";
 		for my $mykey ( reverse sort keys %{$Rules[$index]} ) {
 			unless (($mykey eq $COMP_ACTION) or ($mykey eq $COMP_ID)) {
@@ -1938,8 +1935,11 @@ sub postfwd_items {
 		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = ($val and $myitem);
 		log_info ("type cidr_netaddr :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
-		# compare with NetAddr::IP->within()
-		$myresult = NetAddr::IP->new($myitem)->within(NetAddr::IP->new($val)) if $myresult;
+		if ($myresult) {
+			$myresult = 0;
+			# compare with NetAddr::IP->within(), unfortunately code dies on unknown value
+			eval { local $SIG{__DIE__}; $myresult = NetAddr::IP->new($myitem)->within(NetAddr::IP->new($val)) };
+		};
 		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
@@ -2892,7 +2892,8 @@ sub compare_rule {
 # access policy routine
 sub smtpd_access_policy {
     my($parent,$request)		      		= @_;
-    my($myaction)			      		= $postfwd_settings{default};
+    my(@ruleactions) 					= ();
+    my($postfixaction) 			      		= $postfwd_settings{default};
     my($index)				      		= 1;
     my($stop)				      		= 1;
     my($now)				      		= time();
@@ -3012,9 +3013,9 @@ sub smtpd_access_policy {
 
 	$counters .= $postfwd_settings{sepreq}."rate=1";
 	$Matches{$Rate_Cache{$ratehit}{$rateindex}{rule}}++;
-	$myaction = $Rate_Cache{$ratehit}{$rateindex}{action};
+	$postfixaction = $Rate_Cache{$ratehit}{$rateindex}{action};
 	# substitute check for $$vars in action
-	$myaction = $var if ( $var = devar_item ("==",$myaction,"action",$request) );
+	$postfixaction = $var if ( $var = devar_item ("==",$postfixaction,"action",$request) );
 	log_info ("[RATES] rule=".$Rule_by_ID{$Rate_Cache{$ratehit}{$rateindex}{rule}}
 		. ", id=".$Rate_Cache{$ratehit}{$rateindex}{rule}
 		. ( ($request->{queue_id}) ? ", queue=".$request->{queue_id} : '' )
@@ -3026,7 +3027,7 @@ sub smtpd_access_policy {
 		. ", proto=".$request->{protocol_name}
 		. ", state=".$request->{protocol_state}
 		. ", delay=".ts(time() - $now)."s"
-		. ", action=".$myaction." (item: '".$ratehit."'"
+		. ", action=".$postfixaction." (item: '".$ratehit."'"
 		. ", type: ".$Rate_Cache{$ratehit}{$rateindex}{type}
 		. ", count: ".$request->{ratecount}."/".$Rate_Cache{$ratehit}{$rateindex}{maxcount}
 		. ", time: ".ts($now - $Rate_Cache{$ratehit}{$rateindex}{"time"})."/".$Rate_Cache{$ratehit}{$rateindex}{ttl}."s)"
@@ -3036,7 +3037,7 @@ sub smtpd_access_policy {
     } elsif ( ($postfwd_settings{request}{ttl} > 0)
 	and ((exists($Request_Cache{$cacheid}{$COMP_ACTION})) and ($now <= $Request_Cache{$cacheid}{'until'})) ) {
 	$counters .= $postfwd_settings{sepreq}."ccache=1";
-	$myaction = $Request_Cache{$cacheid}{$COMP_ACTION};
+	$postfixaction = $Request_Cache{$cacheid}{$COMP_ACTION};
 	if ( $Request_Cache{$cacheid}{hit} ) {
 		$Matches{$Request_Cache{$cacheid}{$COMP_ID}}++;
 		$rulehits = join $postfwd_settings{sepreq}, (split ';', $Request_Cache{$cacheid}{hits}) if $Request_Cache{$cacheid}{hits};
@@ -3052,7 +3053,7 @@ sub smtpd_access_policy {
 			. ", state=".$request->{protocol_state}
 			. ", delay=".ts(time() - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
-			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
+			. ", action=".$postfixaction
 			) unless $postfwd_settings{request}{nolog};
 	};
 
@@ -3062,7 +3063,7 @@ sub smtpd_access_policy {
 	and not((my $pans = cache_query ("CMD=".$postfwd_commands{getcacheitem}.";TYPE=request;ITEM=$cacheid")) eq '<undef>') ) {
 	map { $Request_Cache{$cacheid}{$1} = $2 if m/$postfwd_patterns{keyval}/ } (split $postfwd_settings{sepreq}, $pans);
 	$counters .= $postfwd_settings{sepreq}."pcache=1";
-	$myaction = $Request_Cache{$cacheid}{$COMP_ACTION};
+	$postfixaction = $Request_Cache{$cacheid}{$COMP_ACTION};
 	if ( $Request_Cache{$cacheid}{hit} ) {
 		$Matches{$Request_Cache{$cacheid}{$COMP_ID}}++;
 		$rulehits = join $postfwd_settings{sepreq}, (split ';', $Request_Cache{$cacheid}{hits}) if $Request_Cache{$cacheid}{hits};
@@ -3078,7 +3079,7 @@ sub smtpd_access_policy {
 			. ", state=".$request->{protocol_state}
 			. ", delay=".ts(time() - $now)."s"
 			. ", hits=".$Request_Cache{$cacheid}{hits}
-			. ", action=".$Request_Cache{$cacheid}{$COMP_ACTION}
+			. ", action=".$postfixaction
 			) unless $postfwd_settings{request}{nolog};
 	};
 
@@ -3126,14 +3127,12 @@ sub smtpd_access_policy {
 
 			# matched? prepare logline, increase counters
 			if ($stop = $matched > 0) {
-				$myaction = $Rules[$index]{$COMP_ACTION};
+				@ruleactions = @{$Rules[$index]{$COMP_ACTION}};
 				$Matches{$Rules[$index]{$COMP_ID}}++;
 				$rulehits .= $postfwd_settings{sepreq} if $rulehits;
 				$rulehits .= $Rules[$index]{$COMP_ID};
 				$request->{$COMP_HITS} .= ';' if (defined $request->{$COMP_HITS});
 				$request->{$COMP_HITS} .= $Rules[$index]{$COMP_ID};
-				# substitute check for $$vars in action
-				$myaction = $var if ( $var = devar_item ("==",$myaction,"action",$request) );
 				$myline = "rule=".$index
 					. ", id=".$Rules[$index]{$COMP_ID}
 					. ( ($request->{queue_id}) ? ", queue=".$request->{queue_id} : '' )
@@ -3146,29 +3145,35 @@ sub smtpd_access_policy {
 					. ", state=".$request->{protocol_state};
 
 				# check for postfwd action
-				$ai = 0; # (re)set max_command_recursion counter
-				while ($ai++ < $postfwd_settings{max_command_recursion} and $myaction =~ /$COMP_ACTION_MATCH/) {
-					my($mycmd,$myarg) = ($1, $2); $stop = 0;
-					if (defined $postfwd_actions{$mycmd}) {
-						log_info ("[PLUGIN] executing postfwd-action $mycmd") if wantsdebug (qw[ all thisrequest ]);
-						($stop, $index, $myaction, $myline) = &{$postfwd_actions{$mycmd}}($index, $now, $mycmd, $myarg, $myline, $request);
-						$rhit = "rate" if ($stop and $mycmd =~ /^(rate|size|rcpt)$/);
-						# substitute again after postfwd-actions
-						$myaction = $var if ( $var = devar_item ("==",$myaction,"action",$request) );
-					} else {
-						log_warn ("[RULES] ".$myline." - error: unknown command \"".$1."\" - ignoring");
-						$myaction = $postfwd_settings{default};
+				ACT: foreach my $act (@ruleactions) {
+					# substitute check for $$vars in action
+					$act = $var if ( $var = devar_item ("==",$act,"action",$request) );
+					$stop = 1; $ai = 0; # (re)set max_command_recursion counter
+					while ($ai++ < $postfwd_settings{max_command_recursion} and $act =~ /$COMP_ACTION_MATCH/) {
+						my($mycmd,$myarg) = ($1, $2); $stop = 0;
+						if (defined $postfwd_actions{$mycmd}) {
+							log_info ("[PLUGIN] executing postfwd-action $mycmd") if wantsdebug (qw[ all thisrequest ]);
+							($stop, $index, $act, $myline) = &{$postfwd_actions{$mycmd}}($index, $now, $mycmd, $myarg, $myline, $request);
+							$rhit = "rate" if ($stop and $mycmd =~ /^(rate|size|rcpt)$/);
+							# substitute again after postfwd-actions
+							$act = $var if ( $var = devar_item ("==",$act,"action",$request) );
+						} else {
+							log_warn ("[RULES] ".$myline." - error: unknown command \"".$1."\" - ignoring");
+							$act = $postfwd_settings{default};
+						};
 					};
+					$postfixaction = $act;
+					last ACT if $stop;
 				};
 				if ($stop) {
-					$myline .= ", delay=".ts(time() - $now)."s, hits=".$request->{$COMP_HITS}.", action=".$myaction;
+					$myline .= ", delay=".ts(time() - $now)."s, hits=".$request->{$COMP_HITS}.", action=".$postfixaction;
     					log_info ("[RULES] ".$myline) unless $postfwd_settings{request}{nolog};
 					$counters .= $postfwd_settings{sepreq}.$rhit."=1";
 					# update cache
 					if ( $postfwd_settings{request}{ttl} > 0 ) {
 						$Request_Cache{$cacheid}{ttl}		    = ($Rules[$index]{$COMP_CACHE} || $postfwd_settings{request}{ttl});
 						$Request_Cache{$cacheid}{'until'}	    = $now + $Request_Cache{$cacheid}{ttl};
-						$Request_Cache{$cacheid}{$COMP_ACTION}	    = $myaction;
+						$Request_Cache{$cacheid}{$COMP_ACTION}	    = $postfixaction;
 						$Request_Cache{$cacheid}{$COMP_ID}    	    = $Rules[$index]{$COMP_ID};
 						$Request_Cache{$cacheid}{hit}	    	    = $matched;
 						$Request_Cache{$cacheid}{hits}		    = $request->{$COMP_HITS};
@@ -3192,11 +3197,11 @@ sub smtpd_access_policy {
 		match_cache(undef, $rulehits) if $rulehits;
 	};
     };
-    $myaction = $postfwd_settings{default} if ($postfwd_settings{test} or !($myaction));
+    $postfixaction = $postfwd_settings{default} if ($postfwd_settings{test} or !($postfixaction));
     map { log_info ("  %$_") } hash_to_list ('Request_Cache', \%Request_Cache)	if wantsdebug (qw[ child_cache child_request_cache ]);
     map { log_info ("  %$_") } hash_to_list ('Rate_Cache', \%Rate_Cache)	if wantsdebug (qw[ child_cache child_rate_cache ]);
     map { log_info ("  %$_") } hash_to_list ('DNS_Cache', \%DNS_Cache)		if wantsdebug (qw[ child_cache child_dns_cache ]);
-    return $myaction;
+    return $postfixaction;
 };
 
 # increase counters
@@ -3376,7 +3381,6 @@ sub mux_input() {
 		if ($request eq $postfwd_patterns{ping}) {
 			$client->print("$postfwd_patterns{pong}\n");
 		} elsif ($request =~ m/$postfwd_patterns{dumpstats}/) {
-			#map { $client->print("$_\n") } (list_stats());
 			$client->print((join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, list_stats())."\n");
 		} elsif ($request =~ m/$postfwd_patterns{dumpcache}/) {
 			$client->print((join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, dump_cache())."\n");
@@ -3638,6 +3642,28 @@ if (defined $postfwd_settings{chroot}) {
 # init_log
 init_log ($postfwd_settings{name}."/master");
 
+# overload cidr compare function if NetAddr::IP is available
+if ($options{aggregate_addrs} and not($NETADDR)) {
+	log_note("Module NetAddr::IP not found, ignoring options --aggregate_addrs");
+	$postfwd_settings{aggregate_addrs} = 0;
+} elsif ($NETADDR) {
+	log_info("Module NetAddr::IP found, overloading cidr-compare function") if wantsdebug (qw[ all verbose ]);
+	$postfwd_settings{aggregate_addrs} = ($options{aggregate_addrs} || 0);
+	$postfwd_compare{cidr} = $postfwd_compare{cidr_netaddr};
+};
+
+# check for Storable
+if (($postfwd_settings{rate}{keep} or $postfwd_settings{group}{keep}) and not($STORABLE)) {
+	log_note("Module Storable not found, ignoring options --save_rates and --save_groups");
+	$postfwd_settings{rate}{keep} = 0; $postfwd_settings{group}{keep} = 0;
+};
+
+# check for Digest::MD5
+if ($postfwd_settings{request}{usemd5} and not($DIGESTMD5)) {
+	log_note("Module Digest::MD5 not found, ignoring option --cache_md5");
+	$postfwd_settings{request}{usemd5} = 0;
+};
+
 # read and display configuration
 if (defined $options{'showconfig'}) {
 	read_config(1);
@@ -3694,7 +3720,7 @@ unless ($postfwd_settings{daemon}) {
 };
 log_info ($postfwd_settings{name}." "
 	.$postfwd_settings{version}." starting [daemons: ".(join ',', sort keys %{$postfwd_settings{daemons}})."]"
-	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : ''));
+	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : '')) unless $postfwd_settings{syslog}{stdin};
 log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
 umask oct($postfwd_settings{base}{umask});
 daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file}) if $postfwd_settings{daemon};
@@ -3703,28 +3729,6 @@ $0 = $Commandline;
 # prepare shared SIG handlers
 $SIG{__WARN__} = sub { log_warn("warning: $_[0]") };
 $SIG{__DIE__}  = sub { log_crit("FATAL: $_[0]"); die @_; };
-
-# overload cidr compare function if NetAddr::IP is available
-if ($options{aggregate_addrs} and not($NETADDR)) {
-	log_note("Module NetAddr::IP not found, ignoring options --aggregate_addrs");
-	$postfwd_settings{aggregate_addrs} = 0;
-} elsif ($NETADDR) {
-	log_info("Module NetAddr::IP found, overloading cidr-compare function") if wantsdebug (qw[ all verbose ]);
-	$postfwd_settings{aggregate_addrs} = ($options{aggregate_addrs} || 0);
-	$postfwd_compare{cidr} = $postfwd_compare{cidr_netaddr};
-};
-
-# check for Storable
-if (($postfwd_settings{rate}{keep} or $postfwd_settings{group}{keep}) and not($STORABLE)) {
-	log_note("Module Storable not found, ignoring options --save_rates and --save_groups");
-	$postfwd_settings{rate}{keep} = 0; $postfwd_settings{group}{keep} = 0;
-};
-
-# check for Digest::MD5
-if ($postfwd_settings{request}{usemd5} and not($DIGESTMD5)) {
-	log_note("Module Digest::MD5 not found, ignoring option --cache_md5");
-	$postfwd_settings{request}{usemd5} = 0;
-};
 
 # check for --stdin option
 if ($postfwd_settings{syslog}{stdin}) {

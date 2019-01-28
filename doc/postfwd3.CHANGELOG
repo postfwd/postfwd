@@ -1,3 +1,21 @@
+postfwd3 2.00-pre2
+==================
+- code:    A rule can have multiple "action"-items now. Of course this
+	   is only valid for postfwd-actions, as postfwd can return only
+	   a single action to postfix. E.g.:
+		# if client is found on list.dnswl.org,
+		#   1. send a note
+		#   2. add it's ip to group %%WHITELISTED
+		#   3. permit the request
+		id=ADDR01
+		        rbl=list.dnswl.org
+		        action=note(adding $$client_address to WHITELIST)
+		        action=groupadd(%%WHITELISTED/client_address)
+		        action=PERMIT_AUTH_DESTINATION
+- bugfix:  --showconfig did not show the aggregated list of networks
+           when --aggregate_addrs was set
+- bugfix:  fix for NetAddr::IP->within crashing on unsafe values
+
 postfwd3 2.00-pre1
 ==================
 - code:    First public pre-release Version of postfwd3.
