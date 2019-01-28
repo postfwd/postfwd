@@ -1938,7 +1938,7 @@ sub postfwd_items {
 		if ($myresult) {
 			$myresult = 0;
 			# compare with NetAddr::IP->within(), unfortunately code dies on unknown value
-			eval { local $SIG{__DIE__}; $myresult = NetAddr::IP->new($myitem)->within(NetAddr::IP->new($val)) };
+			eval { local $SIG{__DIE__} = sub{ log_warn("NetAddr::IP error comparing '$val' to '$myitem'") }; $myresult = NetAddr::IP->new($myitem)->within(NetAddr::IP->new($val)) };
 		};
 		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
