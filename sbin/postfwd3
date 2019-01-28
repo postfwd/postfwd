@@ -3644,7 +3644,7 @@ if (defined $postfwd_settings{chroot}) {
 init_log ($postfwd_settings{name}."/master");
 
 # overload cidr compare function if NetAddr::IP is available
-$NETADDR = 0 if $option{'no_netaddr'};
+$NETADDR = 0 if $options{'no_netaddr'};
 if ($options{aggregate_addrs} and not($NETADDR)) {
 	log_note("Module NetAddr::IP not found, ignoring options --aggregate_addrs");
 	$postfwd_settings{aggregate_addrs} = 0;
