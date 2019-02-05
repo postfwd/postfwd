@@ -38,7 +38,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.00-pre2";
+our $VERSION	= "2.00-pre3";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -152,7 +152,6 @@ our %postfwd_settings = (
 	rate => {
 		cleanup		=> 600,
 		noparent	=> 0,
-		fast_eval	=> 0,
 		store		=> undef,
 	},
 	group => {
@@ -1545,12 +1544,9 @@ sub read_config {
 		if ( @Rate_Items ) {
 			@Rate_Items = uniq(@Rate_Items);
 			log_info ("rate items: ".(join ', ', @Rate_Items)) if wantsdebug (qw[ all thisrequest verbose rates ]);
-			# disable request cache with ratelimits unless --fast_limit_evaluation is set
-			unless ($postfwd_settings{rate}{fast_eval}) {
-				$postfwd_settings{request}{ttl} = 0;
-				log_note ("disabling request cache due to ratelimits in configuration. may be changed with the --fast_limit_evaluation option")
-					if wantsdebug (qw[ all thisrequest verbose ]);
-			};
+			# disable request cache with ratelimits
+			$postfwd_settings{request}{ttl} = 0;
+			log_note ("disabling request cache due to ratelimits in configuration");
 		};
 	};
 };
@@ -2297,7 +2293,7 @@ sub postfwd_items {
 	# rate() command
 	"rate"	=> sub {
 		my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
-		my($myaction) = $postfwd_settings{default}; my($stop) = 0; my $prate = '';
+		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		my($ratetype,$ratecount,$ratetime,$ratecmd) = split "/", $myarg, 4;
 		my($rcount) = ( ($mycmd =~ /^size/) ? $request->{size} : (($mycmd =~ /^rcpt/) ? $request->{recipient_count} : 1 ) );
 		if ($ratetype and $ratecount and $ratetime and $ratecmd and $rcount) {
@@ -2310,75 +2306,52 @@ sub postfwd_items {
                                 $r = ($r =~ /^([^@]+)@(\S+)$/) ? $1.'@'.lc($2) : lc($r);
                         };
                         $ratetype .= "=".$r;
-
-			if ( $postfwd_settings{rate}{fast_eval} ) {
-				# Check if rate already exists in cache
-				my $rate_exists = ( defined $Rate_Cache{$ratetype}{$crate} );
-				if ( $rate_exists ) {
-					# Child hit
-					log_info ("[RULES] rate limit object '".$ratetype."' '".$crate."' exists in local cache") if wantsdebug (qw[ all thisrequest rates ]);
-				# Query parent cache
-				} elsif ( not $postfwd_settings{rate}{noparent} ) {
-					my $prate = "CMD=".$postfwd_commands{getrateitem}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate;
-					log_info ("[RULES] query parent cache: '$prate'") if wantsdebug (qw[ all thisrequest rates ]);
-					$prate = cache_query($prate);
-					log_info ("[RULES] parent cache answer: '$prate'") if wantsdebug (qw[ all thisrequest rates ]);
-					$rate_exists = ( $prate ne '<undef>' );
-					if ( $rate_exists ) {
-						# Parent hit, populate local cache
-						%{$Rate_Cache{$ratetype}{$crate}} = str_to_hash(\$prate);
-						push @{$Rate_Cache{$ratetype}{'list'}}, $crate;
-						@{$Rate_Cache{$ratetype}{'list'}} = uniq(@{$Rate_Cache{$ratetype}{'list'}});
-					};
-				};
+			push @{$Rate_Cache{$ratetype}{'list'}}, $crate;
+			@{$Rate_Cache{$ratetype}{'list'}} = uniq(@{$Rate_Cache{$ratetype}{'list'}});
+			my $rate_exists = ( defined $Rate_Cache{$ratetype}{$crate} );
+			$Rate_Cache{$ratetype}{$crate}{'type'}     = $mycmd;
+			$Rate_Cache{$ratetype}{$crate}{'maxcount'} = $ratecount;
+			$Rate_Cache{$ratetype}{$crate}{'rule'}     = $Rules[$index]{$COMP_ID};
+			$Rate_Cache{$ratetype}{$crate}{'action'}   = $ratecmd;
+			# child rate cache
+                        if ($postfwd_settings{rate}{noparent}) {
+				# create rate
 				unless ( $rate_exists ) {
-					log_info ("[RULES] ".$myline
-						.", creating rate limit object '".$ratetype."' '".$crate."'"
-						." [type: ".$mycmd.", max: ".$ratecount.", time: ".$ratetime."s]")
-						if wantsdebug (qw[ all thisrequest rates ]);
-					push @{$Rate_Cache{$ratetype}{'list'}}, $crate;
-					@{$Rate_Cache{$ratetype}{'list'}} = uniq(@{$Rate_Cache{$ratetype}{'list'}});
-					$Rate_Cache{$ratetype}{$crate} = {
-						type 		=> $mycmd,
-						maxcount	=> $ratecount,
-						ttl		=> $ratetime,
-						'time'		=> $now,
-						'until'		=> $now + $ratetime,
-						count		=> $rcount,
-						rule		=> $Rules[$index]{$COMP_ID},
-						action		=> $ratecmd,
-					};
-					unless ($postfwd_settings{rate}{noparent}) {
-						$prate = "CMD=".$postfwd_commands{setrateitem}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
-						log_info ("updating parent rate limit object '".$prate."'") if wantsdebug (qw[ all thisrequest rates setcache ]);
-						cache_query ($prate);
+					$Rate_Cache{$ratetype}{$crate}{'ttl'}	= $ratetime;
+					$Rate_Cache{$ratetype}{$crate}{'time'}	= $now;
+					$Rate_Cache{$ratetype}{$crate}{'until'}	= $now + $ratetime;
+					$Rate_Cache{$ratetype}{$crate}{'count'}	= $rcount;
+                                	log_info ("created rate limit object '$ratetype'->'".$crate."' with value '$rcount'") if wantsdebug (qw[ all thisrequest rates ]);
+				} else {
+					# renew rate
+					if ( $now > $Rate_Cache{$ratetype}{$crate}{'until'} ) {
+						$Rate_Cache{$ratetype}{$crate}{'ttl'}	= $ratetime;
+						$Rate_Cache{$ratetype}{$crate}{'time'}	= $now;
+						$Rate_Cache{$ratetype}{$crate}{'until'}	= $now + $ratetime;
+						$Rate_Cache{$ratetype}{$crate}{'count'}	= $rcount;
+	                                	log_info ("renewed rate limit object '$ratetype'->'".$crate."' with value '$rcount'") if wantsdebug (qw[ all thisrequest rates ]);
+					# increase rate
+					} else {
+						$Rate_Cache{$ratetype}{$crate}{'count'} += $rcount || 0;
+	                                	log_info ("updated rate limit object '$ratetype'->'".$crate."' with value '$rcount' to '".$Rate_Cache{$ratetype}{$crate}{'count'}."'") if wantsdebug (qw[ all thisrequest rates ]);
 					};
 				};
-			} else {
-				push @{$Rate_Cache{$ratetype}{'list'}}, $crate;
-				@{$Rate_Cache{$ratetype}{'list'}} = uniq(@{$Rate_Cache{$ratetype}{'list'}});
-				$Rate_Cache{$ratetype}{$crate} = {
-					type            => $mycmd,
-                                        maxcount        => $ratecount,
-                                        ttl             => $ratetime,
-                                        'time'          => $now,
-                                        'until'         => $now + $ratetime,
-                                        count           => $rcount,
-                                        rule            => $Rules[$index]{$COMP_ID},
-                                        action          => $ratecmd,
-                                };
-                                unless ($postfwd_settings{rate}{noparent}) {
-                                        $prate = "CMD=".$postfwd_commands{setrateitem2}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
-                                        log_info ("updating parent rate limit object '".$prate."'") if wantsdebug (qw[ all thisrequest rates setcache ]);
-                                        $prate = cache_query ($prate);
-                                };
+			# parent rate cache
+                        } else {
+				$Rate_Cache{$ratetype}{$crate}{'ttl'}	= $ratetime;
+				$Rate_Cache{$ratetype}{$crate}{'time'}	= $now;
+				$Rate_Cache{$ratetype}{$crate}{'until'}	= $now + $ratetime;
+				$Rate_Cache{$ratetype}{$crate}{'count'}	= $rcount;
+                                my $prate = "CMD=".$postfwd_commands{setrateitem2}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
+                                $prate = cache_query ($prate);
 				$Rate_Cache{$ratetype}{$crate}{count} = $prate if ($prate =~ /^\d+$/);
-			};
+                               	log_info ("updated parent rate limit object '$ratetype'->'".$crate."' with value '$rcount' to '".$Rate_Cache{$ratetype}{$crate}{'count'}."'") if wantsdebug (qw[ all thisrequest rates ]);
+                        };
 			# rate exceeded
 			$stop = ( $Rate_Cache{$ratetype}{$crate}{count} > $Rate_Cache{$ratetype}{$crate}{maxcount} );
 			if ($stop) {
 				$myaction=$Rate_Cache{$ratetype}{$crate}{action};
-				$request->{'ratecount'} = $prate;
+				$request->{'ratecount'} = $Rate_Cache{$ratetype}{$crate}{count} || 0;
 				$myline .= ", rate=".$Rate_Cache{$ratetype}{$crate}{type}."/".$Rate_Cache{$ratetype}{$crate}{count}."/".ts($now - $Rate_Cache{$ratetype}{$crate}{'time'})."s";
 			};
 		  } else {
@@ -2947,30 +2920,6 @@ sub smtpd_access_policy {
 	$Cleanup_Rates = $t1;
     };
 
-    # increase rate limits
-    if (@Rate_Items and $postfwd_settings{rate}{fast_eval}) {
-	map { $checkval .= $_."=".lc($request->{$_}).$postfwd_settings{seplst} if $request->{$_} } (@Rate_Items);
-	if ($checkval) {
-		$checkval = "CMD=".$postfwd_commands{checkrate}.";TYPE=rate;ITEM=$checkval;SIZE=".($request->{'size'} || 0).";RCPT=".($request->{'recipient_count'} || 0);
-			log_info ("[RATES] parent rate limit query: ".$checkval) if wantsdebug (qw[ all thisrequest verbose rates ]);
-			$checkval = cache_query ($checkval);
-			log_info ("[RATES] parent rate limit answer: ".$checkval) if wantsdebug (qw[ all thisrequest verbose rates ]);
-			unless ($checkval eq '<undef>') {
-				my($i,$r) = split $postfwd_settings{seplst}, $checkval;
-				my($it, $ri) = split $postfwd_settings{seplim}, $i;
-				if ($it and $ri and $r) {
-					$ratehit = $it; $rateindex = $ri;
-					%{$Rate_Cache{$it}{$ri}} = str_to_hash (\$r);
-					push @{$Rate_Cache{$it}{'list'}}, $ri;
-					@{$Rate_Cache{$it}{'list'}} = uniq(@{$Rate_Cache{$it}{'list'}});
-					$request->{'ratecount'} = $Rate_Cache{$it}{$ri}{'count'}
-						+ ( ($Rate_Cache{$it}{$ri}{type} eq 'size') ? $request->{size}
-						: (($Rate_Cache{$it}{$ri}{type} eq 'rcpt') ? $request->{recipient_count} : 1 ) );
-				};
-			};
-	};
-    };
-
     # Request cache enabled?
     if ( $postfwd_settings{request}{ttl} > 0 ) {
     	# construct cache identifier
@@ -3008,33 +2957,8 @@ sub smtpd_access_policy {
 	};
     };
 
-    # check rate
-    if ( $postfwd_settings{rate}{fast_eval} and $ratehit and $rateindex and defined $Rate_Cache{$ratehit}{$rateindex} ) {
-
-	$counters .= $postfwd_settings{sepreq}."rate=1";
-	$Matches{$Rate_Cache{$ratehit}{$rateindex}{rule}}++;
-	$postfixaction = $Rate_Cache{$ratehit}{$rateindex}{action};
-	# substitute check for $$vars in action
-	$postfixaction = $var if ( $var = devar_item ("==",$postfixaction,"action",$request) );
-	log_info ("[RATES] rule=".$Rule_by_ID{$Rate_Cache{$ratehit}{$rateindex}{rule}}
-		. ", id=".$Rate_Cache{$ratehit}{$rateindex}{rule}
-		. ( ($request->{queue_id}) ? ", queue=".$request->{queue_id} : '' )
-		. ", client=".$request->{client_name}."[".$request->{client_address}."]"
-		. ( ($request->{sasl_username}) ? ", user=".$request->{sasl_username} : '' )
-		. ", sender=<".(($request->{sender} eq '<>') ? "" : $request->{sender}).">"
-		. ( ($request->{recipient}) ? ", recipient=<".$request->{recipient}.">" : '' )
-		. ", helo=<".$request->{helo_name}.">"
-		. ", proto=".$request->{protocol_name}
-		. ", state=".$request->{protocol_state}
-		. ", delay=".ts(time() - $now)."s"
-		. ", action=".$postfixaction." (item: '".$ratehit."'"
-		. ", type: ".$Rate_Cache{$ratehit}{$rateindex}{type}
-		. ", count: ".$request->{ratecount}."/".$Rate_Cache{$ratehit}{$rateindex}{maxcount}
-		. ", time: ".ts($now - $Rate_Cache{$ratehit}{$rateindex}{"time"})."/".$Rate_Cache{$ratehit}{$rateindex}{ttl}."s)"
-		) unless $postfwd_settings{request}{nolog};
-
     # check own cache
-    } elsif ( ($postfwd_settings{request}{ttl} > 0)
+    if ( ($postfwd_settings{request}{ttl} > 0)
 	and ((exists($Request_Cache{$cacheid}{$COMP_ACTION})) and ($now <= $Request_Cache{$cacheid}{'until'})) ) {
 	$counters .= $postfwd_settings{sepreq}."ccache=1";
 	$postfixaction = $Request_Cache{$cacheid}{$COMP_ACTION};
@@ -3520,7 +3444,7 @@ GetOptions( \%options,
 	"keep_groups|keep_groups_on_reload" => \$postfwd_settings{keep_groups},
 	"save_rates|save_limits|save_rates_on_restart=s" => \$postfwd_settings{rate}{store},
 	"save_groups|save_groups_on_restart=s" => \$postfwd_settings{group}{store},
-	"fast_limit_evaluation"	  => \$postfwd_settings{rate}{fast_eval},
+	"fast_limit_evaluation",
 	# Control
 	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
 	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit; },
@@ -3547,6 +3471,7 @@ GetOptions( \%options,
 	"chroot|R=s"		  => \$postfwd_settings{chroot},
 	# Logging
         "debug=s"		  => sub { push @{$options{debug}}, (split /[,\s]+/, $_[1]) },
+        "debugclasses"		  => sub { my %tags = (); open (PIN, '<'.$0) or die "Can not open '$0': $! - $@\n\n"; while (<PIN>) { chomp; next unless /wantsdebug\s+\(\s*qw\[\s*([^\]]+)\]/; my $cstr = $1; map { $tags{$_}++ } (split /\s+/, $cstr) }; close(PIN); print STDERR "\n HOOKS NAME\n ----- ----\n"; map { printf STDERR "%6d %s\n", $tags{$_}, $_ } (sort keys %tags); print STDERR "\n"; exit },
         "verbose|v+"		  => \$postfwd_settings{verbose},
 	"logname|l=s"		  => sub{ $postfwd_settings{name}		= $_[1];
 				     $postfwd_settings{cache}{syslog_ident}	= $_[1].'/cache';
@@ -3996,8 +3921,6 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
             --save_groups <file>	save and load group cache on disk
             --keep_rates		do not clear rate limit counters on reload
             --save_rates <file>		save and load rate limits on disk
-	    --fast_limit_evaluation	evaluate rate limits before ruleset is parsed
-                                        (please note the limitations)
 
 
 	Plugins:
@@ -4013,6 +3936,8 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	    --nolog|--perfmon		no logging at all
         -v, --verbose			verbose logging, use twice to increase
 	    --debug <s>			list of debugging classes
+	    --debugclasses		shows all available debug classes
+					and exits the program
 
         Information (use only at command-line!):
  	-h, --help			display this help and exit
@@ -4551,6 +4476,18 @@ postfwd3 actions control the behaviour of the program. Currently you can specify
 You can reference to request attributes, like
 
 	id=R-HELO ;  helo_name=^[^\.]+$ ;  action=REJECT invalid helo '$$helo_name'
+
+Since postfwd3 version 2.00 a rule can have multiple postfwd actions, like
+
+	# if client is found on list.dnswl.org,
+	#   1. send a note
+	#   2. add it's ip to group %%WHITELISTED
+	#   3. permit the request
+	id=ADDR01
+		rbl=list.dnswl.org
+		action=note(adding $$client_address to WHITELIST)
+		action=groupadd(%%WHITELISTED/client_address)
+		action=PERMIT_AUTH_DESTINATION
 
 
 =head2 MACROS/ACLS
@@ -5111,14 +5048,6 @@ These parameters influence the way postfwd3 is working. Any of them can be combi
         on program start. This allows persistent rate limits across program restarts or reboots.
         Please note that postfwd needs read and write access to the specified file.
 
-	--fast_limit_evaluation    (default=0)
-	Once a ratelimit was set by the ruleset, future requests will be evaluated against it
-	before consulting the ruleset. This mode was the default behaviour until v1.30.
-	With this mode rate limits will be faster, but also eventually set up
-	whitelisting-rules within the ruleset might not work as expected.
-        LIMITATIONS: This option does not allow nested postfwd commands like
-                action=rate(sender/3/60/wait(3))
-        This option doe not work with the strict-rfc5321 rate() functions.
 
 I<Informational arguments>
 
@@ -5433,12 +5362,10 @@ will log any request that passes the ruleset without having hit a prior rule.
 
 =head2 DEBUGGING
 
-To debug special steps of the parser the '--debug' switch takes a list of debug classes. Currently the following classes are defined:
+To debug special steps of the parser the '--debug' switch takes a list of debug classes. Since postfwd3 2.00
+the list of available debug classes can be retrieved by running:
 
-	all cache config debugdns devel dns getcache getdns
-	getdnspacket rates request setcache setdns
-	parent_cache parent_dns_cache parent_rate_cache parent_request_cache
-	child_cache  child_dns_cache  child_rate_cache  child_request_cache
+	postfwd3 --debugclasses
 
 
 =head2 INTEGRATION

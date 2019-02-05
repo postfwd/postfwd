@@ -133,7 +133,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD3 1"
-.TH POSTFWD3 1 "2019-01-28" "perl v5.22.1" "User Contributed Perl Documentation"
+.TH POSTFWD3 1 "2019-02-05" "perl v5.22.1" "User Contributed Perl Documentation"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -240,8 +240,6 @@ postfwd3 \- postfix firewall daemon
 \&            \-\-save_groups <file>        save and load group cache on disk
 \&            \-\-keep_rates                do not clear rate limit counters on reload
 \&            \-\-save_rates <file>         save and load rate limits on disk
-\&            \-\-fast_limit_evaluation     evaluate rate limits before ruleset is parsed
-\&                                        (please note the limitations)
 \&
 \&
 \&        Plugins:
@@ -257,6 +255,8 @@ postfwd3 \- postfix firewall daemon
 \&            \-\-nolog|\-\-perfmon           no logging at all
 \&        \-v, \-\-verbose                   verbose logging, use twice to increase
 \&            \-\-debug <s>                 list of debugging classes
+\&            \-\-debugclasses              shows all available debug classes
+\&                                        and exits the program
 \&
 \&        Information (use only at command\-line!):
 \&        \-h, \-\-help                      display this help and exit
@@ -853,6 +853,20 @@ You can reference to request attributes, like
 .Vb 1
 \&        id=R\-HELO ;  helo_name=^[^\e.]+$ ;  action=REJECT invalid helo \*(Aq$$helo_name\*(Aq
 .Ve
+.PP
+Since postfwd3 version 2.00 a rule can have multiple postfwd actions, like
+.PP
+.Vb 9
+\&        # if client is found on list.dnswl.org,
+\&        #   1. send a note
+\&        #   2. add it\*(Aqs ip to group %%WHITELISTED
+\&        #   3. permit the request
+\&        id=ADDR01
+\&                rbl=list.dnswl.org
+\&                action=note(adding $$client_address to WHITELIST)
+\&                action=groupadd(%%WHITELISTED/client_address)
+\&                action=PERMIT_AUTH_DESTINATION
+.Ve
 .SS "\s-1MACROS/ACLS\s0"
 .IX Subsection "MACROS/ACLS"
 Multiple use of long items or combinations of them may be abbreviated by macros. Those must be prefixed by '&&' (two '&' characters).
@@ -1445,15 +1459,6 @@ These parameters influence the way postfwd3 is working. Any of them can be combi
 \&        With this option postfwd saves existing rate limit counters to disk and reloads them
 \&        on program start. This allows persistent rate limits across program restarts or reboots.
 \&        Please note that postfwd needs read and write access to the specified file.
-\&
-\&        \-\-fast_limit_evaluation    (default=0)
-\&        Once a ratelimit was set by the ruleset, future requests will be evaluated against it
-\&        before consulting the ruleset. This mode was the default behaviour until v1.30.
-\&        With this mode rate limits will be faster, but also eventually set up
-\&        whitelisting\-rules within the ruleset might not work as expected.
-\&        LIMITATIONS: This option does not allow nested postfwd commands like
-\&                action=rate(sender/3/60/wait(3))
-\&        This option doe not work with the strict\-rfc5321 rate() functions.
 .Ve
 .PP
 \&\fIInformational arguments\fR
@@ -1790,13 +1795,11 @@ place a last catch-all rule to change that behaviour:
 will log any request that passes the ruleset without having hit a prior rule.
 .SS "\s-1DEBUGGING\s0"
 .IX Subsection "DEBUGGING"
-To debug special steps of the parser the '\-\-debug' switch takes a list of debug classes. Currently the following classes are defined:
+To debug special steps of the parser the '\-\-debug' switch takes a list of debug classes. Since postfwd3 2.00
+the list of available debug classes can be retrieved by running:
 .PP
-.Vb 4
-\&        all cache config debugdns devel dns getcache getdns
-\&        getdnspacket rates request setcache setdns
-\&        parent_cache parent_dns_cache parent_rate_cache parent_request_cache
-\&        child_cache  child_dns_cache  child_rate_cache  child_request_cache
+.Vb 1
+\&        postfwd3 \-\-debugclasses
 .Ve
 .SS "\s-1INTEGRATION\s0"
 .IX Subsection "INTEGRATION"

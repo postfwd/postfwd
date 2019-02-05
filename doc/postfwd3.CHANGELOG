@@ -1,8 +1,12 @@
+postfwd3 2.00-pre3
+==================
+- bugfix:  rate limits did not work correctly in Multiplex mode
+- feature: argument --debugclasses shows list of available debug classes
+
 postfwd3 2.00-pre2
 ==================
-- code:    A rule can have multiple "action"-items now. Of course this
-	   is only valid for postfwd-actions, as postfwd can return only
-	   a single action to postfix. E.g.:
+- code:    A rule can have multiple postfwd actions now.
+	   Example:
 		# if client is found on list.dnswl.org,
 		#   1. send a note
 		#   2. add it's ip to group %%WHITELISTED
@@ -54,7 +58,7 @@ postfwd3 2.00-pre1
 	   a container (found in docker/postfwd-docker.sh in the tarball)
 	   Please visit https://postfwd.org/docker for more information.
 
-- feature: Performance optimisation:
+- feature: Performance improvement:
 	   lists of ip and network objects will now be aggregated
 	   automatically using Net::Addr->Compact() function.
 	   This can be disabled by the --noaggregate_addrs switch

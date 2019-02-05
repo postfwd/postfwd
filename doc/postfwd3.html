@@ -142,8 +142,6 @@
             --save_groups &lt;file&gt;        save and load group cache on disk
             --keep_rates                do not clear rate limit counters on reload
             --save_rates &lt;file&gt;         save and load rate limits on disk
-            --fast_limit_evaluation     evaluate rate limits before ruleset is parsed
-                                        (please note the limitations)
 
 
         Plugins:
@@ -159,6 +157,8 @@
             --nolog|--perfmon           no logging at all
         -v, --verbose                   verbose logging, use twice to increase
             --debug &lt;s&gt;                 list of debugging classes
+            --debugclasses              shows all available debug classes
+                                        and exits the program
 
         Information (use only at command-line!):
         -h, --help                      display this help and exit
@@ -670,6 +670,18 @@
 <p>You can reference to request attributes, like</p>
 
 <pre><code>        id=R-HELO ;  helo_name=^[^\.]+$ ;  action=REJECT invalid helo &#39;$$helo_name&#39;</code></pre>
+
+<p>Since postfwd3 version 2.00 a rule can have multiple postfwd actions, like</p>
+
+<pre><code>        # if client is found on list.dnswl.org,
+        #   1. send a note
+        #   2. add it&#39;s ip to group %%WHITELISTED
+        #   3. permit the request
+        id=ADDR01
+                rbl=list.dnswl.org
+                action=note(adding $$client_address to WHITELIST)
+                action=groupadd(%%WHITELISTED/client_address)
+                action=PERMIT_AUTH_DESTINATION</code></pre>
 
 <h2 id="MACROS-ACLS">MACROS/ACLS</h2>
 
@@ -1201,16 +1213,7 @@
         --save_rates    (default=none)
         With this option postfwd saves existing rate limit counters to disk and reloads them
         on program start. This allows persistent rate limits across program restarts or reboots.
-        Please note that postfwd needs read and write access to the specified file.
-
-        --fast_limit_evaluation    (default=0)
-        Once a ratelimit was set by the ruleset, future requests will be evaluated against it
-        before consulting the ruleset. This mode was the default behaviour until v1.30.
-        With this mode rate limits will be faster, but also eventually set up
-        whitelisting-rules within the ruleset might not work as expected.
-        LIMITATIONS: This option does not allow nested postfwd commands like
-                action=rate(sender/3/60/wait(3))
-        This option doe not work with the strict-rfc5321 rate() functions.</code></pre>
+        Please note that postfwd needs read and write access to the specified file.</code></pre>
 
 <p><i>Informational arguments</i></p>
 
@@ -1512,12 +1515,9 @@
 
 <h2 id="DEBUGGING">DEBUGGING</h2>
 
-<p>To debug special steps of the parser the &#39;--debug&#39; switch takes a list of debug classes. Currently the following classes are defined:</p>
+<p>To debug special steps of the parser the &#39;--debug&#39; switch takes a list of debug classes. Since postfwd3 2.00 the list of available debug classes can be retrieved by running:</p>
 
-<pre><code>        all cache config debugdns devel dns getcache getdns
-        getdnspacket rates request setcache setdns
-        parent_cache parent_dns_cache parent_rate_cache parent_request_cache
-        child_cache  child_dns_cache  child_rate_cache  child_request_cache</code></pre>
+<pre><code>        postfwd3 --debugclasses</code></pre>
 
 <h2 id="INTEGRATION">INTEGRATION</h2>
 
