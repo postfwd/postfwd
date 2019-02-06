@@ -10,8 +10,6 @@ SYNOPSIS
             -f, --file <file>               reads rules from <file>
             -r, --rule <rule>               adds <rule> to config
             -s, --scores <v>=<r>            returns <r> when score exceeds <v>
-            -A, --aggregate_addrs           pre-compute ip address lists to subnets
-                --no_netaddr                don't use NetAddr::IP functions
 
             Server:
             -i, --interface <dev>           listen on interface <dev>
@@ -99,6 +97,10 @@ SYNOPSIS
                 --save_groups <file>        save and load group cache on disk
                 --keep_rates                do not clear rate limit counters on reload
                 --save_rates <file>         save and load rate limits on disk
+            -A, --aggregate_addrs           pre-compute ip address lists to subnets
+                --no_netaddr                don't use NetAddr::IP functions
+                --no_netcidr                don't use Net::CIDR::Lite functions
+                --cidr_method=s             use method <s> for network checks
 
 
             Plugins:
@@ -125,7 +127,7 @@ SYNOPSIS
             -C, --showconfig                show postfwd3 ruleset and exit (-v allowed)
             -L, --stdout                    redirect syslog messages to stdout (--stdoutlog works for compatibility)
                 --stdin                     pull request from stdin instead of a network socket
-                ---cmd                      shorthand form of --stdin, --stdout and --nodaemon
+                --cmd                       shorthand form of --stdin, --stdout and --nodaemon
             -q, --quiet                     no syslogging, no stdout (-P works for compatibility)
 
             Commands:
@@ -972,19 +974,6 @@ DESCRIPTION
             Adds <rule> to ruleset. Remember that you might have to quote
             strings that contain whitespaces or shell characters.
 
-            -A, --aggregate_addrs, --noaggregate_addrs
-            Pre-computes ip address lists to subnets, so that e.g.:
-
-               client_address=10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24
-                    will result in
-               client_address=10.0.0.0/22
-
-            This increases the performance of cidr-matching
-
-            --no_netaddr
-            Do not use functions from module NetAddr::IP, even if it was found
-            on the system. This option implicitly disables --aggregate_addrs.
-
     *Scoring*
 
             -s, --scores <val>=<action>
@@ -1250,6 +1239,31 @@ DESCRIPTION
             With this option postfwd saves existing rate limit counters to disk and reloads them
             on program start. This allows persistent rate limits across program restarts or reboots.
             Please note that postfwd needs read and write access to the specified file.
+
+            -A, --aggregate_addrs, --noaggregate_addrs
+            Pre-computes ip address lists to subnets, so that e.g.:
+
+               client_address=10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24
+                    will result in
+               client_address=10.0.0.0/22
+
+            This increases the performance of cidr-matching
+
+            --no_netaddr
+            Do not use functions from module NetAddr::IP, even if it was found
+            on the system. This option implicitly disables --aggregate_addrs.
+
+            --no_netcidr
+            Do not use functions from module Net::CIDR::Lite, even if it was found
+            on the system.
+
+            --cidr_method=s   (default=autodetect)
+            Use method <s> for network checks. Valid arguments are:
+              netcidr       - compare networks using Net::CIDR::Lite Module (v4 and v6 cidr)
+              netaddr       - compare networks using NetAddr::IP Module (v4 and v6 cidr)
+              postfwd       - old but very fast method (v4=cidr, v6=regex)
+            If not specified postfwd tries to load modules in the above order and falls back
+            to 'postfwd' if nothing found.
 
     *Informational arguments*
 

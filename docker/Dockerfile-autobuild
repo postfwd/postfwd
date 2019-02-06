@@ -48,7 +48,7 @@ ENV GROUP=postfw
 # install stuff
 RUN apt-get update && apt-get install --no-install-recommends -y \
     libnet-dns-perl libnet-server-perl libnetaddr-ip-perl \
-    libtime-hires-perl libstorable-perl
+    libtime-hires-perl libstorable-perl libnet-cidr-lite-perl
 RUN rm -fR /var/lib/apt/lists/*
 
 # create stuff

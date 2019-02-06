@@ -21,7 +21,7 @@ our @EXPORT_OK = qw(
 	&check_inet &check_unix &ts
 	$TIMEHIRES $STORABLE $NETADDR $DIGESTMD5
 );
-our($TIMEHIRES); our($STORABLE); our($NETADDR); our($DIGESTMD5);
+our($TIMEHIRES); our($STORABLE); our($NETADDR); our($NETCIDR); our($DIGESTMD5);
 BEGIN {
 	# use Time::HiRes if available
 	eval { require Time::HiRes };
@@ -31,6 +31,8 @@ BEGIN {
 	$STORABLE = ($@) ? 0 : (Storable->VERSION || 'available');
 	eval { require NetAddr::IP };
 	$NETADDR = ($@) ? 0 : (NetAddr::IP->VERSION || 'available');
+	eval { require Net::CIDR::Lite };
+	$NETCIDR = ($@) ? 0 : (Net::CIDR::Lite->VERSION || 'available');
 	eval { require Digest::MD5 };
 	$DIGESTMD5 = ($@) ? 0 : (Digest::MD5->VERSION || 'available');
 };
@@ -38,7 +40,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.00-pre3";
+our $VERSION	= "2.00-pre4";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -198,6 +200,7 @@ our %postfwd_settings = (
 	keep_rates	=> 0,
 	keep_groups	=> 0,
 	aggregate_addrs	=> 0,
+	cidr_method	=> 'postfwd',
 	max_command_recursion => 64,
         timeformat	=> ( ($TIMEHIRES) ? '%.2f' : '%d' ),
 );
@@ -621,7 +624,6 @@ sub check_rate {
 			# renew rate
 			if ( $now > @{$Cache{$type}{$arg}{$rindex}{'until'}}[0] ) {
 				@{$Cache{$type}{$arg}{$rindex}{count}}[0]   = $rcount;
-				@{$Cache{$type}{$arg}{$rindex}{'time'}}[0]  = $now;
 				@{$Cache{$type}{$arg}{$rindex}{'until'}}[0] = $now + @{$Cache{$type}{$arg}{$rindex}{ttl}}[0];
 				log_info ("[RATES] renewing rate limit object '".$arg."'"
 				  ." [type: ".@{$Cache{$type}{$arg}{$rindex}{type}}[0]
@@ -1939,6 +1941,19 @@ sub postfwd_items {
 		$myresult = not($myresult) if ($cmp eq '!=');
 		return $myresult;
 	},
+	# new version: based on Net::CIDR::Lite
+	"cidr_netcidr" => sub {
+		my($cmp,$val,$myitem,$request) = @_;
+		my($myresult) = ($val and $myitem);
+		log_info ("type cidr_netcidr :  \"$myitem\"  \"$cmp\"  \"$val\"") if wantsdebug (qw[ all thisrequest ]);
+		if ($myresult) {
+			$myresult = 0;
+			# compare with Net::CIDR::Lite->find(), unfortunately code dies on unknown value
+			eval { local $SIG{__DIE__} = sub{ log_warn("Net::CIDR::Lite error comparing '$val' to '$myitem'") }; $myresult = Net::CIDR::Lite->new($val)->find($myitem) };
+		};
+		$myresult = not($myresult) if ($cmp eq '!=');
+		return $myresult;
+	},
 	"numeric" => sub {
 		my($cmp,$val,$myitem,$request) = @_;
 		my($myresult) = undef;
@@ -2311,14 +2326,11 @@ sub postfwd_items {
 			my $rate_exists = ( defined $Rate_Cache{$ratetype}{$crate} );
 			$Rate_Cache{$ratetype}{$crate}{'type'}     = $mycmd;
 			$Rate_Cache{$ratetype}{$crate}{'maxcount'} = $ratecount;
-			$Rate_Cache{$ratetype}{$crate}{'rule'}     = $Rules[$index]{$COMP_ID};
-			$Rate_Cache{$ratetype}{$crate}{'action'}   = $ratecmd;
 			# child rate cache
                         if ($postfwd_settings{rate}{noparent}) {
 				# create rate
 				unless ( $rate_exists ) {
 					$Rate_Cache{$ratetype}{$crate}{'ttl'}	= $ratetime;
-					$Rate_Cache{$ratetype}{$crate}{'time'}	= $now;
 					$Rate_Cache{$ratetype}{$crate}{'until'}	= $now + $ratetime;
 					$Rate_Cache{$ratetype}{$crate}{'count'}	= $rcount;
                                 	log_info ("created rate limit object '$ratetype'->'".$crate."' with value '$rcount'") if wantsdebug (qw[ all thisrequest rates ]);
@@ -2326,7 +2338,6 @@ sub postfwd_items {
 					# renew rate
 					if ( $now > $Rate_Cache{$ratetype}{$crate}{'until'} ) {
 						$Rate_Cache{$ratetype}{$crate}{'ttl'}	= $ratetime;
-						$Rate_Cache{$ratetype}{$crate}{'time'}	= $now;
 						$Rate_Cache{$ratetype}{$crate}{'until'}	= $now + $ratetime;
 						$Rate_Cache{$ratetype}{$crate}{'count'}	= $rcount;
 	                                	log_info ("renewed rate limit object '$ratetype'->'".$crate."' with value '$rcount'") if wantsdebug (qw[ all thisrequest rates ]);
@@ -2339,7 +2350,6 @@ sub postfwd_items {
 			# parent rate cache
                         } else {
 				$Rate_Cache{$ratetype}{$crate}{'ttl'}	= $ratetime;
-				$Rate_Cache{$ratetype}{$crate}{'time'}	= $now;
 				$Rate_Cache{$ratetype}{$crate}{'until'}	= $now + $ratetime;
 				$Rate_Cache{$ratetype}{$crate}{'count'}	= $rcount;
                                 my $prate = "CMD=".$postfwd_commands{setrateitem2}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
@@ -2350,9 +2360,9 @@ sub postfwd_items {
 			# rate exceeded
 			$stop = ( $Rate_Cache{$ratetype}{$crate}{count} > $Rate_Cache{$ratetype}{$crate}{maxcount} );
 			if ($stop) {
-				$myaction=$Rate_Cache{$ratetype}{$crate}{action};
+				$myaction=$ratecmd;
 				$request->{'ratecount'} = $Rate_Cache{$ratetype}{$crate}{count} || 0;
-				$myline .= ", rate=".$Rate_Cache{$ratetype}{$crate}{type}."/".$Rate_Cache{$ratetype}{$crate}{count}."/".ts($now - $Rate_Cache{$ratetype}{$crate}{'time'})."s";
+				$myline .= ", rate=".$Rate_Cache{$ratetype}{$crate}{type}."/".$Rate_Cache{$ratetype}{$crate}{count}."/".$Rate_Cache{$ratetype}{$crate}{maxcount};
 			};
 		  } else {
 			log_note ("[RULES] ".$myline.", ignoring empty index for ".$mycmd." limit '".$ratetype."'") if wantsdebug (qw[ all thisrequest rates ]);
@@ -3380,6 +3390,8 @@ GetOptions( \%options,
         "instantcfg|I"		  => \$postfwd_settings{instant},
 	"config_timeout=i"	  => \$postfwd_settings{timeout}{config},
 	"no_netaddr",
+	"no_netcidr",
+	"cidr_method=s",
 	"aggregate_addrs|A!",
 	"showconfig|C",
 	"defaults|settings|D",
@@ -3446,7 +3458,7 @@ GetOptions( \%options,
 	"save_groups|save_groups_on_restart=s" => \$postfwd_settings{group}{store},
 	"fast_limit_evaluation",
 	# Control
-	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
+	'version|V'		  => sub{ print "$postfwd_settings{name} $postfwd_settings{version} (Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($NETCIDR) ? ", Net::CIDR::Lite $NETCIDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O.")\n"; exit; },
 	'versionshort|shortversion' => sub{ print "$postfwd_settings{version}\n"; exit; },
 	'manual|m'		  => sub{ # contructing command string (de-tainting $0)
                                           $postfwd_settings{manual} .= ($0 =~ /^([-\@\/\w. ]+)$/) ? " \"".$1 : " \"".$postfwd_settings{name};
@@ -3568,15 +3580,48 @@ if (defined $postfwd_settings{chroot}) {
 # init_log
 init_log ($postfwd_settings{name}."/master");
 
-# overload cidr compare function if NetAddr::IP is available
+# determine CIDR functions
 $NETADDR = 0 if $options{'no_netaddr'};
-if ($options{aggregate_addrs} and not($NETADDR)) {
-	log_note("Module NetAddr::IP not found, ignoring options --aggregate_addrs");
-	$postfwd_settings{aggregate_addrs} = 0;
-} elsif ($NETADDR) {
-	log_info("Module NetAddr::IP found, overloading cidr-compare function") if wantsdebug (qw[ all verbose ]);
-	$postfwd_settings{aggregate_addrs} = ($options{aggregate_addrs} || 0);
-	$postfwd_compare{cidr} = $postfwd_compare{cidr_netaddr};
+$NETCIDR = 0 if $options{'no_netcidr'};
+if ($options{'cidr_method'} and $options{'cidr_method'} =~ /^(netcidr|netaddr|postfwd)$/i) {
+	$postfwd_settings{cidr_method} = lc($1);
+	if (
+		( not($NETCIDR) and $postfwd_settings{cidr_method} eq 'netcidr')
+		or
+		( not($NETADDR) and $postfwd_settings{cidr_method} eq 'netaddr')
+	 ) {
+		log_note("Can not use method '".$postfwd_settings{cidr_method}."' for network checks. Module not available");
+		$postfwd_settings{cidr_method} = 'postfwd';
+	};
+} else {
+	# prefer Net::CIDR::Lite, because it's a bit faster (v4 and v6 cidr)
+	if ($NETCIDR) {
+		$postfwd_settings{cidr_method} = 'netcidr';
+	# else use NetAddr::IP (v4 and v6 cidr)
+	} elsif ($NETADDR) {
+		$postfwd_settings{cidr_method} = 'netaddr';
+	# else use old builtin method (v4 cidr, v6 regex)
+	} else {
+		$postfwd_settings{cidr_method} = 'postfwd';
+	};
+};
+if (defined $postfwd_compare{'cidr_'.$postfwd_settings{cidr_method}}) {
+	log_info("Using 'cidr_".$postfwd_settings{cidr_method}."'-method for network checks") if wantsdebug (qw[ all verbose cidr ]);
+	$postfwd_compare{cidr} = $postfwd_compare{'cidr_'.$postfwd_settings{cidr_method}};
+} else {
+	log_note("Unknown method 'cidr_".$postfwd_settings{cidr_method}."' for network checks, reverting to 'cidr_postfwd'");
+	$postfwd_compare{cidr} = $postfwd_compare{cidr_postfwd};
+};
+
+# check for Network aggregation via NetAddr::IP
+if ($options{aggregate_addrs}) {
+	if ($NETADDR) {
+		log_info("Module NetAddr::IP found, aggregating CIDR notated lists") if wantsdebug (qw[ all verbose aggr cidr ]);
+		$postfwd_settings{aggregate_addrs} = ($options{aggregate_addrs} || 0);
+	} else {
+		log_note("Module NetAddr::IP not found, ignoring options --aggregate_addrs");
+		$postfwd_settings{aggregate_addrs} = 0;
+	};
 };
 
 # check for Storable
@@ -3648,7 +3693,7 @@ unless ($postfwd_settings{daemon}) {
 log_info ($postfwd_settings{name}." "
 	.$postfwd_settings{version}." starting [daemons: ".(join ',', sort keys %{$postfwd_settings{daemons}})."]"
 	.((scalar keys %{$postfwd_settings{debug}}) ? " with debug levels: ".(join ',', keys %{$postfwd_settings{debug}}) : '')) unless $postfwd_settings{syslog}{stdin};
-log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
+log_info ("Net::DNS ".(Net::DNS->VERSION || '<undef>').", Net::Server ".(Net::Server->VERSION || '<undef>').(($NETADDR) ? ", NetAddr::IP $NETADDR" : '').(($NETCIDR) ? ", Net::CIDR::Lite $NETCIDR" : '').(($DIGESTMD5) ? ", Digest::MD5 $DIGESTMD5" : '').", Sys::Syslog ".($Sys::Syslog::VERSION || '<undef>').", ".(($TIMEHIRES) ? "Time::HiRes $TIMEHIRES, " : '').(($STORABLE) ? "Storable $STORABLE, " : '')."Perl ".$]." on ".$^O) if wantsdebug (qw[ all verbose ]);
 umask oct($postfwd_settings{base}{umask});
 daemonize($postfwd_settings{base}{user}, $postfwd_settings{base}{group}, $postfwd_settings{master}{pid_file}) if $postfwd_settings{daemon};
 $0 = $Commandline;
@@ -3832,8 +3877,6 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	-f, --file <file>		reads rules from <file>
 	-r, --rule <rule>		adds <rule> to config
 	-s, --scores <v>=<r>		returns <r> when score exceeds <v>
-	-A, --aggregate_addrs		pre-compute ip address lists to subnets
-	    --no_netaddr		don't use NetAddr::IP functions
 
         Server:
         -i, --interface <dev>		listen on interface <dev>
@@ -3921,6 +3964,10 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
             --save_groups <file>	save and load group cache on disk
             --keep_rates		do not clear rate limit counters on reload
             --save_rates <file>		save and load rate limits on disk
+	-A, --aggregate_addrs		pre-compute ip address lists to subnets
+	    --no_netaddr		don't use NetAddr::IP functions
+	    --no_netcidr		don't use Net::CIDR::Lite functions
+	    --cidr_method=s		use method <s> for network checks
 
 
 	Plugins:
@@ -3947,7 +3994,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
         -C, --showconfig		show postfwd3 ruleset and exit (-v allowed)
         -L, --stdout			redirect syslog messages to stdout (--stdoutlog works for compatibility)
             --stdin			pull request from stdin instead of a network socket
-	    ---cmd			shorthand form of --stdin, --stdout and --nodaemon
+	    --cmd			shorthand form of --stdin, --stdout and --nodaemon
         -q, --quiet			no syslogging, no stdout (-P works for compatibility)
 
 	Commands:
@@ -4771,19 +4818,6 @@ that at least one of the following is required for postfwd3 to work.
 	Adds <rule> to ruleset. Remember that you might have to quote
 	strings that contain whitespaces or shell characters.
 
-	-A, --aggregate_addrs, --noaggregate_addrs
-	Pre-computes ip address lists to subnets, so that e.g.:
-
-	   client_address=10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24
-		will result in
-	   client_address=10.0.0.0/22
-
-	This increases the performance of cidr-matching
-
-	--no_netaddr
-	Do not use functions from module NetAddr::IP, even if it was found
-	on the system. This option implicitly disables --aggregate_addrs.
-
 I<Scoring>
 
 	-s, --scores <val>=<action>
@@ -5048,6 +5082,30 @@ These parameters influence the way postfwd3 is working. Any of them can be combi
         on program start. This allows persistent rate limits across program restarts or reboots.
         Please note that postfwd needs read and write access to the specified file.
 
+	-A, --aggregate_addrs, --noaggregate_addrs
+	Pre-computes ip address lists to subnets, so that e.g.:
+
+	   client_address=10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24
+		will result in
+	   client_address=10.0.0.0/22
+
+	This increases the performance of cidr-matching
+
+	--no_netaddr
+	Do not use functions from module NetAddr::IP, even if it was found
+	on the system. This option implicitly disables --aggregate_addrs.
+
+	--no_netcidr
+	Do not use functions from module Net::CIDR::Lite, even if it was found
+	on the system.
+
+	--cidr_method=s   (default=autodetect)
+	Use method <s> for network checks. Valid arguments are:
+	  netcidr	- compare networks using Net::CIDR::Lite Module (v4 and v6 cidr)
+	  netaddr	- compare networks using NetAddr::IP Module (v4 and v6 cidr)
+	  postfwd	- old but very fast method (v4=cidr, v6=regex)
+	If not specified postfwd tries to load modules in the above order and falls back
+	to 'postfwd' if nothing found.
 
 I<Informational arguments>
 

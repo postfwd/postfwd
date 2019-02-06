@@ -1,3 +1,12 @@
+postfwd3 2.00-pre4
+==================
+- code:    performance and memory tuning for rate-limit code
+- code:	   postfwd3 optionally uses Net::CIDR::Lite for cidr-compare
+           if available. It seems a bit faster than NetAddr::IP and
+	   allows better IPv6 matching than the old method. Please look
+	   into the manual for the following options and defaults:
+		--cidr_method=<s>, --no_netcidr and --no_netaddr
+
 postfwd3 2.00-pre3
 ==================
 - bugfix:  rate limits did not work correctly in Multiplex mode
@@ -5,7 +14,7 @@ postfwd3 2.00-pre3
 
 postfwd3 2.00-pre2
 ==================
-- code:    A rule can have multiple postfwd actions now.
+- feature: A rule can have multiple postfwd actions now.
 	   Example:
 		# if client is found on list.dnswl.org,
 		#   1. send a note
