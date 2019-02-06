@@ -1,3 +1,8 @@
+postfwd3 2.00-pre5
+==================
+- docs:    updated dynamic groups description
+- bugfix:  --save_rates and --save_groups did not work in Multiplex mode
+
 postfwd3 2.00-pre4
 ==================
 - code:    performance and memory tuning for rate-limit code

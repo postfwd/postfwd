@@ -921,8 +921,11 @@ Macros can contain macros, too:
 Basically macros are simple text substitutions \- see the \*(L"\s-1PARSER\*(R"\s0 section for more information.
 .SS "\s-1DYNAMIC GROUPS\s0"
 .IX Subsection "DYNAMIC GROUPS"
-Dynamic groups are list objects, that can be changed and compared within your ruleset. Groups are saved persistant for further requests.
-This way you can save information for later use.
+Dynamic groups are list objects. You can add or remove items and compare request items to their content within your ruleset.
+Groups are saved persistant for further requests. This way you can save information for later use. Every item of a group has
+a time-to-live value.
+.PP
+Group-names have to be preceeded by double '%'\-characters, like %%GROUPNAME:
 .PP
 .Vb 2
 \&        # add client_address to group %%BLACKLISTED, if sent to spamtrap
@@ -959,7 +962,7 @@ To compare requests with dynamic groups, these must be refered by preceeding '%%
 \&        <item> = %%<Groupname>
 .Ve
 .PP
-Empty groups will return false. So the following is valid, too:
+Empty groups always compare false. The following ruleset is possible:
 .PP
 .Vb 2
 \&        # allow any request from client_address in group %%WHITELISTED
@@ -971,24 +974,30 @@ Empty groups will return false. So the following is valid, too:
 \&        # ... other rules ...
 \&
 \&        # ... whitelist file ...
-\&        id=WHITELIST; client_address=file:/etc/postfwd/whitelist_networks; action=set(WHITE=1)
+\&        id=W_TRUST; action=set(WHITE=1)
+\&            client_address=file:/etc/postfwd/whitelist_networks
 \&
 \&        # ... whitelist dns ...
-\&        id=WHITELIST; rbl=list.dnswl.org,hostkarma; action=DUNNO
+\&        id=W_DNSWL; action=set(WHITE=1)
+\&            rbl=list.dnswl.org
 \&
-\&        # ... \-> add it to whitelist and leave
-\&        id=GROUPADD; WHITE==1; action=groupadd(%%WHITELISTED/client_address)
-\&        id=GROUPADD; WHITE==1; action=DUNNO
+\&        # ... \-> add it to whitelist for a day and allow request
+\&        id=W_GROUP; WHITE==1
+\&            action=groupadd(%%WHITELISTED/client_address/86400)
+\&            action=DUNNO
 \&
 \&        # ... or blacklist by sending to spamtrap ...
-\&        id=SPAMTRAP; recipient==spamtrap@domain.local; action=set(BLACK=1)
+\&        id=B_SPAMTRAP; action=set(BLACK=1)
+\&            recipient==spamtrap@domain.local
 \&
 \&        # ... or blacklisted by dns ...
-\&        id=DNSBL; rbl=zen.spamhaus.org; action=action=set(BLACK=1)
+\&        id=B_DNSBL; action=set(BLACK=1)
+\&            rbl=zen.spamhaus.org
 \&
-\&        # ... \-> add it to group and reject
-\&        id=GROUPADD; BLACK==1; action=groupadd(%%BLACKLISTED/client_address)
-\&        id=GROUPADD; BLACK==1; action=REJECT
+\&        # ... \-> add it to group BLACKLISTED for 1 hour and reject
+\&        id=B_GROUP; BLACK==1
+\&            action=groupadd(%%BLACKLISTED/client_address/3600)
+\&            action=REJECT
 .Ve
 .PP
 \&\fBLimitations\fR
