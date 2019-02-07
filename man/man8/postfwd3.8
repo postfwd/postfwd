@@ -133,7 +133,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD3 1"
-.TH POSTFWD3 1 "2019-02-06" "perl v5.22.1" "User Contributed Perl Documentation"
+.TH POSTFWD3 1 "2019-02-07" "perl v5.22.1" "User Contributed Perl Documentation"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -151,6 +151,10 @@ postfwd3 \- postfix firewall daemon
 \&        \-f, \-\-file <file>               reads rules from <file>
 \&        \-r, \-\-rule <rule>               adds <rule> to config
 \&        \-s, \-\-scores <v>=<r>            returns <r> when score exceeds <v>
+\&
+\&        Settings: (multiple use allowed)
+\&        \-F, \-\-loadsettings <file>       loads program settings from <file>
+\&            \-\-showsettings              exports program settings to stdout
 \&
 \&        Server:
 \&        \-i, \-\-interface <dev>           listen on interface <dev>
@@ -278,6 +282,7 @@ postfwd3 \- postfix firewall daemon
 \&        dumpcache                       same as \-\-dumpcache
 \&        dumpstats                       same as \-\-dumpstats
 \&        defaults                        same as \-\-defaults
+\&        showsettings                    same as \-\-showsettings
 \&        delcache <item>                 same as \-\-delcache <item>
 \&        delrate <item>                  same as \-\-delrate <item>
 \&
@@ -1178,11 +1183,23 @@ that at least one of the following is required for postfwd3 to work.
 .Vb 3
 \&        \-f, \-\-file <file>
 \&        Reads rules from <file>. Please see the CONFIGURATION section
-\&        below for more information.
+\&        for more information.
 \&
 \&        \-r, \-\-rule <rule>
 \&        Adds <rule> to ruleset. Remember that you might have to quote
 \&        strings that contain whitespaces or shell characters.
+.Ve
+.PP
+\&\fISettings\fR
+.PP
+.Vb 3
+\&        \-F, \-\-loadsettings <file>
+\&        Loads program settings from <file>. data must be in Data::Dumper format.
+\&        Please read the SETTINGS section for more information.
+\&
+\&        \-\-showsettings
+\&        Exports program settings in Data::Dumper format to stdout. This output
+\&        can be saved to a file and later used with the \-\-loadsettings option.
 .Ve
 .PP
 \&\fIScoring\fR
@@ -1816,6 +1833,51 @@ place a last catch-all rule to change that behaviour:
 .Ve
 .PP
 will log any request that passes the ruleset without having hit a prior rule.
+.SS "\s-1SETTINGS\s0"
+.IX Subsection "SETTINGS"
+Since version postfwd3 2.00\-pre6 the program settings can be retrieved from a file. The information must be
+parseable by perl \fIeval()\fR function. Comments are allowed:
+.PP
+.Vb 4
+\&       # example settings for postfwd3
+\&       {
+\&          # enable verbose logging
+\&          verbose => 1,
+\&
+\&          # user and group for postfwd
+\&          base => {
+\&              group => \*(Aqpostfw\*(Aq,
+\&              user => \*(Aqpostfw\*(Aq
+\&          },
+\&
+\&          # server settings
+\&          server => {
+\&              proto => \*(Aqtcp\*(Aq,
+\&              host => \*(Aq127.0.0.1\*(Aq,
+\&              port => \*(Aq10099\*(Aq
+\&          }
+\&       }
+.Ve
+.PP
+postfwd3 can also export the program settings in that format using Data::Dumper.
+.PP
+.Vb 2
+\&        # save configuration to file
+\&        postfwd3 \-\-showsettings >/path/to/file
+\&
+\&        # read configuration from file
+\&        postfwd3 \-\-loadsettings=/path/to/file
+.Ve
+.PP
+Multiple usage of \-\-loadsettings or the short form \-F is allowed. The order will be kept.
+Commandline arguments override the settings retrieved from a file.
+.PP
+.Vb 2
+\&        # load base settings, override with node settings and set port and verbose logging
+\&        postfwd3 \-v \-p 10050 \-F /path/to/basefile \-F /path/to/nodefile
+.Ve
+.PP
+Samples for settings files are distributed in the etc/\-folder of the postfwd3 tarball.
 .SS "\s-1DEBUGGING\s0"
 .IX Subsection "DEBUGGING"
 To debug special steps of the parser the '\-\-debug' switch takes a list of debug classes. Since postfwd3 2.00

@@ -1,0 +1,137 @@
+# postfwd settings file version 2.00-pre6
+#
+# Full list of configuration settings for postfwd.
+# File has been created with:
+#
+# 	postfwd3 --user=postfw --group=postfw --stdout --nodaemon --rule="id=DEFAULT; action=DUNNO" showsettings >postfwd.settings.sample.full
+#
+{
+  Configs => [
+               'rule///id=DEFAULT; action=DUNNO'
+             ],
+  Options => {
+               debug => []
+             },
+  aggregate_addrs => 0,
+  autopersonality => '1',
+  base => {
+            group => 'postfw',
+            log_file => undef,
+            syslog_ident => 'postfwd3',
+            umask => '0177',
+            user => 'postfw'
+          },
+  cache => {
+             commandline => ' postfwd3::cache',
+             host => '',
+             port => '/var/tmp/postfwd3-cache.socket',
+             proto => 'unix',
+             syslog_ident => 'postfwd3/cache',
+             umask => '0177'
+           },
+  chroot => undef,
+  cidr_method => 'netcidr',
+  daemon => 0,
+  daemons => {
+               server => '1'
+             },
+  debug => {},
+  default => 'DUNNO',
+  dns => {
+           anylog => 0,
+           async_txt => 0,
+           cleanup => '600',
+           disable => 0,
+           disabled => undef,
+           ipv6_dnsbl => 0,
+           mask => '^127\\.',
+           max_interval => '1200',
+           max_mx_lookups => '100',
+           max_ns_lookups => '100',
+           max_timeout => '10',
+           nolog => 0,
+           noparent => '1',
+           timeout => '14',
+           ttl => '3600'
+         },
+  group => {
+             aggregate_addrs => 0,
+             cleanup => '600',
+             maxitems => '9999',
+             noparent => '1',
+             store => undef,
+             ttl => '3600'
+           },
+  instant => 0,
+  keep_groups => 0,
+  keep_rates => 0,
+  master => {
+              daemons => [
+                           'server'
+                         ],
+              failures => '7',
+              pid_file => '/var/tmp/postfwd3-master.pid',
+              respawn => '4',
+              watchdog => '60'
+            },
+  max_command_recursion => '64',
+  name => 'postfwd3',
+  pager => 'more',
+  personality => 'Multiplex',
+  rate => {
+            cleanup => '600',
+            noparent => '1',
+            store => undef
+          },
+  request => {
+               autocacheid => 0,
+               cleanup => '600',
+               no_sender => 0,
+               no_size => 0,
+               nolog => 0,
+               noparent => '1',
+               rdomain_only => 0,
+               ttl => '600',
+               usemd5 => '1'
+             },
+  scores => {
+              '5.0' => '554 5.7.1 postfwd3 score exceeded'
+            },
+  server => {
+              commandline => ' postfwd3::policy',
+              host => '127.0.0.1',
+              max_requests => '200',
+              max_servers => '100',
+              max_spare_servers => '50',
+              min_servers => '10',
+              min_spare_servers => '5',
+              port => '10045',
+              proto => 'tcp',
+              syslog_ident => 'postfwd3/policy',
+              umask => '0111'
+            },
+  summary => '600',
+  syslog => {
+              facility => 'mail',
+              name => 'postfwd3/master',
+              noidlestats => 0,
+              nolog => 0,
+              norulestats => 0,
+              options => 'cons,pid',
+              perfmon => 0,
+              socktype => 'console',
+              stdin => 0,
+              stdout => '1',
+              unsafe_charset => qr/[^\x20-\x7E]/,
+              unsafe_version => ''
+            },
+  test => 0,
+  timeformat => '%.2f',
+  timeout => {
+               cache => '3',
+               config => '4',
+               rule => '40',
+               server => '3'
+             },
+  verbose => 0
+}

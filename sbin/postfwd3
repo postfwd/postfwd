@@ -43,7 +43,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.00-pre5";
+our $VERSION	= "2.00-pre6";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -182,6 +182,13 @@ our %postfwd_settings = (
 		#dns		=> 0,
 		#getdns		=> 0,
 		#setdns		=> 0,
+	},
+	dumper => {
+		Indent		 => 2,
+		Purity		 => 1,
+		Quotekeys	 => 0,
+		Sortkeys	 => 1,
+		Terse		 => 1,
 	},
 	name		=> $NAME,
 	version		=> $VERSION,
@@ -3395,6 +3402,7 @@ use warnings;
 use strict;
 use Getopt::Long 2.25 qw(:config no_ignore_case bundling);
 use Pod::Usage;
+use Data::Dumper;
 # master daemon
 use Net::Server::Daemonize qw(daemonize);
 # own modules
@@ -3414,11 +3422,17 @@ use vars qw(
 );
 
 # parse command-line
-my $Commandline = "$0 ".(join ' ', @ARGV);
+my $Commandargs = ' '.(join ' ', @ARGV);
+my $Commandline = $0.$Commandargs;
+# read settings files before loading commandline options ...
+while ($Commandargs =~ s/\s+\-(\-load(settings)?|F)[=\s]*(\S+)\b//) { load_settings($3) };
+# ... and allow commandline options to override
 GetOptions( \%options,
 	# Ruleset
 	'rule|r=s'		  => sub{ my($opt,$value) = @_; push (@{$postfwd_settings{Configs}}, $opt.$postfwd_settings{sepreq}.$value) },
 	'file|f=s'		  => sub{ my($opt,$value) = @_; push (@{$postfwd_settings{Configs}}, $opt.$postfwd_settings{sepreq}.$value) },
+	"loadsettings|load|F=s",
+	"showsettings|settings",
 	'scores|score|s=s%'	  => \%{$postfwd_settings{scores}},
         "test|t"		  => \$postfwd_settings{test},
         "instantcfg|I"		  => \$postfwd_settings{instant},
@@ -3428,7 +3442,7 @@ GetOptions( \%options,
 	"cidr_method=s",
 	"aggregate_addrs|A!",
 	"showconfig|C",
-	"defaults|settings|D",
+	"defaults|D",
 	# Networking
 	"umask=s"		  => \$postfwd_settings{base}{umask},
 	"user|u=s"		  => \$postfwd_settings{base}{user},
@@ -3539,8 +3553,6 @@ GetOptions( \%options,
 	"dns_retries=i",
 ) or pod2usage (-msg => "\nPlease see \"".$postfwd_settings{name}." -m\" for detailed instructions.\n", -verbose => 1);
 
-map { $postfwd_settings{syslog}{stdout} = 1 if defined $options{$_} } qw(term hup showconfig dumpcache dumpstats defaults delcache delrate);
-
 # basic syntax checks
 if ($postfwd_settings{verbose} > 1) {
 	$postfwd_settings{debug}{all} = 1;
@@ -3573,25 +3585,22 @@ if (@ARGV) {
 		$options{'term'} = 1;
 	} elsif ($ARGV[0] =~ /^(hup|reload)$/i) {
 		$options{'hup'} = 1;
-	} elsif ($ARGV[0] =~ /^(defaults)$/i) {
-		$options{'defaults'} = 1;
-	} elsif ($ARGV[0] =~ /^(dumpcache)$/i) {
-		$options{'dumpcache'} = 1;
-	} elsif ($ARGV[0] =~ /^(dumpstats)$/i) {
-		$options{'dumpstats'} = 1;
-	} elsif ($ARGV[0] =~ /^(delcache)$/i) {
+	} elsif ($ARGV[0] =~ /^(defaults|dumpcache|dumpstats|showsettings)$/i) {
+		$options{$1} = 1;
+	} elsif ($ARGV[0] =~ /^(delcache|delrate|debugclasses)$/i) {
+		my $a = $1;
 		(defined $ARGV[1] and $ARGV[1] =~ /^(.*)$/)
-			? $options{'delcache'} = $1
-			: die "\nCommand 'delcache' needs an argument!\n\n";
-	} elsif ($ARGV[0] =~ /^(delrate)$/i) {
-		(defined $ARGV[1] and $ARGV[1] =~ /^(.*)$/)
-			? $options{'delrate'} = $1
-			: die "\nCommand 'delrate' needs an argument!\n\n";
+			? $options{$a} = $1
+			: die "\nCommand '$a' needs an argument!\n\n";
 	} else {
 		die "\nUnknown command '".$ARGV[0]."'\n\n"
 			unless $ARGV[0] =~ /^(start|run)$/i;
 	};
 };
+map { $postfwd_settings{syslog}{stdout} = 1 if defined $options{$_} } qw(term hup showconfig dumpcache dumpstats defaults delcache delrate debugclasses);
+
+# save options
+%{$postfwd_settings{Options}} = %options;
 
 # terminate at -k or --kill
 if (defined $options{'term'}) {
@@ -3613,6 +3622,7 @@ if (defined $postfwd_settings{chroot}) {
 
 # init_log
 init_log ($postfwd_settings{name}."/master");
+log_info ("Loaded program settings from '".$postfwd_settings{Settings}."'") if defined $postfwd_settings{Settings};
 
 # determine CIDR functions
 $NETADDR = 0 if $options{'no_netaddr'};
@@ -3714,6 +3724,13 @@ if (defined $options{'delcache'} or defined $options{'delrate'}) {
 		split $postfwd_settings{sepreq}.$postfwd_settings{seplst},
 			(&{$postfwd_settings{cache}{check}} ('cache', (($options{'delcache'}) ? 'CMD=RC '.$options{'delcache'} : 'CMD=RR '.$options{'delrate'})) || '<undef>')
 	)."\n\n";
+	exit;
+};
+
+# save configuration
+if (defined $options{'showsettings'}) {
+	log_info ("Showing program settings...") if wantsdebug (qw[ all verbose ]);
+	show_settings();
 	exit;
 };
 
@@ -3862,6 +3879,84 @@ sub get_master_pid {
 	return $1;
 };
 
+# merge default and loaded program settings
+sub merge_settings {
+        my($left, $right) = @_;
+        foreach my $k (keys %{$right}) {
+                my $r = ref $right->{$k};
+                if ($r eq 'HASH') {
+                        unless (defined $left->{$k} and %{$left->{$k}}) {
+                                %{$left->{$k}} = %{$right->{$k}};
+                        } else {
+                                merge_settings($left->{$k}, $right->{$k});
+                        };
+                } elsif ($r eq 'ARRAY') {
+                        @{$left->{$k}} = @{$right->{$k}};
+                } else {
+                        $left->{$k} = $right->{$k};
+                };
+        };
+};
+
+# cleanup program settings
+sub clean_settings {
+	my %set = @_;
+	return () unless %set;
+	map { delete $set{base}{$_}     if defined $set{base}{$_} }    qw( log_file log_level no_client_stdout );
+	map { delete $set{syslog}{$_}   if defined $set{syslog}{$_} }  qw( logger );
+	map { delete $set{server}{$_}   if defined $set{server}{$_} }  qw( check child_communication leave_children_open_on_hup );
+	map { delete $set{cache}{$_}    if defined $set{cache}{$_} }   qw( check );
+	map { delete $set{Options}{$_}  if defined $set{Options}{$_} } qw( term hup showconfig dumpcache dumpstats defaults delcache delrate loadsettings showsettings debugclasses );
+	map { delete $set{$_}           if defined $set{$_} }          qw( Settings manual version seplim seplst sepreq );
+	return %set;
+};
+
+# show program settings
+sub show_settings {
+	my %set = clean_settings(%postfwd_settings);
+	local $Data::Dumper::Indent		= $postfwd_settings{dumper}{Indent};
+	local $Data::Dumper::Purity		= $postfwd_settings{dumper}{Purity};
+	local $Data::Dumper::Quotekeys		= $postfwd_settings{dumper}{Quotekeys};
+	local $Data::Dumper::Sortkeys		= $postfwd_settings{dumper}{Sortkeys};
+	local $Data::Dumper::Terse      	= $postfwd_settings{dumper}{Terse};
+	print STDOUT "# postfwd settings file version $VERSION\n";
+	print STDOUT Dumper(\%set);
+};
+
+# show program settings
+sub load_settings {
+	my $fil = shift;
+	my %set = ();
+	unless (open (DATA, '<'.$fil)) {
+		warn "\nCan not read settings from '$fil': $! - $@\n\n";
+		return;
+	};
+	my @slurp = <DATA>;
+	close(DATA);
+	unless (@slurp) {
+		warn "\nNo valid settings found in '$fil'\n\n";
+		return;
+	};
+	map { $_ = $1 if /^(.*)$/; $_ = '' if /^\s*#/ } @slurp;
+	{
+		local $SIG{'__DIE__'};
+		%set = %{ eval(join ' ', @slurp) };
+	};
+	if ($@) {
+		warn "\nError loading settings from '$fil': $@\n\n";
+		return;
+	};
+	%set = clean_settings(%set) if %set;
+	unless (%set) {
+		warn "\nNo valid settings found in '$fil'\n\n";
+		return;
+	};
+	delete $options{loadsettings} if defined $options{loadsettings};
+	merge_settings( \%postfwd_settings, \%set);
+	merge_settings( \%options, $postfwd_settings{Options});
+	$postfwd_settings{Settings} = $fil;
+};
+
 # detaints postfwd3 settings
 sub detaint_hash {
 	my (%request) = @_;
@@ -3911,6 +4006,10 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	-f, --file <file>		reads rules from <file>
 	-r, --rule <rule>		adds <rule> to config
 	-s, --scores <v>=<r>		returns <r> when score exceeds <v>
+
+	Settings: (multiple use allowed)
+	-F, --loadsettings <file>	loads program settings from <file>
+	    --showsettings		exports program settings to stdout
 
         Server:
         -i, --interface <dev>		listen on interface <dev>
@@ -4038,6 +4137,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 	dumpcache			same as --dumpcache
 	dumpstats			same as --dumpstats
 	defaults			same as --defaults
+	showsettings			same as --showsettings
 	delcache <item>			same as --delcache <item>
 	delrate <item>			same as --delrate <item>
 
@@ -4855,11 +4955,21 @@ that at least one of the following is required for postfwd3 to work.
 
 	-f, --file <file>
 	Reads rules from <file>. Please see the CONFIGURATION section
-	below for more information.
+	for more information.
 
 	-r, --rule <rule>
 	Adds <rule> to ruleset. Remember that you might have to quote
 	strings that contain whitespaces or shell characters.
+
+I<Settings>
+
+	-F, --loadsettings <file>
+	Loads program settings from <file>. data must be in Data::Dumper format.
+	Please read the SETTINGS section for more information.
+
+	--showsettings
+	Exports program settings in Data::Dumper format to stdout. This output
+	can be saved to a file and later used with the --loadsettings option.
 
 I<Scoring>
 
@@ -5459,6 +5569,47 @@ place a last catch-all rule to change that behaviour:
 	id=DEFAULT ;  action=dunno
 
 will log any request that passes the ruleset without having hit a prior rule.
+
+
+=head2 SETTINGS
+
+Since version postfwd3 2.00-pre6 the program settings can be retrieved from a file. The information must be
+parseable by perl eval() function. Comments are allowed:
+
+       # example settings for postfwd3
+       {
+          # enable verbose logging
+          verbose => 1,
+
+          # user and group for postfwd
+	  base => {
+	      group => 'postfw',
+              user => 'postfw'
+          },
+
+          # server settings
+          server => {
+              proto => 'tcp',
+              host => '127.0.0.1',
+              port => '10099'
+          }
+       }
+
+postfwd3 can also export the program settings in that format using Data::Dumper.
+
+	# save configuration to file
+	postfwd3 --showsettings >/path/to/file
+
+	# read configuration from file
+	postfwd3 --loadsettings=/path/to/file
+
+Multiple usage of --loadsettings or the short form -F is allowed. The order will be kept.
+Commandline arguments override the settings retrieved from a file.
+
+	# load base settings, override with node settings and set port and verbose logging
+	postfwd3 -v -p 10050 -F /path/to/basefile -F /path/to/nodefile
+
+Samples for settings files are distributed in the etc/-folder of the postfwd3 tarball.
 
 
 =head2 DEBUGGING

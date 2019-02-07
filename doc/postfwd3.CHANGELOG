@@ -1,3 +1,10 @@
+postfwd3 2.00-pre6
+==================
+- feature: postfwd program settings can now be saved to and read from
+           a configuration file. See --showconfig and --loadconfig=<s>
+	   and the manual section "SETTINGS" for more information.
+	   Samples can be found in the "etc/"-subfolder of the tarball.
+
 postfwd3 2.00-pre5
 ==================
 - docs:    updated dynamic groups description

@@ -28,6 +28,7 @@
       <li><a href="#REFRESH">REFRESH</a></li>
       <li><a href="#EXAMPLES">EXAMPLES</a></li>
       <li><a href="#PARSER">PARSER</a></li>
+      <li><a href="#SETTINGS">SETTINGS</a></li>
       <li><a href="#DEBUGGING">DEBUGGING</a></li>
       <li><a href="#INTEGRATION">INTEGRATION</a></li>
       <li><a href="#TESTING">TESTING</a></li>
@@ -53,6 +54,10 @@
         -f, --file &lt;file&gt;               reads rules from &lt;file&gt;
         -r, --rule &lt;rule&gt;               adds &lt;rule&gt; to config
         -s, --scores &lt;v&gt;=&lt;r&gt;            returns &lt;r&gt; when score exceeds &lt;v&gt;
+
+        Settings: (multiple use allowed)
+        -F, --loadsettings &lt;file&gt;       loads program settings from &lt;file&gt;
+            --showsettings              exports program settings to stdout
 
         Server:
         -i, --interface &lt;dev&gt;           listen on interface &lt;dev&gt;
@@ -180,6 +185,7 @@
         dumpcache                       same as --dumpcache
         dumpstats                       same as --dumpstats
         defaults                        same as --defaults
+        showsettings                    same as --showsettings
         delcache &lt;item&gt;                 same as --delcache &lt;item&gt;
         delrate &lt;item&gt;                  same as --delrate &lt;item&gt;
 
@@ -944,11 +950,21 @@
 
 <pre><code>        -f, --file &lt;file&gt;
         Reads rules from &lt;file&gt;. Please see the CONFIGURATION section
-        below for more information.
+        for more information.
 
         -r, --rule &lt;rule&gt;
         Adds &lt;rule&gt; to ruleset. Remember that you might have to quote
         strings that contain whitespaces or shell characters.</code></pre>
+
+<p><i>Settings</i></p>
+
+<pre><code>        -F, --loadsettings &lt;file&gt;
+        Loads program settings from &lt;file&gt;. data must be in Data::Dumper format.
+        Please read the SETTINGS section for more information.
+
+        --showsettings
+        Exports program settings in Data::Dumper format to stdout. This output
+        can be saved to a file and later used with the --loadsettings option.</code></pre>
 
 <p><i>Scoring</i></p>
 
@@ -1534,6 +1550,44 @@
         id=DEFAULT ;  action=dunno</code></pre>
 
 <p>will log any request that passes the ruleset without having hit a prior rule.</p>
+
+<h2 id="SETTINGS">SETTINGS</h2>
+
+<p>Since version postfwd3 2.00-pre6 the program settings can be retrieved from a file. The information must be parseable by perl eval() function. Comments are allowed:</p>
+
+<pre><code>       # example settings for postfwd3
+       {
+          # enable verbose logging
+          verbose =&gt; 1,
+
+          # user and group for postfwd
+          base =&gt; {
+              group =&gt; &#39;postfw&#39;,
+              user =&gt; &#39;postfw&#39;
+          },
+
+          # server settings
+          server =&gt; {
+              proto =&gt; &#39;tcp&#39;,
+              host =&gt; &#39;127.0.0.1&#39;,
+              port =&gt; &#39;10099&#39;
+          }
+       }</code></pre>
+
+<p>postfwd3 can also export the program settings in that format using Data::Dumper.</p>
+
+<pre><code>        # save configuration to file
+        postfwd3 --showsettings &gt;/path/to/file
+
+        # read configuration from file
+        postfwd3 --loadsettings=/path/to/file</code></pre>
+
+<p>Multiple usage of --loadsettings or the short form -F is allowed. The order will be kept. Commandline arguments override the settings retrieved from a file.</p>
+
+<pre><code>        # load base settings, override with node settings and set port and verbose logging
+        postfwd3 -v -p 10050 -F /path/to/basefile -F /path/to/nodefile</code></pre>
+
+<p>Samples for settings files are distributed in the etc/-folder of the postfwd3 tarball.</p>
 
 <h2 id="DEBUGGING">DEBUGGING</h2>
 
