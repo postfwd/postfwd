@@ -1,7 +1,14 @@
+postfwd3 2.00-pre7
+==================
+- feature: added postfwd version information to --showsettings output
+- feature: added --savesettings=<s>, more information in manual
+- code:    default for --max_group_items argument changed to 999999
+- code:    saved rate limits can now be exchanged between Multiplex and PreFork
+
 postfwd3 2.00-pre6
 ==================
 - feature: postfwd program settings can now be saved to and read from
-           a configuration file. See --showconfig and --loadconfig=<s>
+           a configuration file. See --showsettings and --loadsettings=<s>
 	   and the manual section "SETTINGS" for more information.
 	   Samples can be found in the "etc/"-subfolder of the tarball.
 

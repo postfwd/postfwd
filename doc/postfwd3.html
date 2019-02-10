@@ -2,7 +2,8 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<title></title>
+<title>postfwd manual</title>
+<link rel="stylesheet" href="/css/postfwd.css" type="text/css" />
 <meta http-equiv="content-type" content="text/html; charset=utf-8" />
 <link rev="made" href="mailto:root@localhost" />
 </head>
@@ -57,6 +58,7 @@
 
         Settings: (multiple use allowed)
         -F, --loadsettings &lt;file&gt;       loads program settings from &lt;file&gt;
+            --savesettings &lt;file&gt;       saves program settings to &lt;file&gt;
             --showsettings              exports program settings to stdout
 
         Server:
@@ -801,7 +803,7 @@
 
 <p><b>Limitations</b></p>
 
-<p>Currently dynamic groups are kept in memory. postfwd3 will only accept --group_maxitems [9999] members to a group. To deactivate this limit set --group_maxitems to &#39;-1&#39;.</p>
+<p>Currently dynamic groups are kept in memory. By default postfwd3 will only accept a maximum of 999999 members in a group. To deactivate this limit set --group_maxitems to &#39;-1&#39;.</p>
 
 <p>With PreFork personality, you should be aware that this information must be shared through the cache daemon.</p>
 
@@ -960,6 +962,10 @@
 
 <pre><code>        -F, --loadsettings &lt;file&gt;
         Loads program settings from &lt;file&gt;. data must be in Data::Dumper format.
+        Please read the SETTINGS section for more information.
+
+        --savesettings &lt;file&gt;
+        Saves program settings to &lt;file&gt; in Data::Dumper format.
         Please read the SETTINGS section for more information.
 
         --showsettings
@@ -1576,8 +1582,11 @@
 
 <p>postfwd3 can also export the program settings in that format using Data::Dumper.</p>
 
-<pre><code>        # save configuration to file
-        postfwd3 --showsettings &gt;/path/to/file
+<pre><code>        # show configuration
+        postfwd3 --showsettings
+
+        # save configuration to file
+        postfwd3 --savesettings=/path/to/file
 
         # read configuration from file
         postfwd3 --loadsettings=/path/to/file</code></pre>

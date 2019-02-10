@@ -13,6 +13,7 @@ SYNOPSIS
 
             Settings: (multiple use allowed)
             -F, --loadsettings <file>       loads program settings from <file>
+                --savesettings <file>       saves program settings to <file>
                 --showsettings              exports program settings to stdout
 
             Server:
@@ -812,9 +813,9 @@ DESCRIPTION
 
     Limitations
 
-    Currently dynamic groups are kept in memory. postfwd3 will only accept
-    --group_maxitems [9999] members to a group. To deactivate this limit set
-    --group_maxitems to '-1'.
+    Currently dynamic groups are kept in memory. By default postfwd3 will
+    only accept a maximum of 999999 members in a group. To deactivate this
+    limit set --group_maxitems to '-1'.
 
     With PreFork personality, you should be aware that this information must
     be shared through the cache daemon.
@@ -993,6 +994,10 @@ DESCRIPTION
 
             -F, --loadsettings <file>
             Loads program settings from <file>. data must be in Data::Dumper format.
+            Please read the SETTINGS section for more information.
+
+            --savesettings <file>
+            Saves program settings to <file> in Data::Dumper format.
             Please read the SETTINGS section for more information.
 
             --showsettings
@@ -1636,8 +1641,11 @@ DESCRIPTION
     postfwd3 can also export the program settings in that format using
     Data::Dumper.
 
+            # show configuration
+            postfwd3 --showsettings
+
             # save configuration to file
-            postfwd3 --showsettings >/path/to/file
+            postfwd3 --savesettings=/path/to/file
 
             # read configuration from file
             postfwd3 --loadsettings=/path/to/file

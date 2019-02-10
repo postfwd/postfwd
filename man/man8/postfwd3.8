@@ -133,7 +133,7 @@
 .\" ========================================================================
 .\"
 .IX Title "POSTFWD3 1"
-.TH POSTFWD3 1 "2019-02-07" "perl v5.22.1" "User Contributed Perl Documentation"
+.TH POSTFWD3 1 "2019-02-10" "perl v5.22.1" "User Contributed Perl Documentation"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -154,6 +154,7 @@ postfwd3 \- postfix firewall daemon
 \&
 \&        Settings: (multiple use allowed)
 \&        \-F, \-\-loadsettings <file>       loads program settings from <file>
+\&            \-\-savesettings <file>       saves program settings to <file>
 \&            \-\-showsettings              exports program settings to stdout
 \&
 \&        Server:
@@ -1007,8 +1008,8 @@ Empty groups always compare false. The following ruleset is possible:
 .PP
 \&\fBLimitations\fR
 .PP
-Currently dynamic groups are kept in memory. postfwd3 will only accept \-\-group_maxitems [9999] members
-to a group. To deactivate this limit set \-\-group_maxitems to '\-1'.
+Currently dynamic groups are kept in memory. By default postfwd3 will only accept a maximum of 999999 members
+in a group. To deactivate this limit set \-\-group_maxitems to '\-1'.
 .PP
 With PreFork personality, you should be aware that this information must be shared through the cache daemon.
 .PP
@@ -1195,6 +1196,10 @@ that at least one of the following is required for postfwd3 to work.
 .Vb 3
 \&        \-F, \-\-loadsettings <file>
 \&        Loads program settings from <file>. data must be in Data::Dumper format.
+\&        Please read the SETTINGS section for more information.
+\&
+\&        \-\-savesettings <file>
+\&        Saves program settings to <file> in Data::Dumper format.
 \&        Please read the SETTINGS section for more information.
 \&
 \&        \-\-showsettings
@@ -1862,8 +1867,11 @@ parseable by perl \fIeval()\fR function. Comments are allowed:
 postfwd3 can also export the program settings in that format using Data::Dumper.
 .PP
 .Vb 2
+\&        # show configuration
+\&        postfwd3 \-\-showsettings
+\&
 \&        # save configuration to file
-\&        postfwd3 \-\-showsettings >/path/to/file
+\&        postfwd3 \-\-savesettings=/path/to/file
 \&
 \&        # read configuration from file
 \&        postfwd3 \-\-loadsettings=/path/to/file

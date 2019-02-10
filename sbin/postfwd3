@@ -43,7 +43,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.00-pre6";
+our $VERSION	= "2.00-pre7";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -68,7 +68,7 @@ our %postfwd_settings = (
 		log_file         => 'Sys::Syslog',
 		syslog_ident     => "$NAME",
 		umask		 => "0177",
-		no_client_stdout => '1',
+		no_client_stdout => 1,
 	},
 	master => {
 		pid_file         => "/var/tmp/$NAME-master.pid",
@@ -90,7 +90,7 @@ our %postfwd_settings = (
 		commandline	 => " ".$NAME."::policy",
 		syslog_ident     => "$NAME/policy",
 		host             => '127.0.0.1',
-		port             => 10045,
+		port             => '10045',
 		proto            => "tcp",
 		check		 => \&check_inet,
 		umask		 => "0111",
@@ -161,7 +161,7 @@ our %postfwd_settings = (
 	},
 	group => {
 		ttl		=> 3600, # default ttl=1h
-		maxitems	=> 9999, # '-1' for unlimited
+		maxitems	=> 999999, # '-1' for unlimited
 		cleanup		=> 600,
 		noparent	=> 0,
 		aggregate_addrs	=> 0,
@@ -223,16 +223,12 @@ our %postfwd_commands = (
 	dumpcache     => 'DC',
 	delcache      => 'RC',
 	delrate       => 'RR',
-	#wipecache    => 'WC',
 	countcache    => 'CN',
 	matchcache    => 'MT',
 	setcacheitem  => 'SC',
 	getcacheitem  => 'GC',
 	getcacheval   => 'GV',
-	checkrate     => 'CR',
 	setrateitem   => 'SR',
-	setrateitem2  => 'S2',
-	getrateitem   => 'GR',
 	groupadd      => 'GA',
 	groupdel      => 'GD',
 	groupget      => 'GG',
@@ -249,16 +245,12 @@ our %postfwd_patterns = (
 	dumpcache     => qr/^CMD\s*=\s*$postfwd_commands{dumpcache}\s*;\s*$/i,
 	delcache      => qr/^CMD\s*=\s*$postfwd_commands{delcache}\s+(.*?)$/i,
 	delrate       => qr/^CMD\s*=\s*$postfwd_commands{delrate}\s+(.*?)$/i,
-	#wipecache    => qr/^CMD\s*=\s*$postfwd_commands{wipecache}\s*;\s*$/i,
 	countcache    => qr/^CMD\s*=\s*$postfwd_commands{countcache}\s*;\s*TYPE\s*=\s*(.*?)\s*$/i,
 	matchcache    => qr/^CMD\s*=\s*$postfwd_commands{matchcache}\s*;\s*TYPE\s*=\s*(.*?)\s*$/i,
 	setcacheitem  => qr/^CMD\s*=\s*$postfwd_commands{setcacheitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*(.*?)\s*$/i,
 	getcacheitem  => qr/^CMD\s*=\s*$postfwd_commands{getcacheitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$/i,
 	getcacheval   => qr/^CMD\s*=\s*$postfwd_commands{getcacheval}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*KEY\s*=\s*(.*?)\s*$/i,
-	checkrate     => qr/^CMD\s*=\s*$postfwd_commands{checkrate}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*([^;]+)\s*;\s*SIZE\s*=\s*([^;]+)\s*;\s*RCPT\s*=\s*([^;]+)\s*$/i,
 	setrateitem   => qr/^CMD\s*=\s*$postfwd_commands{setrateitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*(.*?)\s*$/i,
-	setrateitem2  => qr/^CMD\s*=\s*$postfwd_commands{setrateitem2}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$sepreq\s*(.*?)\s*$/i,
-	getrateitem   => qr/^CMD\s*=\s*$postfwd_commands{getrateitem}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$/i,
 	groupadd      => qr/^CMD\s*=\s*$postfwd_commands{groupadd}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$seplim\s*(.*?)\s*$/i,
 	groupdel      => qr/^CMD\s*=\s*$postfwd_commands{groupdel}\s*;\s*TYPE\s*=\s*([^;]+)\s*;\s*ITEM\s*=\s*(.*?)\s*$/i,
 	groupget      => qr/^CMD\s*=\s*$postfwd_commands{groupget}\s*;\s*TYPE\s*=\s*(.*?)\s*$/i,
@@ -318,10 +310,11 @@ sub hash_to_list {
 			push @output, sprintf ("%s -> %".$minkey."s -> %s", $pre, '$'.$s, ((defined $v) ? "'".$v."'" : 'undef'));
 		};
 	};
-	return sort { my ($c, $d) = ($a, $b);
+	@output = sort { my ($c, $d) = ($a, $b);
 		$c =~ tr/$/1/; $c =~ tr/&/2/; $c =~ tr/@/3/; $c =~ tr/%/4/;
 		$d =~ tr/$/1/; $d =~ tr/&/2/; $d =~ tr/@/3/; $d =~ tr/%/4/;
 		return $c cmp $d; } @output;
+	return @output;
 };
 
 # Sys::Syslog < 0.15
@@ -567,17 +560,6 @@ sub set_cache {
 	return (join '; ', @answer);
 };
 
-# get rate item
-sub get_rate {
-	my ($self,$now,$type,$item) = @_;
-	my @answer = (); my $rindex = '';
-	($item, $rindex) = split $postfwd_settings{seplim}, $item;
-	return '<undef>' unless ( $item and $rindex and defined $Cache{$type}{$item} and defined $Cache{$type}{$item}{$rindex} and defined $Cache{$type}{$item}{$rindex}{'until'} and ($now <= $Cache{$type}{$item}{$rindex}{'until'}[0]));
-	$Count{$type."_hits"}++;
-	map { push @answer, "$_=".(join $postfwd_settings{seplst}, @{$Cache{$type}{$item}{$rindex}{$_}}) } (keys %{$Cache{$type}{$item}{$rindex}});
-	return (join $postfwd_settings{sepreq}, @answer);
-};
-
 # add item to group
 sub add_group {
 	my ($self,$now,$groupname,$groupitem,$groupttl) = @_;
@@ -617,69 +599,32 @@ sub get_group {
 };
 
 # set rate to cache
-sub set_rate2 {
+sub set_rate {
 	my ($self,$now,$type,$item,$vals) = @_;
 	my $rindex = ''; my %entry = (); my $rcount = undef;
 	($item, $rindex) = split $postfwd_settings{seplim}, $item;
 	push @{$Cache{$type}{$item}{'list'}}, $rindex;
 	@{$Cache{$type}{$item}{'list'}} = uniq(@{$Cache{$type}{$item}{'list'}});
 	foreach my $arg (split ($postfwd_settings{sepreq}, $vals)) {
-		map {	push @{$entry{$1}}, $_;
-			@{$entry{$1}} = uniq(@{$entry{$1}});
+		map {
+			#push @{$entry{$1}}, $_;
+			#@{$entry{$1}} = uniq(@{$entry{$1}});
+			$entry{$1} = $_;
 		} (split $postfwd_settings{seplst}, $2) if ($arg =~ m/$postfwd_patterns{keyval}/);
 	};
 	unless (defined $Cache{$type}{$item}{$rindex} and defined $Cache{$type}{$item}{$rindex}{'until'}) {
 		%{$Cache{$type}{$item}{$rindex}} = %entry;
-	} elsif ($now > $Cache{$type}{$item}{$rindex}{'until'}[0]) {
+	#} elsif ($now > $Cache{$type}{$item}{$rindex}{'until'}[0]) {
+	} elsif ($now > $Cache{$type}{$item}{$rindex}{'until'}) {
 		%{$Cache{$type}{$item}{$rindex}} = %entry;
 	} else {
-		$rcount = $Cache{$type}{$item}{$rindex}{'count'}[0] + ($entry{'count'}[0] || 0);
-		$Cache{$type}{$item}{$rindex}{'count'}[0] = $rcount unless $rcount > $Cache{$type}{$item}{$rindex}{'maxcount'}[0];
+		#$rcount = $Cache{$type}{$item}{$rindex}{'count'}[0] + ($entry{'count'}[0] || 0);
+		#$Cache{$type}{$item}{$rindex}{'count'}[0] = $rcount;
+		$rcount = $Cache{$type}{$item}{$rindex}{'count'} + ($entry{'count'} || 0);
+		$Cache{$type}{$item}{$rindex}{'count'} = $rcount;
 	};
-	return $rcount || $Cache{$type}{$item}{$rindex}{'count'}[0] || '<undef>';
-};
-
-# check rate limits
-sub check_rate {
-	my ($self,$now,$type,$item,$size,$rcpt) = @_;
-	return '<undef>' unless ($type and $item);
-	$size ||= 0; $rcpt ||= 0; my $answer = '';
-	RATES: foreach my $arg (split ($postfwd_settings{seplst}, $item)) {
-		next RATES unless (defined $Cache{$type}{$arg} and defined $Cache{$type}{$arg}{'list'});
-
-		RINDEX: foreach my $rindex (@{$Cache{$type}{$arg}{'list'}}) {
-			next RINDEX unless (defined $Cache{$type}{$arg}{$rindex} and defined $Cache{$type}{$arg}{$rindex}{'until'} and defined $Cache{$type}{$arg}{$rindex}{type});
-			my $rcount = ( (@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'size') ? $size :
-                                  ((@{$Cache{$type}{$arg}{$rindex}{type}}[0] eq 'rcpt') ? $rcpt : 1 ) );
-			# renew rate
-			if ( $now > @{$Cache{$type}{$arg}{$rindex}{'until'}}[0] ) {
-				@{$Cache{$type}{$arg}{$rindex}{count}}[0]   = $rcount;
-				@{$Cache{$type}{$arg}{$rindex}{'until'}}[0] = $now + @{$Cache{$type}{$arg}{$rindex}{ttl}}[0];
-				log_info ("[RATES] renewing rate limit object '".$arg."'"
-				  ." [type: ".@{$Cache{$type}{$arg}{$rindex}{type}}[0]
-				  .", max: ".@{$Cache{$type}{$arg}{$rindex}{maxcount}}[0]
-				  .", time: ".@{$Cache{$type}{$arg}{$rindex}{ttl}}[0]."s]")
-				  if wantsdebug (qw[ all rates ]);
-	
-			# increase rate
-			} elsif (not(($rcount+=@{$Cache{$type}{$arg}{$rindex}{count}}[0]) > @{$Cache{$type}{$arg}{$rindex}{maxcount}}[0])) {
-				@{$Cache{$type}{$arg}{$rindex}{count}}[0] = $rcount;
-				log_info ("[RATES] increasing rate limit object '".$arg."' to ".@{$Cache{$type}{$arg}{$rindex}{count}}[0]
-				  ." [type: ".@{$Cache{$type}{$arg}{$rindex}{type}}[0]
-				  .", max: ".@{$Cache{$type}{$arg}{$rindex}{maxcount}}[0]
-				  .", time: ".@{$Cache{$type}{$arg}{$rindex}{ttl}}[0]."s]")
-				  if wantsdebug (qw[ all rates ]);
-			};
-	
-			# check rate
-			if (not($answer) and $rcount > @{$Cache{$type}{$arg}{$rindex}{maxcount}}[0]) {
-				$answer = $arg.$postfwd_settings{seplim}.$rindex.$postfwd_settings{seplst}.hash_to_str ($Cache{$type}{$arg}{$rindex});
-				$Count{$type."_hits"}++;
-			};
-		};
-	};
-	$answer = '<undef>' unless $answer;
-	return $answer;
+	#return $rcount || $Cache{$type}{$item}{$rindex}{'count'}[0] || '<undef>';
+	return $rcount || $Cache{$type}{$item}{$rindex}{'count'} || '<undef>';
 };
 
 # clean up cache
@@ -692,7 +637,7 @@ sub cleanup_cache {
 		next CLEANUP unless (defined $Cache{$type}{$checkitem});
 		unless ( defined $Cache{$type}{$checkitem}{'list'} ) {
 			# remove incomplete objects
-			if ( !defined($Cache{$type}{$checkitem}{'until'}) or !defined($Cache{$type}{$checkitem}{ttl}) ) {
+			unless ( defined $Cache{$type}{$checkitem}{'until'} and defined $Cache{$type}{$checkitem}{ttl} ) {
 				if ( wantsdebug (qw[ all cleanup parentcleanup devel ]) ) {
 					log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'");
 					map { log_info ("[CLEANUP]  $_") } ( hash_to_list($Cache{$type}{$checkitem}) );
@@ -707,14 +652,16 @@ sub cleanup_cache {
 		} else {
 			my @i = ();
 			foreach my $crate (@{$Cache{$type}{$checkitem}{'list'}}) {
-				if ( !(defined $Cache{$type}{$checkitem}{$crate}{'until'}) or !(defined $Cache{$type}{$checkitem}{$crate}{ttl}) ) {
+				unless ( defined $Cache{$type}{$checkitem}{$crate}{'until'} and defined $Cache{$type}{$checkitem}{$crate}{ttl} ) {
 					if ( wantsdebug (qw[ all cleanup parentcleanup devel ]) ) {
 						log_info ("[CLEANUP] deleting incomplete $type cache item '$checkitem'->'$crate'");
 						map { log_info ("[CLEANUP]  $_") } ( hash_to_list($Cache{$type}{$checkitem}{$crate}) );
 					};
 					delete $Cache{$type}{$checkitem}{$crate};
-				} elsif ( $now > $Cache{$type}{$checkitem}{$crate}{'until'}[0] ) {
-					log_info ("[CLEANUP] removing $type cache item '$checkitem'->'$crate' after ttl ".$Cache{$type}{$checkitem}{$crate}{ttl}[0]."s")
+				#} elsif ( $now > $Cache{$type}{$checkitem}{$crate}{'until'}[0] ) {
+				} elsif ( $now > $Cache{$type}{$checkitem}{$crate}{'until'} ) {
+					#log_info ("[CLEANUP] removing $type cache item '$checkitem'->'$crate' after ttl ".$Cache{$type}{$checkitem}{$crate}{ttl}[0]."s")
+					log_info ("[CLEANUP] removing $type cache item '$checkitem'->'$crate' after ttl ".$Cache{$type}{$checkitem}{$crate}{ttl}."s")
 						if wantsdebug (qw[ all cleanup parentcleanup ]);
 					delete $Cache{$type}{$checkitem}{$crate};
 				} else {
@@ -854,14 +801,6 @@ sub mux_input {
 			$Count{"group_get"}++; $Interval{"group_get"}++;
 			$action = $self->get_group($now,$type);
 			log_info ("[GETGROUP] answer: '$action'") if wantsdebug (qw[ all cache getcache groups ]);
-		} elsif ($request =~ m/$postfwd_patterns{checkrate}/) {
-			my ($type, $item, $size, $rcpt) = ($1, $2, $3, $4);
-			log_info ("[CHECKRATE] request: '$request'") if wantsdebug (qw[ all rates cache getcache ]);
-			cleanup_cache ($type,$now) if (($now - $Cleanup{$type}) > ($postfwd_settings{$type}{cleanup} || 300));
-			$Count{cache_queries}++; $Interval{cache_queries}++;
-			$Count{$type."_check"}++; $Interval{$type."_check"}++;
-			$action = $self->check_rate($now,$type,$item,$size,$rcpt);
-			log_info ("[CHECKRATE] answer: '$action'") if wantsdebug (qw[ all rates cache getcache ]);
 		} elsif ($request =~ m/$postfwd_patterns{getcacheitem}/) {
 			my ($type, $item) = ($1, $2);
 			log_info ("[GETCACHEITEM] request: '$request'") if wantsdebug (qw[ all cache getcache ]);
@@ -877,14 +816,6 @@ sub mux_input {
 			$Count{$type."_set"}++; $Interval{$type."_set"}++;
 			$action = $self->set_cache($type,$item,$vals);
 			log_info ("[SETCACHEITEM] answer: '$action'") if wantsdebug (qw[ all cache setcache ]);
-		} elsif ($request =~ m/$postfwd_patterns{getrateitem}/) {
-			my ($type, $item) = ($1, $2);
-			log_info ("[GETRATEITEM] request: '$request'") if wantsdebug (qw[ all cache getcache rates ]);
-			cleanup_cache ($type,$now) if (($now - $Cleanup{$type}) > ($postfwd_settings{$type}{cleanup} || 300));
-			$Count{cache_queries}++; $Interval{cache_queries}++;
-			$Count{$type."_get"}++; $Interval{$type."_get"}++;
-			$action = $self->get_rate($now,$type,$item);
-			log_info ("[GETRATEITEM] answer: '$action'") if wantsdebug (qw[ all cache getcache rates ]);
 		} elsif ($request =~ m/$postfwd_patterns{setrateitem}/) {
 			my ($type, $item, $vals) = ($1, $2, $3);
 			log_info ("[SETRATEITEM] request: '$request'") if wantsdebug (qw[ all cache setcache ]);
@@ -892,13 +823,6 @@ sub mux_input {
 			$Count{$type."_set"}++; $Interval{$type."_set"}++;
 			$action = $self->set_rate($now,$type,$item,$vals);
 			log_info ("[SETRATEITEM] answer: '$action'") if wantsdebug (qw[ all cache setcache ]);
-		} elsif ($request =~ m/$postfwd_patterns{setrateitem2}/) {
-			my ($type, $item, $vals) = ($1, $2, $3);
-			log_info ("[SETRATEITEM2] request: '$request'") if wantsdebug (qw[ all cache setcache ]);
-			$Count{cache_queries}++; $Interval{cache_queries}++;
-			$Count{$type."_set"}++; $Interval{$type."_set"}++;
-			$action = $self->set_rate2($now,$type,$item,$vals);
-			log_info ("[SETRATEITEM2] answer: '$action'") if wantsdebug (qw[ all cache setcache ]);
 		} elsif ($request =~ m/$postfwd_patterns{groupadd}/) {
 			my ($type, $item, $vals) = ($1, $2, $3);
 			log_info ("[ADDGROUP] request: '$request'") if wantsdebug (qw[ all cache setcache groups ]);
@@ -1111,9 +1035,9 @@ sub cache_query { return ( &{$postfwd_settings{cache}{check}}('cache',@_) || '<u
 
 # get ip and mask
 sub cidr_parse {
-	return undef unless defined $_[0];
-	return undef unless $_[0] =~ m/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/;
-	return undef unless ($1 < 256 and $2 < 256 and $3 < 256 and $4 < 256 and $5 <= 32 and $5 >= 0);
+	return unless defined $_[0];
+	return unless $_[0] =~ m/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/;
+	return unless ($1 < 256 and $2 < 256 and $3 < 256 and $4 < 256 and $5 <= 32 and $5 >= 0);
 	my $net = ($1<<24)+($2<<16)+($3<<8)+$4;
 	my $mask = ~((1<<(32-$5))-1);
 	return ($net & $mask, $mask);
@@ -1122,7 +1046,7 @@ sub cidr_parse {
 # compare address to network
 sub cidr_match {
 	my ($net, $mask, $addr) = @_;
-	return undef unless defined $net and defined $addr;
+	return unless defined $net and defined $addr;
 	$addr =  ($1<<24)+($2<<16)+($3<<8)+$4 if ($addr =~ /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
 	return ($addr & $mask) == $net;
 };
@@ -1188,7 +1112,7 @@ sub cleanup_dns_cache {
 	my($now) = $_[0]; return unless $now;
 	foreach my $checkitem (keys %DNS_Cache) {
 		# remove inclomplete objects (dns timeouts)
-		if ( !defined($DNS_Cache{$checkitem}{'until'}) or !defined($DNS_Cache{$checkitem}{ttl}) ) {
+		unless ( defined($DNS_Cache{$checkitem}{'until'}) and defined($DNS_Cache{$checkitem}{ttl}) ) {
 			log_info ("[CLEANUP] deleting incomplete dns-cache item '$checkitem'")
 				if wantsdebug (qw[ all cleanup childcleanup devel ]);
 			delete $DNS_Cache{$checkitem};
@@ -1205,7 +1129,7 @@ sub cleanup_dns_cache {
 sub cleanup_request_cache {
 	my($now) = $_[0]; return unless $now;
 	foreach my $checkitem (keys %Request_Cache) {
-		if ( !defined($Request_Cache{$checkitem}{'until'}) or !defined($Request_Cache{$checkitem}{ttl}) ) {
+		unless ( defined($Request_Cache{$checkitem}{'until'}) and defined($Request_Cache{$checkitem}{ttl}) ) {
 			log_info ("[CLEANUP] deleting incomplete request-cache item '$checkitem'")
 				if wantsdebug (qw[ all cleanup childcleanup devel ]);
 			delete $Request_Cache{$checkitem};
@@ -1381,7 +1305,7 @@ sub prepare_file {
 				if wantsdebug (qw[ all thisrequest config ]);
 		return  @{$Config_Cache{$file}{content}};
 	};
-	unless (open ($fh, "<$file")) {
+	unless (open ($fh, '<', $file)) {
 		log_warn ("error: could not open $type:$file - $! - will be ignored");
 		return @result;
 	};
@@ -1437,11 +1361,11 @@ sub check_for_old_syntax {
 sub parse_config_line {
 	my($forced_reload, $myfile, $mynum, $myindex, $myline) = @_;
 	my(%myrule) = ();
-	my($mykey, $myvalue, $mycomp);
+	my($mykey, $myvalue, $mycomp, $prevalert);
 	eval {
 	    local $SIG{'__DIE__'};
 	    local $SIG{'ALRM'}  = sub { $myline =~ s/[ \t][ \t]*/ /g; log_warn ("timeout after ".$postfwd_settings{timeout}{config}."s at parsing Rule $myindex ($myfile line $mynum): \"$myline\""); %myrule = (); die };
-	    my $prevalert = alarm($postfwd_settings{timeout}{config}) if $postfwd_settings{timeout}{config};
+	    $prevalert = alarm($postfwd_settings{timeout}{config}) if $postfwd_settings{timeout}{config};
 	    if ( $myline = acl_parser ($myfile, $mynum, $myline) ) {
 		unless ( $myline =~ /^\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+(;\s*[^=\s]+\s*$COMP_SEPARATOR\s*([^;\s]+\s*)+)*[;\s]*$/ ) {
 			log_warn ("ignoring invalid $myfile line ".$mynum.": \"".$myline."\"");
@@ -1493,7 +1417,7 @@ sub read_config_file {
 	unless (-e $myfile) {
 		log_warn ("error: file ".$myfile." not found - file will be ignored");
 	} else {
-		unless (open ($fh, "<$myfile")) {
+		unless (open ($fh, '<', $myfile)) {
 			log_warn ("error: could not open ".$myfile." - $! - file will be ignored");
 		} else {
 			log_info ("reading file $myfile") if wantsdebug (qw[ all thisrequest config verbose ]);
@@ -1527,7 +1451,7 @@ sub read_config_file {
 sub read_config {
 	my($forced_reload) = shift;
 	my(%myrule, @myruleset) = ();
-	my($mytype,$myitem,$config);
+	my($mytype,$myitem);
 
 	# init, cleanup cache and config vars
 	@Rules = (); %Rule_by_ID = %Request_Cache = (); @Rate_Items = ();
@@ -1535,7 +1459,7 @@ sub read_config {
 	%Group_Cache = () unless $postfwd_settings{keep_groups};
 
 	# parse configurations
-	for $config (@{$postfwd_settings{Configs}}) {
+	for my $config (@{$postfwd_settings{Configs}}) {
 		($mytype,$myitem) = split $postfwd_settings{sepreq}, $config;
 		if ($mytype eq "r" or $mytype eq "rule") {
 			%myrule = parse_config_line ($forced_reload, 'RULE', 0, ($#Rules + 1), $myitem);
@@ -2322,13 +2246,14 @@ sub postfwd_items {
 		my($myaction) = $postfwd_settings{default}; my($stop) = 0;
 		my($mcmd,$mfrom,$mto,$msubject,$mbody) = split '::', $myarg, 5;
 		my($msg) = "From: $mfrom\nTo: $mto\nSubject: $msubject\n\n$mbody\n";
-		if ( (-x $mcmd) and open (SM, "| $mcmd -i -f $mfrom $mto") ) {
-			if ( print SM "$msg" ) {
+		my($sm) = undef;
+		if ( (-x $mcmd) and open ($sm, '| ', "$mcmd -i -f $mfrom $mto") ) {
+			if ( print $sm "$msg" ) {
 				log_info ("[SENDMAIL] ".$myline.", $mcmd from=<$mfrom>, to=<$mto>, subject=<$msubject>");
 			} else {
 				log_note ("[SENDMAIL] ".$myline.", could not print to $mcmd pipe: '$!'");
 			};
-			close(SM);
+			close($sm);
 		} else {
 			log_note ("[SENDMAIL] ".$myline.", could not open pipe to $mcmd: '$!'");
 		};
@@ -2381,7 +2306,7 @@ sub postfwd_items {
 				$Rate_Cache{$ratetype}{$crate}{'ttl'}	= $ratetime;
 				$Rate_Cache{$ratetype}{$crate}{'until'}	= $now + $ratetime;
 				$Rate_Cache{$ratetype}{$crate}{'count'}	= $rcount;
-                                my $prate = "CMD=".$postfwd_commands{setrateitem2}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
+                                my $prate = "CMD=".$postfwd_commands{setrateitem}.";TYPE=rate;ITEM=$ratetype".$postfwd_settings{seplim}.$crate.hash_to_str($Rate_Cache{$ratetype}{$crate});
                                 $prate = cache_query ($prate);
 				$Rate_Cache{$ratetype}{$crate}{count} = $prate if ($prate =~ /^\d+$/);
                                	log_info ("updated parent rate limit object '$ratetype'->'".$crate."' with value '$rcount' to '".$Rate_Cache{$ratetype}{$crate}{'count'}."'") if wantsdebug (qw[ all thisrequest rates ]);
@@ -2649,7 +2574,7 @@ sub compare_rule {
 			or exists($Rules[$index]{$COMP_MX_ADDR})
     );
     my($hasdns) = ( not($postfwd_settings{dns}{disabled}) and ($has_senderdns or $has_rhl or $has_rbl) );
-    my($mykey,$myitem,$val,$cmp,$res,$myline,$timed) = undef;
+    my($myitem,$val,$cmp,$res,$myline,$timed) = undef;
     my(@myresult) = (0,0,0,0);
     my(@queries,@timedout) = ();
     my($num) = 1;
@@ -2662,7 +2587,7 @@ sub compare_rule {
 
     # COMPARE-ITEMS
     # check all non-dns items
-    ITEM: for $mykey ( keys %{$Rules[$index]} ) {
+    ITEM: for my $mykey ( keys %{$Rules[$index]} ) {
 	# always true
 	if ( ($mykey eq $COMP_ID) or ($mykey eq $COMP_ACTION) or ($mykey eq $COMP_CACHE) ) {
 		$myresult[0]++;
@@ -2913,7 +2838,7 @@ sub smtpd_access_policy {
     my($counters)					= "request=1".$postfwd_settings{sepreq}."interval=1";
     my ($rhit)						= "ruleset";
     my($matched,$rblcnt,$rhlcnt,$t1,$t2,$t3,$ai)  	= 0;
-    my($mykey,$cacheid,$myline,$checkreq,$checkval,$var,$ratehit,$rateindex,$rulehits) = "";
+    my($mykey,$cacheid,$myline,$checkval,$var,$ratehit,$rateindex,$rulehits) = "";
 
     # save original request
     $request->{orig} = hash_to_str ($request);
@@ -2965,7 +2890,7 @@ sub smtpd_access_policy {
 	if ($postfwd_settings{cacheid}) {
 		map { $cacheid .= $request->{$_}.';' if (defined $request->{$_}) } @{$postfwd_settings{cacheid}};
 	} else {
-		REQITEM: foreach $checkreq (sort keys %{$request}) {
+		REQITEM: foreach my $checkreq (sort keys %{$request}) {
 			next REQITEM unless $request->{$checkreq};
 			next REQITEM if %AutoCacheID and not defined $AutoCacheID{lc($checkreq)};
 			next REQITEM if ( ($checkreq eq "instance") or ($checkreq eq "queue_id") or ($checkreq eq "orig"));
@@ -3432,7 +3357,7 @@ GetOptions( \%options,
 	'rule|r=s'		  => sub{ my($opt,$value) = @_; push (@{$postfwd_settings{Configs}}, $opt.$postfwd_settings{sepreq}.$value) },
 	'file|f=s'		  => sub{ my($opt,$value) = @_; push (@{$postfwd_settings{Configs}}, $opt.$postfwd_settings{sepreq}.$value) },
 	"loadsettings|load|F=s",
-	"showsettings|settings",
+	"showsettings|savesettings|settings|save:s",
 	'scores|score|s=s%'	  => \%{$postfwd_settings{scores}},
         "test|t"		  => \$postfwd_settings{test},
         "instantcfg|I"		  => \$postfwd_settings{instant},
@@ -3531,7 +3456,7 @@ GetOptions( \%options,
 	"chroot|R=s"		  => \$postfwd_settings{chroot},
 	# Logging
         "debug=s"		  => sub { push @{$options{debug}}, (split /[,\s]+/, $_[1]) },
-        "debugclasses"		  => sub { my %tags = (); open (PIN, '<'.$0) or die "Can not open '$0': $! - $@\n\n"; while (<PIN>) { chomp; next unless /wantsdebug\s+\(\s*qw\[\s*([^\]]+)\]/; my $cstr = $1; map { $tags{$_}++ } (split /\s+/, $cstr) }; close(PIN); print STDERR "\n HOOKS NAME\n ----- ----\n"; map { printf STDERR "%6d %s\n", $tags{$_}, $_ } (sort keys %tags); print STDERR "\n"; exit },
+        "debugclasses"		  => sub { my %tags = (); my $pfwd = undef; open ($pfwd, '<', $0) or die "Can not open '$0': $! - $@\n\n"; while (<$pfwd>) { chomp; next unless /wantsdebug\s+\(\s*qw\[\s*([^\]]+)\]/; my $cstr = $1; map { $tags{$_}++ } (split /\s+/, $cstr) }; close($pfwd); print STDERR "\n HOOKS NAME\n ----- ----\n"; map { printf STDERR "%6d %s\n", $tags{$_}, $_ } (sort keys %tags); print STDERR "\n"; exit },
         "verbose|v+"		  => \$postfwd_settings{verbose},
 	"logname|l=s"		  => sub{ $postfwd_settings{name}		= $_[1];
 				     $postfwd_settings{cache}{syslog_ident}	= $_[1].'/cache';
@@ -3585,10 +3510,22 @@ if (@ARGV) {
 		$options{'term'} = 1;
 	} elsif ($ARGV[0] =~ /^(hup|reload)$/i) {
 		$options{'hup'} = 1;
-	} elsif ($ARGV[0] =~ /^(defaults|dumpcache|dumpstats|showsettings)$/i) {
+	} elsif ($ARGV[0] =~ /^(defaults|dumpcache|dumpstats)$/i) {
 		$options{$1} = 1;
+	} elsif ($ARGV[0] =~ /^(showsettings|settings)$/i) {
+		$options{showsettings} = ' ';
 	} elsif ($ARGV[0] =~ /^(delcache|delrate|debugclasses)$/i) {
 		my $a = $1;
+		(defined $ARGV[1] and $ARGV[1] =~ /^(.*)$/)
+			? $options{$a} = $1
+			: die "\nCommand '$a' needs an argument!\n\n";
+	} elsif ($ARGV[0] =~ /^(loadsettings|load)$/i) {
+		my $a = 'loadsettings';
+		(defined $ARGV[1] and $ARGV[1] =~ /^(.*)$/)
+			? $options{$a} = $1
+			: die "\nCommand '$a' needs an argument!\n\n";
+	} elsif ($ARGV[0] =~ /^(savesettings|save)$/i) {
+		my $a = 'showsettings';
 		(defined $ARGV[1] and $ARGV[1] =~ /^(.*)$/)
 			? $options{$a} = $1
 			: die "\nCommand '$a' needs an argument!\n\n";
@@ -3729,8 +3666,8 @@ if (defined $options{'delcache'} or defined $options{'delrate'}) {
 
 # save configuration
 if (defined $options{'showsettings'}) {
-	log_info ("Showing program settings...") if wantsdebug (qw[ all verbose ]);
-	show_settings();
+	print STDERR "Saving program settings to file '".$options{'showsettings'}."'...\n" if $options{'showsettings'};
+	save_settings($options{'showsettings'});
 	exit;
 };
 
@@ -3873,8 +3810,9 @@ sub spawn_daemon {
 sub get_master_pid {
 	(-e $postfwd_settings{master}{pid_file}) or die $postfwd_settings{name}.": Can not find pid_file ".$postfwd_settings{master}{pid_file}.": $!\n";
 	(-T $postfwd_settings{master}{pid_file}) or die $postfwd_settings{name}.": Can not open pid_file ".$postfwd_settings{master}{pid_file}.": not a textfile\n";
-	open PIDFILE, "<".$postfwd_settings{master}{pid_file} or die $postfwd_settings{name}.": Can open pid_file ".$postfwd_settings{master}{pid_file}.": $!\n";
-	my $pid = <PIDFILE>;
+	open my $pidf, '<', $postfwd_settings{master}{pid_file} or die $postfwd_settings{name}.": Can open pid_file ".$postfwd_settings{master}{pid_file}.": $!\n";
+	my $pid = <$pidf>;
+	close($pidf);
 	($pid =~ m/^(\d+)$/) or die $postfwd_settings{name}.": Invalid pid_file content '$pid' (pid_file ".$postfwd_settings{master}{pid_file}.")\n";
 	return $1;
 };
@@ -3906,33 +3844,39 @@ sub clean_settings {
 	map { delete $set{syslog}{$_}   if defined $set{syslog}{$_} }  qw( logger );
 	map { delete $set{server}{$_}   if defined $set{server}{$_} }  qw( check child_communication leave_children_open_on_hup );
 	map { delete $set{cache}{$_}    if defined $set{cache}{$_} }   qw( check );
-	map { delete $set{Options}{$_}  if defined $set{Options}{$_} } qw( term hup showconfig dumpcache dumpstats defaults delcache delrate loadsettings showsettings debugclasses );
+	map { delete $set{Options}{$_}  if defined $set{Options}{$_} } qw( term hup showconfig dumpcache dumpstats defaults delcache delrate loadsettings savesettings showsettings debugclasses );
 	map { delete $set{$_}           if defined $set{$_} }          qw( Settings manual version seplim seplst sepreq );
 	return %set;
 };
 
-# show program settings
-sub show_settings {
+# save program settings
+sub save_settings {
+	my $fil = shift;
+	my $fh  = *STDOUT;
 	my %set = clean_settings(%postfwd_settings);
 	local $Data::Dumper::Indent		= $postfwd_settings{dumper}{Indent};
 	local $Data::Dumper::Purity		= $postfwd_settings{dumper}{Purity};
 	local $Data::Dumper::Quotekeys		= $postfwd_settings{dumper}{Quotekeys};
 	local $Data::Dumper::Sortkeys		= $postfwd_settings{dumper}{Sortkeys};
 	local $Data::Dumper::Terse      	= $postfwd_settings{dumper}{Terse};
-	print STDOUT "# postfwd settings file version $VERSION\n";
-	print STDOUT Dumper(\%set);
+	open $fh, '>', $1 or die "\nERROR: Can not write to file '$1': $! - $@\n\n" if $fil =~ /^\s*(\S.*?)\s*$/;
+	print $fh "#\n# postfwd settings file\n#\n";
+	print $fh "# Version: $NAME $VERSION (Perl ".$].", Data::Dumper ".Data::Dumper->VERSION.")\n";
+	print $fh "# Command: ".$NAME.$Commandargs."\n#\n";
+	print $fh Dumper(\%set);
+	close($fh) if $fil;
 };
 
 # show program settings
 sub load_settings {
 	my $fil = shift;
-	my %set = ();
-	unless (open (DATA, '<'.$fil)) {
+	my %set = (); my $dat = undef;
+	unless (open ($dat, '<', $fil)) {
 		warn "\nCan not read settings from '$fil': $! - $@\n\n";
 		return;
 	};
-	my @slurp = <DATA>;
-	close(DATA);
+	my @slurp = <$dat>;
+	close($dat);
 	unless (@slurp) {
 		warn "\nNo valid settings found in '$fil'\n\n";
 		return;
@@ -4009,6 +3953,7 @@ B<postfwd3> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]
 
 	Settings: (multiple use allowed)
 	-F, --loadsettings <file>	loads program settings from <file>
+	    --savesettings <file>	saves program settings to <file>
 	    --showsettings		exports program settings to stdout
 
         Server:
@@ -4786,8 +4731,8 @@ Empty groups always compare false. The following ruleset is possible:
 
 B<Limitations>
 
-Currently dynamic groups are kept in memory. postfwd3 will only accept --group_maxitems [9999] members
-to a group. To deactivate this limit set --group_maxitems to '-1'.
+Currently dynamic groups are kept in memory. By default postfwd3 will only accept a maximum of 999999 members
+in a group. To deactivate this limit set --group_maxitems to '-1'.
 
 With PreFork personality, you should be aware that this information must be shared through the cache daemon.
 
@@ -4965,6 +4910,10 @@ I<Settings>
 
 	-F, --loadsettings <file>
 	Loads program settings from <file>. data must be in Data::Dumper format.
+	Please read the SETTINGS section for more information.
+
+	--savesettings <file>
+	Saves program settings to <file> in Data::Dumper format.
 	Please read the SETTINGS section for more information.
 
 	--showsettings
@@ -5597,8 +5546,11 @@ parseable by perl eval() function. Comments are allowed:
 
 postfwd3 can also export the program settings in that format using Data::Dumper.
 
+	# show configuration
+	postfwd3 --showsettings
+
 	# save configuration to file
-	postfwd3 --showsettings >/path/to/file
+	postfwd3 --savesettings=/path/to/file
 
 	# read configuration from file
 	postfwd3 --loadsettings=/path/to/file

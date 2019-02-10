@@ -1,13 +1,13 @@
-# postfwd settings file version 2.00-pre6
 #
 # Sample configuration settings for postfwd.
+# postfwd3 2.00-pre7 (Perl 5.022001, Data::Dumper 2.158)
 #
 # Run:
 # 	postfwd --showsettings
 # to see the full list of available options.
 #
 # To create your config template, run:
-# 	postfwd --option1 --option2 ... showsettings >/path/to/file
+# 	postfwd --option1 --option2 ... --savesettings=/path/to/file
 #
 
 # do not remove these
@@ -23,45 +23,43 @@
   # user and group for postfwd
   base => {
             group => 'postfw',
-            user => 'postfw'
+            user  => 'postfw'
           },
 
   # server settings
   server => {
               proto => 'tcp',
-              host => '127.0.0.1',
-              port => '10099'
+              host  => '127.0.0.1',
+              port  => '10099'
             },
 
   # do not fork to background
-  # this mode will usually be combined with syslog->stdout->'1'
+  # often combined with syslog->stdout->'1'
   daemon => 0,
 
   # logging and statistics
   verbose => 0,
   syslog => {
               noidlestats => 1,
-              stdout => '1'
+              stdout      => 1
             },
 
   # cidr network check settings
   aggregate_addrs => 1,
-  cidr_method => 'netcidr',
+  cidr_method     => 'netcidr',
 
   # persistant group object settings
   keep_groups => 1,
   group => {
-             cleanup => '600',
-             maxitems => '9999',
-             ttl => '3600',
-             store => '/var/tmp/postfwd.groups'
+             maxitems => 9999,
+             ttl      => 7200,
+             store    => '/var/tmp/postfwd.groups'
            },
 
   # persistant rate limit settings
   keep_rates => 1,
   rate => {
-            noparent => '1',
-            store => '/var/tmp/postfwd.rates'
+            store    => '/var/tmp/postfwd.rates'
           },
 
   # request cache settings (disabled)
