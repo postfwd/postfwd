@@ -1,0 +1,83 @@
+postfwd3 2.00
+=============
+- code:    First public release Version of postfwd3.
+	   This release will obsolete postfwd1 and postfwd2 when
+	   it leaves pre-release stage.
+
+- code:	   General:
+	   postfwd3 lets you choose between Multiplex and PreFork personality.
+	   Please look at the manpage or at postfwd.org/doc.html for the
+	   --personality argument. if not specified, postfwd chooses the
+	   personality-type by the program-name ("postfwd" and "postfwd1" mean
+	   "Multiplex", "postfwd2" means PreFork).
+- code:    postfwd now takes commands as arguments, e.g.
+	   'postfwd stop' or 'postfwd reload'. Please see the manpage
+	   for more information
+
+- feature: Dynamic groups:
+	   Dynamic groups allow to store request items like "client_address"
+	   or "sender" in groups, which can be queried or modified at
+	   runtime. Please read the manual section about "DYNAMIC GROUPS".
+- feature: arguments --load_groups and --keep_groups allows to save
+	   the contents of the dynamic group cache
+
+- feature: Multiple actions per rule:
+	   A rule can have multiple postfwd actions now.
+	   Example:
+		# if client is found on list.dnswl.org,
+		#   1. send a note
+		#   2. add it's ip to group %%WHITELISTED
+		#   3. permit the request
+		id=ADDR01
+		        rbl=list.dnswl.org
+		        action=note(adding $$client_address to WHITELIST)
+		        action=groupadd(%%WHITELISTED/client_address)
+		        action=PERMIT_AUTH_DESTINATION
+
+- code:    IPv6 support:
+	   postfwd3 optionally uses NetAddr:IP for cidr-compare functions
+	   if available, which allows better IPv6 matching. Please note
+	   that former versions used regex-matching for v6 addresses and
+	   adapt your rulesets if required.
+- code:	   postfwd3 optionally uses Net::CIDR::Lite for cidr-compare
+           if available. It seems a bit faster than NetAddr::IP and
+	   allows better IPv6 matching than the old method. Please look
+	   into the manual for the following options and defaults:
+		--cidr_method=<s>, --no_netcidr and --no_netaddr
+- code:    IPv6 Support (requires NetAddr::IP module) for
+	   dnsbl lookups (fixed 'reverse_address' item)
+	   Use the --ipv6_dnsbl switch to enable this feature
+
+- feature: Docker support:
+	   Since version 1.36+ postfwd can be run in a docker container.
+	   Script: postfwd-docker: shortcut to run postfwd commands in
+	   a container (found in docker/postfwd-docker.sh in the tarball)
+	   Please visit https://postfwd.org/docker for more information.
+- code:    standard docker image is now based on alpine linux
+           (a debian based Dockerfile can be found at the docker/ subfolder)
+
+- feature: Performance improvement:
+	   lists of ip and network objects will now be aggregated
+	   automatically using Net::Addr->Compact() function.
+	   This can be disabled by the --noaggregate_addrs switch
+- feature: argument --cacheid_md5, --nocacheid_md5 for short
+	   automatic cacheids (optionally requires Digest::MD5)
+- code:    performance and memory tuning for rate-limit code
+- code:    Performance and memory tuning for ruleset (mainly hash -> hashref).
+	   **********************************************************
+	   ** This breaks existing plugins! The <request> argument **
+           ** is now called as hash reference instead of a hash!   **
+           ** Please look at the manual for more info.             **
+	   **********************************************************
+
+- feature: Settings:
+	   postfwd program settings can now be saved to and read from
+           a configuration file. See --showsettings and --loadsettings=<s>
+	   and the manual section "SETTINGS" for more information.
+	   Samples can be found in the "etc/"-subfolder of the tarball.
+
+- code:    default for --max_group_items argument changed to 999999
+- code:    saved rate limits can now be exchanged between Multiplex and PreFork
+- feature: argument --debugclasses shows list of available debug classes
+- bugfix:  several small fixes (logging, argument-combinations, ...)
+

@@ -2,7 +2,8 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<title></title>
+<title>postfwd manual</title>
+<link rel="stylesheet" href="/css/postfwd.css" type="text/css" />
 <meta http-equiv="content-type" content="text/html; charset=utf-8" />
 <link rev="made" href="mailto:root@localhost" />
 </head>
@@ -22,11 +23,13 @@
       <li><a href="#FILES">FILES</a></li>
       <li><a href="#ACTIONS">ACTIONS</a></li>
       <li><a href="#MACROS-ACLS">MACROS/ACLS</a></li>
+      <li><a href="#DYNAMIC-GROUPS">DYNAMIC GROUPS</a></li>
       <li><a href="#PLUGINS">PLUGINS</a></li>
       <li><a href="#COMMAND-LINE">COMMAND LINE</a></li>
       <li><a href="#REFRESH">REFRESH</a></li>
       <li><a href="#EXAMPLES">EXAMPLES</a></li>
       <li><a href="#PARSER">PARSER</a></li>
+      <li><a href="#SETTINGS">SETTINGS</a></li>
       <li><a href="#DEBUGGING">DEBUGGING</a></li>
       <li><a href="#INTEGRATION">INTEGRATION</a></li>
       <li><a href="#TESTING">TESTING</a></li>
@@ -40,16 +43,23 @@
 
 <h1 id="NAME">NAME</h1>
 
-<p>postfwd2 - postfix firewall daemon</p>
+<p>postfwd3 - postfix firewall daemon</p>
 
 <h1 id="SYNOPSIS">SYNOPSIS</h1>
 
-<p><b>postfwd2</b> [OPTIONS] [SOURCE1, SOURCE2, ...]</p>
+<p><b>postfwd3</b> [OPTIONS] [COMMAND]</p>
+
+<p><b>postfwd3</b> [OPTIONS] --cmd [SOURCE1, SOURCE2, ...]</p>
 
 <pre><code>        Ruleset: (at least one, multiple use is allowed):
         -f, --file &lt;file&gt;               reads rules from &lt;file&gt;
         -r, --rule &lt;rule&gt;               adds &lt;rule&gt; to config
         -s, --scores &lt;v&gt;=&lt;r&gt;            returns &lt;r&gt; when score exceeds &lt;v&gt;
+
+        Settings: (multiple use allowed)
+        -F, --loadsettings &lt;file&gt;       loads program settings from &lt;file&gt;
+            --savesettings &lt;file&gt;       saves program settings to &lt;file&gt;
+            --showsettings              exports program settings to stdout
 
         Server:
         -i, --interface &lt;dev&gt;           listen on interface &lt;dev&gt;
@@ -75,24 +85,38 @@
             --cache_socket &lt;sock&gt;       e.g. tcp:127.0.0.1:10043
             --cache_umask &lt;mask&gt;        umask for cache filepermissions
             --cacheid &lt;list&gt;            list of request items for cache-id
+            --cacheid_md5               cacheid =&gt; md5sum(request)
             --cache-rdomain-only        skip recipient localpart for cache-id
             --cache-no-sender           skip sender address for cache-id
             --cache-no-size             skip size for cache-id
             --no_parent_request_cache   disable parent request cache
             --no_parent_rate_cache      disable parent rate cache
             --no_parent_dns_cache       disable parent dns cache (default)
+            --no_parent_group_cache     disable parent group cache
             --no_parent_cache           disable all parent caches
+
+        Groups:
+            --default_group_ttl &lt;i&gt;     default group TTL
+            --group_maxitems &lt;i&gt;        max items per group
+            --cleanup-groups &lt;int&gt;      cleanup interval in seconds for group objects
 
         Rates:
             --cleanup-rates &lt;int&gt;       cleanup interval in seconds for rate cache
 
         Control:
-        -k, --kill, --stop              terminate postfwd2
-            --reload, --hup             reload postfwd2
+        -k, --kill, --stop              terminate postfwd3
+            --reload, --hup             reload postfwd3
             --watchdog &lt;w&gt;              watchdog timer in seconds
             --respawn &lt;r&gt;               respawn delay in seconds
             --failures &lt;f&gt;              max respawn failure counter
+        -d, --daemon                    execute program in background
+            --nodaemon                  execute program in foreground
             --daemons &lt;list&gt;            list of daemons to start
+            --personality &lt;type&gt;        type of policy server, allows &#39;PreFork&#39; or &#39;Multiplex&#39;
+            --autopersonality           determine personality by program name (see manpage)
+            --noautopersonality         don&#39;t do it (see above :)
+            --v1                        set personality to &#39;Multiplex&#39;
+            --v2                        set personality to &#39;PreFork&#39;
             --dumpcache                 show cache contents
             --dumpstats                 show statistics
         -R, --chroot &lt;path&gt;             chroot to &lt;path&gt; before start
@@ -110,6 +134,7 @@
             --dns_async_txt             perform dnsbl A and TXT lookups simultaneously
             --dns_max_ns_lookups        max names to look up with sender_ns_addrs
             --dns_max_mx_lookups        max names to look up with sender_mx_addrs
+            --ipv6_dnsbl                enables dnsbl checks for IPv6 addresses
 
         Optional:
         -t, --test                      testing, always returns &quot;dunno&quot;
@@ -118,10 +143,14 @@
             --norulestats               disables per rule statistics
         -I, --instantcfg                reloads ruleset on every new request
             --config_timeout &lt;i&gt;        parser timeout in seconds
+            --keep_groups               do not clear group cache on reload
+            --save_groups &lt;file&gt;        save and load group cache on disk
             --keep_rates                do not clear rate limit counters on reload
             --save_rates &lt;file&gt;         save and load rate limits on disk
-            --fast_limit_evaluation     evaluate rate limits before ruleset is parsed
-                                        (please note the limitations)
+        -A, --aggregate_addrs           pre-compute ip address lists to subnets
+            --no_netaddr                don&#39;t use NetAddr::IP functions
+            --no_netcidr                don&#39;t use Net::CIDR::Lite functions
+            --cidr_method=s             use method &lt;s&gt; for network checks
 
 
         Plugins:
@@ -137,28 +166,41 @@
             --nolog|--perfmon           no logging at all
         -v, --verbose                   verbose logging, use twice to increase
             --debug &lt;s&gt;                 list of debugging classes
+            --debugclasses              shows all available debug classes
+                                        and exits the program
 
         Information (use only at command-line!):
         -h, --help                      display this help and exit
         -m, --manual                    shows program manual
         -V, --version                   output version information and exit
-        -D, --defaults                  show postfwd2 settings and exit
-        -C, --showconfig                show postfwd2 ruleset and exit (-v allowed)
+        -D, --defaults                  show postfwd3 settings and exit
+        -C, --showconfig                show postfwd3 ruleset and exit (-v allowed)
         -L, --stdout                    redirect syslog messages to stdout (--stdoutlog works for compatibility)
             --stdin                     pull request from stdin instead of a network socket
-            ---cmd                      shorthand form of --stdin, --stdout and --nodaemon
+            --cmd                       shorthand form of --stdin, --stdout and --nodaemon
         -q, --quiet                     no syslogging, no stdout (-P works for compatibility)
 
+        Commands:
+        start                           start the program [default]
+        stop                            same as --stop
+        reload                          same as --reload
+        dumpcache                       same as --dumpcache
+        dumpstats                       same as --dumpstats
+        defaults                        same as --defaults
+        showsettings                    same as --showsettings
+        delcache &lt;item&gt;                 same as --delcache &lt;item&gt;
+        delrate &lt;item&gt;                  same as --delrate &lt;item&gt;
+
         Obsolete (only for compatibility with postfwd v1):
-        -d|--daemon, --shortlog, --dns_queuesize, --dns_retries</code></pre>
+        --shortlog, --dns_queuesize, --dns_retries</code></pre>
 
 <h1 id="DESCRIPTION">DESCRIPTION</h1>
 
 <h2 id="INTRODUCTION">INTRODUCTION</h2>
 
-<p>postfwd2 is written to combine complex postfix restrictions in a ruleset similar to those of the most firewalls. The program uses the postfix policy delegation protocol to control access to the mail system before a message has been accepted (please visit <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a> for more information).</p>
+<p>postfwd3 is written to combine complex postfix restrictions in a ruleset similar to those of the most firewalls. The program uses the postfix policy delegation protocol to control access to the mail system before a message has been accepted (please visit <a href="http://www.postfix.org/SMTPD_POLICY_README.html">http://www.postfix.org/SMTPD_POLICY_README.html</a> for more information).</p>
 
-<p>postfwd2 allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters (like sender and recipient address, size or the client&#39;s TLS fingerprint). Also it offers simple macros/acls which should allow straightforward and easy-to-read configurations.</p>
+<p>postfwd3 allows you to choose an action (e.g. reject, dunno) for a combination of several smtp parameters (like sender and recipient address, size or the client&#39;s TLS fingerprint). Also it offers simple macros/acls which should allow straightforward and easy-to-read configurations.</p>
 
 <p><i>Features:</i></p>
 
@@ -170,7 +212,7 @@
 
 <p>* Date/time based rules</p>
 
-<p>* Macros/ACLs, Groups, Negation</p>
+<p>* Macros/ACLs, Dynamic groups, Negation</p>
 
 <p>* Compare request attributes (e.g. client_name and helo_name)</p>
 
@@ -274,22 +316,22 @@
         recipient_localpart,    - the local-/domainpart of the recipient address
         recipient_domain
 
-        helo_address            - postfwd2 tries to look up the helo_name. use
+        helo_address            - postfwd3 tries to look up the helo_name. use
                                   helo_address=!!(0.0.0.0/0) to check for unknown.
                                   Please do not use this for positive access control
                                   (whitelisting), as it might be forged.
 
-        sender_ns_names,        - postfwd2 tries to look up the names/ip addresses
+        sender_ns_names,        - postfwd3 tries to look up the names/ip addresses
         sender_ns_addrs           of the nameservers for the sender domain part.
                                   Please do not use this for positive access control
                                   (whitelisting), as it might be forged.
 
-        sender_mx_names,        - postfwd2 tries to look up the names/ip addresses
+        sender_mx_names,        - postfwd3 tries to look up the names/ip addresses
         sender_mx_addrs           of the mx records for the sender domain part.
                                   Please do not use this for positive access control
                                   (whitelisting), as it might be forged.
 
-        version                 - postfwd2 version, contains &quot;postfwd2 n.nn&quot;
+        version                 - postfwd3 version, contains &quot;postfwd3 n.nn&quot;
                                   this enables version based checks in your rulesets
                                   (e.g. for migration). works with old versions too,
                                   because a non-existing item always returns false:
@@ -426,11 +468,11 @@
 
 <h2 id="FILES">FILES</h2>
 
-<p>Since postfwd1 v1.15 and postfwd2 v0.18 long item lists can be stored in separate files:</p>
+<p>Since postfwd1 v1.15 and postfwd3 v0.18 long item lists can be stored in separate files:</p>
 
 <pre><code>        id=R001 ;  ccert_fingerprint==file:/etc/postfwd/wl_ccerts ;  action=DUNNO</code></pre>
 
-<p>postfwd2 will read a list of items (one item per line) from /etc/postfwd/wl_ccerts. comments are allowed:</p>
+<p>postfwd3 will read a list of items (one item per line) from /etc/postfwd/wl_ccerts. comments are allowed:</p>
 
 <pre><code>        # client1
         11:22:33:44:55:66:77:88:99
@@ -459,7 +501,7 @@
 
 <p>You can check your configuration with the --show_config option at the command line:</p>
 
-<pre><code>        # postfwd2 --showconfig --rule=&#39;action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1&#39;</code></pre>
+<pre><code>        # postfwd3 --showconfig --rule=&#39;action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1&#39;</code></pre>
 
 <p>should give something like:</p>
 
@@ -467,11 +509,11 @@
 
 <p>If a file can not be read, it will be ignored:</p>
 
-<pre><code>        # postfwd2 --showconfig --rule=&#39;action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1&#39;
+<pre><code>        # postfwd3 --showconfig --rule=&#39;action=DUNNO; client_address=10.1.0.0/16, file:/etc/postfwd/wl_clients, 192.168.2.1&#39;
         [LOG warning]: error: file /etc/postfwd/wl_clients not found - file will be ignored ?
         Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;DUNNO&quot;; client_address-&gt;&quot;=;10.1.0.0/16, =;192.168.2.1&quot;</code></pre>
 
-<p>File items are evaluated at configuration stage. Therefore postfwd2 needs to be reloaded if a file has changed</p>
+<p>File items are evaluated at configuration stage. Therefore postfwd3 needs to be reloaded if a file has changed</p>
 
 <p>If you want to specify a file, that will be reloaded for each request, you can use lfile: and ltable:</p>
 
@@ -482,11 +524,11 @@
 <p>The --showconfig option illustrates the difference:</p>
 
 <pre><code>        ## evaluated at configuration stage
-        # postfwd2 --nodaemon -L --rule=&#39;client_address=table:/etc/postfwd/clients; action=dunno&#39; -C
+        # postfwd3 --nodaemon -L --rule=&#39;client_address=table:/etc/postfwd/clients; action=dunno&#39; -C
         Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;dunno&quot;; client_address-&gt;&quot;=;1.1.1.1, =;1.1.1.2, =;1.1.1.3&quot;
 
         ## evaluated for any rulehit
-        # postfwd2 --nodaemon -L --rule=&#39;client_address=ltable:/etc/postfwd/clients; action=dunno&#39; -C
+        # postfwd3 --nodaemon -L --rule=&#39;client_address=ltable:/etc/postfwd/clients; action=dunno&#39; -C
         Rule   0: id-&gt;&quot;R-0&quot;; action-&gt;&quot;dunno&quot;; client_address-&gt;&quot;=;ltable:/etc/postfwd/clients&quot;</code></pre>
 
 <p>Files can refer to other files. The following is valid.</p>
@@ -505,7 +547,7 @@
         -- FILE /etc/postfwd/clients_west.cf --
         192.168.3.0/24</code></pre>
 
-<p>Note that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available with postfwd1 v1.15 and postfwd2 v0.18 and higher.</p>
+<p>Note that there is currently no loop detection (/a/file calls /a/file) and that this feature is only available with postfwd1 v1.15 and postfwd3 v0.18 and higher.</p>
 
 <h2 id="ACTIONS">ACTIONS</h2>
 
@@ -521,15 +563,15 @@
 
 <p>Actions will be replied to postfix as result to policy delegation requests. Any action that postfix understands is allowed - see &quot;man 5 access&quot; or <a href="http://www.postfix.org/access.5.html">http://www.postfix.org/access.5.html</a> for a description. If no action is specified, the postfix WARN action which simply logs the event will be used for the corresponding rule.</p>
 
-<p>postfwd2 will return dunno if it has reached the end of the ruleset and no rule has matched. This can be changed by placing a last rule containing only an action statement:</p>
+<p>postfwd3 will return dunno if it has reached the end of the ruleset and no rule has matched. This can be changed by placing a last rule containing only an action statement:</p>
 
 <pre><code>        ...
         action=dunno ; sender=@domain.local     # sender is ok
         action=reject                           # default deny</code></pre>
 
-<p><i>postfwd2 actions</i></p>
+<p><i>postfwd3 actions</i></p>
 
-<p>postfwd2 actions control the behaviour of the program. Currently you can specify the following:</p>
+<p>postfwd3 actions control the behaviour of the program. Currently you can specify the following:</p>
 
 <pre><code>        jump (&lt;id&gt;)
         jumps to rule with id &lt;id&gt;, use this to skip certain rules.
@@ -546,7 +588,7 @@
                 =n.nn   sets the current score to n.nn
         if the score exceeds the maximum set by `--scores` option (see
         COMMAND LINE) or the score item (see ITEMS section), the action
-        defined for this case will be returned (default: 5.0=&gt;&quot;REJECT postfwd2 score exceeded&quot;).
+        defined for this case will be returned (default: 5.0=&gt;&quot;REJECT postfwd3 score exceeded&quot;).
 
         set (&lt;item&gt;=&lt;value&gt;,&lt;item&gt;=&lt;value&gt;,...)
         this command allows you to insert or override request attributes, which then may be
@@ -566,7 +608,7 @@
 
         size (&lt;item&gt;/&lt;max&gt;/&lt;time&gt;/&lt;action&gt;)
         this command works similar to the rate() command with the difference, that the rate counter is
-        increased by the request&#39;s size attribute. to do this reliably you should call postfwd2 from
+        increased by the request&#39;s size attribute. to do this reliably you should call postfwd3 from
         smtpd_end_of_data_restrictions. if you want to be sure, you could check it within the ruleset:
            # size limit 1.5mb per hour per client
            id=SIZE01 ;  protocol_state==END-OF-MESSAGE ;  client_address==!!(10.1.1.1)
@@ -586,10 +628,26 @@
         sender oder recipient addresses are evaluated case-sensitive according to rfc5321. That
         means that requests from bob@example.local and BoB@example.local will be treated differently
 
+        groupadd(&lt;groupname&gt;/&lt;item&gt;[/&lt;ttl&gt;])
+        saves &lt;item&gt; to dynamic group &lt;group&gt; for later use. the object will be removed from that
+        group after ttl seconds. if not set, postfwd3 will use the default --default_group_ttl [3600s].
+        Please read the chapter about dynamic groups before use!
+           # add client_address to group %%blacklisted_hosts
+           id=ADDGROUP
+                rbl=zen.spamhaus.org,bl.spamcop.net,ix.dnsbl.manitu.net
+                action=groupadd(%%blacklisted_hosts/client_address/86400)
+
+        groupdel(&lt;groupname&gt;/&lt;item&gt;)
+        removes &lt;item&gt; from dynamic group &lt;group&gt;. Please read the chapter about dynamic groups before use!
+           # remove a client_address from group %%blacklisted_hosts
+           id=DELGROUP
+                rbl=lists.dnswl.org
+                action=groupdel(%%blacklisted_hosts/client_address)
+
         ask (&lt;addr&gt;:&lt;port&gt;[:&lt;ignore&gt;])
         allows to delegate the policy decision to another policy service (e.g. postgrey). the first
         and the second argument (address and port) are mandatory. a third optional argument may be
-        specified to tell postfwd2 to ignore certain answers and go on parsing the ruleset:
+        specified to tell postfwd3 to ignore certain answers and go on parsing the ruleset:
            # example1: query postgrey and return it&#39;s answer to postfix
            id=GREY; client_address==10.1.1.1; action=ask(127.0.0.1:10031)
            # example2: query postgrey but ignore it&#39;s answer, if it matches &#39;DUNNO&#39;
@@ -622,6 +680,18 @@
 <p>You can reference to request attributes, like</p>
 
 <pre><code>        id=R-HELO ;  helo_name=^[^\.]+$ ;  action=REJECT invalid helo &#39;$$helo_name&#39;</code></pre>
+
+<p>Since postfwd3 version 2.00 a rule can have multiple postfwd actions, like</p>
+
+<pre><code>        # if client is found on list.dnswl.org,
+        #   1. send a note
+        #   2. add it&#39;s ip to group %%WHITELISTED
+        #   3. permit the request
+        id=ADDR01
+                rbl=list.dnswl.org
+                action=note(adding $$client_address to WHITELIST)
+                action=groupadd(%%WHITELISTED/client_address)
+                action=PERMIT_AUTH_DESTINATION</code></pre>
 
 <h2 id="MACROS-ACLS">MACROS/ACLS</h2>
 
@@ -665,6 +735,80 @@
 
 <p>Basically macros are simple text substitutions - see the <a href="#PARSER">&quot;PARSER&quot;</a> section for more information.</p>
 
+<h2 id="DYNAMIC-GROUPS">DYNAMIC GROUPS</h2>
+
+<p>Dynamic groups are list objects. You can add or remove items and compare request items to their content within your ruleset. Groups are saved persistant for further requests. This way you can save information for later use. Every item of a group has a time-to-live value.</p>
+
+<p>Group-names have to be preceeded by double &#39;%&#39;-characters, like %%GROUPNAME:</p>
+
+<pre><code>        # add client_address to group %%BLACKLISTED, if sent to spamtrap
+        id=SPAMTRAP; recipient==spamtrap@domain.local; action=groupadd(%%BLACKLISTED/client_address)
+
+        # reject any request from client_address in group %%BLACKLISTED
+        id=BLACKLISTED; client_address=%%BLACKLISTED; action=REJECT</code></pre>
+
+<p>The groupadd() function receives the following arguments. The &lt;ttl&gt; value is optional. If not specified, postfwd3 will use the default --default_group_ttl [300s]:</p>
+
+<pre><code>        groupadd ( &lt;Groupname&gt; / &lt;item&gt; [ / &lt;ttl&gt; ] )</code></pre>
+
+<p>postfwd will save this data in the following structure:</p>
+
+<pre><code>        %Group_Cache -&gt; %&lt;Groupname&gt; -&gt; $&lt;item&gt; = &lt;ttl&gt;</code></pre>
+
+<p>The groupdel() function removes an item from a group:</p>
+
+<pre><code>        groupdel ( &lt;Groupname&gt; / &lt;item&gt; )</code></pre>
+
+<p>Expired members will be removed at cleanup stage after --cleanup_groups &lt;i&gt; seconds.</p>
+
+<p>To compare requests with dynamic groups, these must be refered by preceeding &#39;%%&#39;-characters:</p>
+
+<pre><code>        &lt;item&gt; = %%&lt;Groupname&gt;</code></pre>
+
+<p>Empty groups always compare false. The following ruleset is possible:</p>
+
+<pre><code>        # allow any request from client_address in group %%WHITELISTED
+        id=WHITEGROUP; client_address=%%WHITELISTED; action=DUNNO
+
+        # reject any request from client_address in group %%BLACKLISTED
+        id=BLACKGROUP; client_address=%%BLACKLISTED; action=REJECT
+
+        # ... other rules ...
+
+        # ... whitelist file ...
+        id=W_TRUST; action=set(WHITE=1)
+            client_address=file:/etc/postfwd/whitelist_networks
+
+        # ... whitelist dns ...
+        id=W_DNSWL; action=set(WHITE=1)
+            rbl=list.dnswl.org
+
+        # ... -&gt; add it to whitelist for a day and allow request
+        id=W_GROUP; WHITE==1
+            action=groupadd(%%WHITELISTED/client_address/86400)
+            action=DUNNO
+
+        # ... or blacklist by sending to spamtrap ...
+        id=B_SPAMTRAP; action=set(BLACK=1)
+            recipient==spamtrap@domain.local
+
+        # ... or blacklisted by dns ...
+        id=B_DNSBL; action=set(BLACK=1)
+            rbl=zen.spamhaus.org
+
+        # ... -&gt; add it to group BLACKLISTED for 1 hour and reject
+        id=B_GROUP; BLACK==1
+            action=groupadd(%%BLACKLISTED/client_address/3600)
+            action=REJECT</code></pre>
+
+<p><b>Limitations</b></p>
+
+<p>Currently dynamic groups are kept in memory. By default postfwd3 will only accept a maximum of 999999 members in a group. To deactivate this limit set --group_maxitems to &#39;-1&#39;.</p>
+
+<p>With PreFork personality, you should be aware that this information must be shared through the cache daemon.</p>
+
+<p>In short: Don&#39;t let these lists get excessively big unless you have enough system capacity to do so. If necessary tune your config by setting the &lt;ttl&gt; and --group_maxitems.</p>
+
 <h2 id="PLUGINS">PLUGINS</h2>
 
 <p><b>Description</b></p>
@@ -683,11 +827,11 @@
 
 <p>plugin-items can not be used selective. these functions will be executed for every request postfwd receives, so keep performance in mind.</p>
 
-<pre><code>        SYNOPSIS: %result = postfwd_items_plugin{&lt;name&gt;}(%request)</code></pre>
+<pre><code>        SYNOPSIS: postfwd_items_plugin{&lt;name&gt;}($request)</code></pre>
 
-<p>means that your subroutine, called &lt;name&gt;, has access to a hash called %request, which contains all request attributes, like $request{client_name} and must return a value in the following form:</p>
+<p>means that your subroutine, called &lt;name&gt;, has access to a hash-reference called $request, which contains all request attributes, like $request-&gt;{client_name} and saves values in the following form:</p>
 
-<pre><code>        save: $result{&lt;item&gt;} = &lt;value&gt;</code></pre>
+<pre><code>        save: $result-&gt;{&lt;item&gt;} = &lt;value&gt;</code></pre>
 
 <p>this creates the new item &lt;item&gt; containing &lt;value&gt;, which will be integrated in the policy delegation request and therefore may be used in postfwd&#39;s ruleset.</p>
 
@@ -698,22 +842,17 @@
                 
                         # allows to check postfwd version in ruleset
                         &quot;version&quot; =&gt; sub {
-                                my(%request) = @_;
-                                my(%result) = (
-                                        &quot;version&quot; =&gt; $NAME.&quot; &quot;.$VERSION,
-                                );
-                                return %result;
+                                my($request) = shift;
+                                $request-&gt;{version} =&gt; $NAME.&quot; &quot;.$VERSION,
                         },
                 
                         # sender_domain and recipient_domain
                         &quot;address_parts&quot; =&gt; sub {
-                                my(%request) = @_;
-                                my(%result) = ();
-                                $request{sender} =~ /@([^@]*)$/;
-                                $result{sender_domain} = ($1 || &#39;&#39;);
-                                $request{recipient} =~ /@([^@]*)$/;
-                                $result{recipient_domain} = ($1 || &#39;&#39;);
-                                return %result;
+                                my($request) = shift;
+                                $request-&gt;{sender} =~ /@([^@]*)$/;
+                                $request-&gt;{sender_domain} = ($1 || &#39;&#39;);
+                                $request-&gt;{recipient} =~ /@([^@]*)$/;
+                                $request-&gt;{recipient_domain} = ($1 || &#39;&#39;);
                         },
 
         # do NOT remove the next line
@@ -739,7 +878,7 @@
                         # Complex example
                         # SYNOPSIS:  &lt;result&gt; = &lt;item&gt;(&lt;operator&gt;, &lt;ruleset value&gt;, &lt;request value&gt;, &lt;request&gt;)
                         &quot;numeric&quot; =&gt; sub {
-                                my($cmp,$val,$myitem,%request) = @_;
+                                my($cmp,$val,$myitem,$request) = @_;
                                 my($myresult) = undef;  $myitem ||= &quot;0&quot;; $val ||= &quot;0&quot;;
                                 if ($cmp eq &#39;==&#39;) {
                                         $myresult = ($myitem == $val);
@@ -770,7 +909,7 @@
 
 <p>Action plugins allow to define new postfwd actions. By setting the $stop-flag you can decide to continue or to stop parsing the ruleset.</p>
 
-<pre><code>        SYNOPSIS:  (&lt;stop rule parsing&gt;, &lt;next rule index&gt;, &lt;return action&gt;, &lt;logprefix&gt;, &lt;request&gt;) =
+<pre><code>        SYNOPSIS:  (&lt;stop rule parsing&gt;, &lt;next rule index&gt;, &lt;return action&gt;, &lt;logprefix&gt;) =
                         &lt;action&gt; (&lt;current rule index&gt;, &lt;current time&gt;, &lt;command name&gt;, &lt;argument&gt;, &lt;logprefix&gt;, &lt;request&gt;)
 
         # do NOT remove the next line
@@ -780,26 +919,26 @@
         
                         # note(&lt;logstring&gt;) command
                         &quot;note&quot;  =&gt; sub {
-                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
                                 my($myaction) = &#39;dunno&#39;; my($stop) = 0;
                                 log_info &quot;[RULES] &quot;.$myline.&quot; - note: &quot;.$myarg if $myarg;
-                                return ($stop,$index,$myaction,$myline,%request);
+                                return ($stop,$index,$myaction,$myline);
                         },
         
                         # skips next &lt;myarg&gt; rules
                         &quot;skip&quot; =&gt; sub {
-                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
                                 my($myaction) = &#39;dunno&#39;; my($stop) = 0;
                                 $index += $myarg if ( $myarg and not(($index + $myarg) &gt; $#Rules) );
-                                return ($stop,$index,$myaction,$myline,%request);
+                                return ($stop,$index,$myaction,$myline);
                         },
         
                         # dumps current request contents to syslog
                         &quot;dumprequest&quot; =&gt; sub {
-                                my($index,$now,$mycmd,$myarg,$myline,%request) = @_;
+                                my($index,$now,$mycmd,$myarg,$myline,$request) = @_;
                                 my($myaction) = &#39;dunno&#39;; my($stop) = 0;
-                                map { log_info &quot;[DUMP] rule=$index, Attribute: $_=$request{$_}&quot; } (keys %request);
-                                return ($stop,$index,$myaction,$myline,%request);
+                                map { log_info &quot;[DUMP] rule=$index, Attribute: $_=$request{$_}&quot; } (keys %{$request});
+                                return ($stop,$index,$myaction,$myline);
                         },
 
         # do NOT remove the next line
@@ -809,15 +948,29 @@
 
 <p><i>Ruleset</i></p>
 
-<p>The following arguments are used to specify the source of the postfwd2 ruleset. This means that at least one of the following is required for postfwd2 to work.</p>
+<p>The following arguments are used to specify the source of the postfwd3 ruleset. This means that at least one of the following is required for postfwd3 to work.</p>
 
 <pre><code>        -f, --file &lt;file&gt;
         Reads rules from &lt;file&gt;. Please see the CONFIGURATION section
-        below for more information.
+        for more information.
 
         -r, --rule &lt;rule&gt;
         Adds &lt;rule&gt; to ruleset. Remember that you might have to quote
         strings that contain whitespaces or shell characters.</code></pre>
+
+<p><i>Settings</i></p>
+
+<pre><code>        -F, --loadsettings &lt;file&gt;
+        Loads program settings from &lt;file&gt;. data must be in Data::Dumper format.
+        Please read the SETTINGS section for more information.
+
+        --savesettings &lt;file&gt;
+        Saves program settings to &lt;file&gt; in Data::Dumper format.
+        Please read the SETTINGS section for more information.
+
+        --showsettings
+        Exports program settings in Data::Dumper format to stdout. This output
+        can be saved to a file and later used with the --loadsettings option.</code></pre>
 
 <p><i>Scoring</i></p>
 
@@ -826,37 +979,56 @@
 
 <p>Multiple usage is allowed. Just chain your arguments, like:</p>
 
-<pre><code>        postfwd2 -r &quot;&lt;item&gt;=&lt;value&gt;;action=&lt;result&gt;&quot; -f &lt;file&gt; -f &lt;file&gt; ...
+<pre><code>        postfwd3 -r &quot;&lt;item&gt;=&lt;value&gt;;action=&lt;result&gt;&quot; -f &lt;file&gt; -f &lt;file&gt; ...
           or
-        postfwd2 --scores 4.5=&quot;WARN high score&quot; --scores 5.0=&quot;REJECT postfwd2 score too high&quot; ...</code></pre>
+        postfwd3 --scores 4.5=&quot;WARN high score&quot; --scores 5.0=&quot;REJECT postfwd3 score too high&quot; ...</code></pre>
 
-<p>In case of multiple scores, the highest match will count. The order of the arguments will be reflected in the postfwd2 ruleset.</p>
+<p>In case of multiple scores, the highest match will count. The order of the arguments will be reflected in the postfwd3 ruleset.</p>
 
 <p><i>Networking</i></p>
 
-<p>postfwd2 can be run as daemon so that it listens on the network for incoming requests. The following arguments will control it&#39;s behaviour in this case.</p>
+<p>postfwd3 can be run as daemon so that it listens on the network for incoming requests. The following arguments will control it&#39;s behaviour in this case.</p>
 
-<pre><code>        -d, --daemon
-        postfwd2 will run as daemon and listen on the network for incoming
-        queries (default 127.0.0.1:10045). Use --nodaemon to keep postfwd2
+<pre><code>        -d, --daemon, --nodaemon
+        postfwd3 will run as daemon and listen on the network for incoming
+        queries (default 127.0.0.1:10045). Use --nodaemon to keep postfwd3
         running in foreground.
 
         -i, --interface &lt;dev&gt;
-        Bind postfwd2 to the specified interface (default 127.0.0.1).
+        Bind postfwd3 to the specified interface (default 127.0.0.1).
 
         -p, --port &lt;port&gt;
-        postfwd2 listens on the specified port (default tcp/10045).
+        postfwd3 listens on the specified port (default tcp/10045).
 
         --proto &lt;type&gt;
         The protocol type for postfwd&#39;s socket. Currently you may use &#39;tcp&#39; or &#39;unix&#39; here.
-        To use postfwd2 with a unix domain socket, run it as follows:
-            postfwd2 --proto=unix --port=/somewhere/postfwd.socket
+        To use postfwd3 with a unix domain socket, run it as follows:
+            postfwd3 --proto=unix --port=/somewhere/postfwd.socket
 
         -u, --user &lt;name&gt;
         Changes real and effective user to &lt;name&gt;.
 
         -g, --group &lt;name&gt;
         Changes real and effective group to &lt;name&gt;.
+
+        --personality &lt;type&gt;
+        Type of policy server, allows &#39;PreFork&#39; or &#39;Multiplex&#39;.
+        This option overrides --autopersonality.
+
+        --v1
+        set personality to &#39;Multiplex&#39;
+        This option overrides --autopersonality.
+
+        --v2
+        set personality to &#39;PreFork&#39;
+        This option overrides --autopersonality.
+
+        --autopersonality
+        postfwd3 determines the  personality by program name:
+           * &#39;Multiplex&#39; for &#39;postfwd&#39; or &#39;postfwd1&#39;
+           * &#39;PreFork&#39; for &#39;postfwd2&#39;
+        you can disable this by using --noautopersonality or
+        explicitly using --personality, --v1 or --v2
 
         --umask &lt;mask&gt;
         Changes the umask for filepermissions of the master process (pidfile).
@@ -871,7 +1043,7 @@
 
         -R, --chroot &lt;path&gt;
         Chroot the process to the specified path.
-        Please look at http://postfwd.org/postfwd2-chroot.html before use!
+        Please look at http://postfwd.org/postfwd3-chroot.html before use!
 
         --pidfile &lt;path&gt;
         The process id will be saved in the specified file.
@@ -898,7 +1070,7 @@
 
 <p><i>Optional arguments</i></p>
 
-<p>These parameters influence the way postfwd2 is working. Any of them can be combined.</p>
+<p>These parameters influence the way postfwd3 is working. Any of them can be combined.</p>
 
 <pre><code>        -v, --verbose
         Verbose logging displays a lot of useful information but can cause
@@ -934,11 +1106,14 @@
         --cacheid &lt;item&gt;, &lt;item&gt;, ...
         This csv-separated list of request attributes will be used to construct
         the request cache identifier. Use this only, if you know exactly what you
-        are doing. If you, for example, use postfwd2 only for RBL/RHSBL control,
+        are doing. If you, for example, use postfwd3 only for RBL/RHSBL control,
         you may set this to
-                postfwd2 --cache=3600 --cacheid=client_name,client_address
+                postfwd3 --cache=3600 --cacheid=client_name,client_address
         This increases efficiency of caching and improves postfwd&#39;s performance.
         Warning: You should list all items here, which are used in your ruleset!
+
+        --cacheid_md5, --nocacheid_md5    (default=1)
+        The cacheid will be created with a md5sum of the request items.
 
         --cleanup-requests &lt;interval&gt;    (default=600)
         The request cache will be searched for timed out items after this &lt;interval&gt; in
@@ -958,7 +1133,7 @@
         -S, --summary &lt;int&gt;    (default=600)
         Shows some usage statistics (program uptime, request counter, matching rules)
         every &lt;int&gt; seconds. This option is included by the -v switch.
-        This feature uses the alarm signal, so you can force postfwd2 to dump the stats
+        This feature uses the alarm signal, so you can force postfwd3 to dump the stats
         using `kill -ALRM &lt;pid&gt;` (where &lt;pid&gt; is the process id of postfwd).
 
         Example:
@@ -992,7 +1167,7 @@
         postfwd -f /etc/postfwd/postfwd.cf --cmd ../tools/request.sample
 
         -t, --test
-        In test mode postfwd2 always returns &quot;dunno&quot;, but logs according
+        In test mode postfwd3 always returns &quot;dunno&quot;, but logs according
         to it`s ruleset. -v will be set automatically with this option.
 
         -n, --nodns
@@ -1025,9 +1200,12 @@
         --dns_max_mx_lookups     (default=0)
         maximum mx names to lookup up with sender_mx_addrs item. use 0 for no maximum.
 
+        --ipv6_dnsbl            (default=0)
+        enables dnsbl checks for IPv6 addresses
+
         -I, --instantcfg
         The config files, specified by -f will be re-read for every request
-        postfwd2 receives. This enables on-the-fly configuration changes
+        postfwd3 receives. This enables on-the-fly configuration changes
         without restarting. Though files will be read only if necessary
         (which means their access times changed since last read) this might
         significantly increase system load.
@@ -1036,8 +1214,18 @@
         timeout in seconds to parse a single configuration line. if exceeded, the rule will
         be skipped. this is used to prevent problems due to large files or loops.
         
+        --keep_groups    (default=0)
+        With this option set postfwd3 does not clear the group cache on reload. Please
+        note that you have to restart (not reload) postfwd with this option if you change
+        any group based rules.
+
+        --save_groups    (default=none)
+        With this option postfwd saves existing groups to disk and reloads them on program
+        start. This allows persistent rate limits across program restarts or reboots.
+        Please note that postfwd needs read and write access to the specified file.
+
         --keep_rates    (default=0)
-        With this option set postfwd2 does not clear the rate limit counters on reload. Please
+        With this option set postfwd3 does not clear the rate limit counters on reload. Please
         note that you have to restart (not reload) postfwd with this option if you change
         any rate limit rules.
 
@@ -1046,14 +1234,30 @@
         on program start. This allows persistent rate limits across program restarts or reboots.
         Please note that postfwd needs read and write access to the specified file.
 
-        --fast_limit_evaluation    (default=0)
-        Once a ratelimit was set by the ruleset, future requests will be evaluated against it
-        before consulting the ruleset. This mode was the default behaviour until v1.30.
-        With this mode rate limits will be faster, but also eventually set up
-        whitelisting-rules within the ruleset might not work as expected.
-        LIMITATIONS: This option does not allow nested postfwd commands like
-                action=rate(sender/3/60/wait(3))
-        This option doe not work with the strict-rfc5321 rate() functions.</code></pre>
+        -A, --aggregate_addrs, --noaggregate_addrs
+        Pre-computes ip address lists to subnets, so that e.g.:
+
+           client_address=10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24
+                will result in
+           client_address=10.0.0.0/22
+
+        This increases the performance of cidr-matching
+
+        --no_netaddr
+        Do not use functions from module NetAddr::IP, even if it was found
+        on the system. This option implicitly disables --aggregate_addrs.
+
+        --no_netcidr
+        Do not use functions from module Net::CIDR::Lite, even if it was found
+        on the system.
+
+        --cidr_method=s   (default=autodetect)
+        Use method &lt;s&gt; for network checks. Valid arguments are:
+          netcidr       - compare networks using Net::CIDR::Lite Module (v4 and v6 cidr)
+          netaddr       - compare networks using NetAddr::IP Module (v4 and v6 cidr)
+          postfwd       - old but very fast method (v4=cidr, v6=regex)
+        If not specified postfwd tries to load modules in the above order and falls back
+        to &#39;postfwd&#39; if nothing found.</code></pre>
 
 <p><i>Informational arguments</i></p>
 
@@ -1072,7 +1276,7 @@
         Displays the program manual.
 
         -D, --defaults
-        displays complete postfwd2 settings.
+        displays complete postfwd3 settings.
 
         -P, --perfmon
         This option turns of any syslogging and output. It is included
@@ -1100,7 +1304,7 @@
 
 <h2 id="REFRESH">REFRESH</h2>
 
-<p>In daemon mode postfwd2 reloads it&#39;s ruleset after receiving a HUP signal. Please see the description of the &#39;-I&#39; switch to have your configuration refreshed for every request postfwd2 receives.</p>
+<p>In daemon mode postfwd3 reloads it&#39;s ruleset after receiving a HUP signal. Please see the description of the &#39;-I&#39; switch to have your configuration refreshed for every request postfwd3 receives.</p>
 
 <h2 id="EXAMPLES">EXAMPLES</h2>
 
@@ -1260,9 +1464,9 @@
 
 <p><i>Configuration</i></p>
 
-<p>The postfwd2 ruleset can be specified at the commandline (-r option) or be read from files (-f). The order of your arguments will be kept. You should check the parser with the -C | --showconfig switch at the command line before applying a new config. The following call:</p>
+<p>The postfwd3 ruleset can be specified at the commandline (-r option) or be read from files (-f). The order of your arguments will be kept. You should check the parser with the -C | --showconfig switch at the command line before applying a new config. The following call:</p>
 
-<pre><code>        postfwd2 --showconfig \
+<pre><code>        postfwd3 --showconfig \
                 -r &quot;id=TEST; recipient_count=100; action=WARN mail with 100+ recipients&quot; \
                 -f /etc/postfwd.cf \
                 -r &quot;id=DEFAULT; action=dunno&quot;;</code></pre>
@@ -1277,7 +1481,7 @@
 
 <p>Multiple items of the same type will be added to lists (see the <a href="#ITEMS">&quot;ITEMS&quot;</a> section for more info):</p>
 
-<pre><code>        postfwd2 --showconfig \
+<pre><code>        postfwd3 --showconfig \
                 -r &quot;client_address=192.168.1.0/24; client_address=172.16.26.32; action=dunno&quot;</code></pre>
 
 <p>will result in:</p>
@@ -1286,7 +1490,7 @@
 
 <p>Macros are evaluated at configuration stage, which means that</p>
 
-<pre><code>        postfwd2 --showconfig \
+<pre><code>        postfwd3 --showconfig \
                 -r &quot;&amp;&amp;RBLS { rbl=bl.spamcop.net; client_name=^unknown$; };&quot; \
                 -r &quot;id=RBL001; &amp;&amp;RBLS; action=REJECT listed on spamcop and bad rdns&quot;;</code></pre>
 
@@ -1308,7 +1512,7 @@
 
 <p>Lists will be evaluated in the specified order. This allows to place faster expressions at first:</p>
 
-<pre><code>        postfwd2 -vv --cmd -r &quot;id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT&quot; /some/where/request.sample</code></pre>
+<pre><code>        postfwd3 -vv --cmd -r &quot;id=RBL001; rbl=localrbl.local zen.spamhaus.org; action=REJECT&quot; /some/where/request.sample</code></pre>
 
 <p>produces the following</p>
 
@@ -1326,7 +1530,7 @@
 
 <p>The negation operator !!(&lt;value&gt;) has the highest priority and therefore will be evaluated first. Then variable substitutions are performed:</p>
 
-<pre><code>        postfwd2 -vv --cmd -r &quot;id=TEST; action=REJECT; client_name=!!($$heloname)&quot; /some/where/request.sample</code></pre>
+<pre><code>        postfwd3 -vv --cmd -r &quot;id=TEST; action=REJECT; client_name=!!($$heloname)&quot; /some/where/request.sample</code></pre>
 
 <p>will give</p>
 
@@ -1338,43 +1542,81 @@
 
 <p><i>Ruleset evaluation</i></p>
 
-<p>A rule hits when all items (or at least one element of a list for each item) have matched. As soon as one item (or all elements of a list) fails to compare against the request attribute the parser will jump to the next rule in the postfwd2 ruleset.</p>
+<p>A rule hits when all items (or at least one element of a list for each item) have matched. As soon as one item (or all elements of a list) fails to compare against the request attribute the parser will jump to the next rule in the postfwd3 ruleset.</p>
 
 <p>If a rule matches, there are two options:</p>
 
 <p>* Rule returns postfix action (dunno, reject, ...) The parser stops rule processing and returns the action to postfix. Other rules will not be evaluated.</p>
 
-<p>* Rule returns postfwd2 action (jump(), note(), ...) The parser evaluates the given action and continues with the next rule (except for the jump() or quit() actions - please see the <a href="#ACTIONS">&quot;ACTIONS&quot;</a> section for more information). Nothing will be sent to postfix.</p>
+<p>* Rule returns postfwd3 action (jump(), note(), ...) The parser evaluates the given action and continues with the next rule (except for the jump() or quit() actions - please see the <a href="#ACTIONS">&quot;ACTIONS&quot;</a> section for more information). Nothing will be sent to postfix.</p>
 
-<p>If no rule has matched and the end of the ruleset is reached postfwd2 will return dunno without logging anything unless in verbose mode. You may place a last catch-all rule to change that behaviour:</p>
+<p>If no rule has matched and the end of the ruleset is reached postfwd3 will return dunno without logging anything unless in verbose mode. You may place a last catch-all rule to change that behaviour:</p>
 
 <pre><code>        ... &lt;your rules&gt; ...
         id=DEFAULT ;  action=dunno</code></pre>
 
 <p>will log any request that passes the ruleset without having hit a prior rule.</p>
 
+<h2 id="SETTINGS">SETTINGS</h2>
+
+<p>Since version postfwd3 2.00-pre6 the program settings can be retrieved from a file. The information must be parseable by perl eval() function. Comments are allowed:</p>
+
+<pre><code>       # example settings for postfwd3
+       {
+          # enable verbose logging
+          verbose =&gt; 1,
+
+          # user and group for postfwd
+          base =&gt; {
+              group =&gt; &#39;postfw&#39;,
+              user =&gt; &#39;postfw&#39;
+          },
+
+          # server settings
+          server =&gt; {
+              proto =&gt; &#39;tcp&#39;,
+              host =&gt; &#39;127.0.0.1&#39;,
+              port =&gt; &#39;10099&#39;
+          }
+       }</code></pre>
+
+<p>postfwd3 can also export the program settings in that format using Data::Dumper.</p>
+
+<pre><code>        # show configuration
+        postfwd3 --showsettings
+
+        # save configuration to file
+        postfwd3 --savesettings=/path/to/file
+
+        # read configuration from file
+        postfwd3 --loadsettings=/path/to/file</code></pre>
+
+<p>Multiple usage of --loadsettings or the short form -F is allowed. The order will be kept. Commandline arguments override the settings retrieved from a file.</p>
+
+<pre><code>        # load base settings, override with node settings and set port and verbose logging
+        postfwd3 -v -p 10050 -F /path/to/basefile -F /path/to/nodefile</code></pre>
+
+<p>Samples for settings files are distributed in the etc/-folder of the postfwd3 tarball.</p>
+
 <h2 id="DEBUGGING">DEBUGGING</h2>
 
-<p>To debug special steps of the parser the &#39;--debug&#39; switch takes a list of debug classes. Currently the following classes are defined:</p>
+<p>To debug special steps of the parser the &#39;--debug&#39; switch takes a list of debug classes. Since postfwd3 2.00 the list of available debug classes can be retrieved by running:</p>
 
-<pre><code>        all cache config debugdns devel dns getcache getdns
-        getdnspacket rates request setcache setdns
-        parent_cache parent_dns_cache parent_rate_cache parent_request_cache
-        child_cache  child_dns_cache  child_rate_cache  child_request_cache</code></pre>
+<pre><code>        postfwd3 --debugclasses</code></pre>
 
 <h2 id="INTEGRATION">INTEGRATION</h2>
 
 <p><i>Integration via daemon mode</i></p>
 
-<p>The common way to use postfwd2 is to start it as daemon, listening at a specified tcp port. postfwd2 will spawn multiple child processes which communicate with a parent cache. This is the prefered way to use postfwd2 in high volume environments. Start postfwd2 with the following parameters:</p>
+<p>The common way to use postfwd3 is to start it as daemon, listening at a specified tcp port. postfwd3 will spawn multiple child processes which communicate with a parent cache. This is the prefered way to use postfwd3 in high volume environments. Start postfwd3 with the following parameters:</p>
 
-<pre><code>        postfwd2 -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10045 -u nobody -g nobody -S</code></pre>
+<pre><code>        postfwd3 -d -f /etc/postfwd.cf -i 127.0.0.1 -p 10045 -u nobody -g nobody -S</code></pre>
 
 <p>For efficient caching you should check if you can use the options --cacheid, --cache-rdomain-only, --cache-no-sender and --cache-no-size.</p>
 
 <p>Now check your syslogs (default facility &quot;mail&quot;) for a line like:</p>
 
-<pre><code>        Aug  9 23:00:24 mail postfwd[5158]: postfwd2 n.nn ready for input</code></pre>
+<pre><code>        Aug  9 23:00:24 mail postfwd[5158]: postfwd3 n.nn ready for input</code></pre>
 
 <p>and use `netstat -an|grep 10045` to check for something like</p>
 
@@ -1391,7 +1633,7 @@
 
 <pre><code>        Aug  9 23:01:24 mail postfwd[5158]: rule=22, id=ML_POSTFIX, client=english-breakfast.cloud9.net[168.100.1.7], sender=owner-postfix-users@postfix.tld, recipient=someone@domain.local, helo=english-breakfast.cloud9.net, proto=ESMTP, state=RCPT, action=dunno</code></pre>
 
-<p>If you want to check for size or rcpt_count items you must integrate postfwd2 in smtp_data_restrictions or smtpd_end_of_data_restrictions. Of course you can also specify a restriction class and use it in your access tables. First create a file /etc/postfix/policy containing:</p>
+<p>If you want to check for size or rcpt_count items you must integrate postfwd3 in smtp_data_restrictions or smtpd_end_of_data_restrictions. Of course you can also specify a restriction class and use it in your access tables. First create a file /etc/postfix/policy containing:</p>
 
 <pre><code>        domain1.local           postfwdcheck
         domain2.local           postfwdcheck
@@ -1420,11 +1662,11 @@
 
 <p>First you have to create a ruleset (see Configuration section). Check it with</p>
 
-<pre><code>        postfwd2 -f /etc/postfwd.cf -C</code></pre>
+<pre><code>        postfwd3 -f /etc/postfwd.cf -C</code></pre>
 
 <p>There is an example policy request distributed with postfwd, called &#39;request.sample&#39;. Simply change it to meet your requirements and use</p>
 
-<pre><code>        postfwd2 --cmd -f /etc/postfwd.cf request.sample</code></pre>
+<pre><code>        postfwd3 --cmd -f /etc/postfwd.cf request.sample</code></pre>
 
 <p>You should get an answer like</p>
 
@@ -1434,7 +1676,7 @@
 
 <pre><code>        nc 127.0.0.1 10045 &lt;request.sample</code></pre>
 
-<p>to send a request to postfwd. If you receive nothing, make sure that postfwd2 is running and listening on the specified network settings.</p>
+<p>to send a request to postfwd. If you receive nothing, make sure that postfwd3 is running and listening on the specified network settings.</p>
 
 <h2 id="PERFORMANCE">PERFORMANCE</h2>
 
@@ -1454,7 +1696,7 @@
 
 <h1 id="LICENSE">LICENSE</h1>
 
-<p>postfwd2 is free software and released under BSD license, which basically means that you can do what you want as long as you keep the copyright notice:</p>
+<p>postfwd3 is free software and released under BSD license, which basically means that you can do what you want as long as you keep the copyright notice:</p>
 
 <p>Copyright (c) 2009, Jan Peter Kessler All rights reserved.</p>
 
