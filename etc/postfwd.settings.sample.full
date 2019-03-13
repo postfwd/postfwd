@@ -1,7 +1,7 @@
 #
 # postfwd settings file
 #
-# Version: postfwd3 2.00-pre7 (Perl 5.022001, Data::Dumper 2.158)
+# Version: postfwd3 2.00 (Perl 5.022001, Data::Dumper 2.158)
 # Command: postfwd3 --user=postfw --group=postfw --stdout --nodaemon --savesettings=postfwd.settings.sample.full.temp
 #
 {
