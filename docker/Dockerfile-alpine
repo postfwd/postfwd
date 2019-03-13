@@ -44,6 +44,8 @@ ENV HOME=/var/lib/postfwd
 # user and group for execution
 ENV USER=postfw
 ENV GROUP=postfw
+ENV UID=110
+ENV GID=110
 
 # install stuff
 RUN apk update && apk add \
@@ -56,8 +58,8 @@ RUN apk update && apk add \
 	perl-io-multiplex
 	
 # create stuff
-RUN addgroup -S -g 110 ${GROUP}
-RUN adduser -S -u 110 -D -H -G ${GROUP} -h ${HOME} -s /bin/false ${USER}
+RUN addgroup -S -g ${GID} ${GROUP}
+RUN adduser -S -u ${UID} -D -H -G ${GROUP} -h ${HOME} -s /bin/false ${USER}
 RUN mkdir -p ${ETC} ${HOME}
 
 # copy stuff
@@ -66,8 +68,8 @@ COPY ./sbin/    ${TARGET}/sbin/
 COPY ./docker/postfwd-docker.sh /usr/bin/postfwd-docker
 
 # set ownership & permissions
-RUN chown -R root:${GROUP} ${ETC} && chmod 0750 ${ETC} && chmod 0640 ${ETC}/*
-RUN chown -R ${USER}:${GROUP} ${HOME} && chmod -R 0700 ${HOME}
+RUN chown -R root:${GID} ${ETC} && chmod 0750 ${ETC} && chmod 0640 ${ETC}/*
+RUN chown -R ${UID}:${GID} ${HOME} && chmod -R 0700 ${HOME}
 RUN chown root:root ${TARGET}/sbin/postfwd* /usr/bin/postfwd-docker && chmod 0755 ${TARGET}/sbin/postfwd* /usr/bin/postfwd-docker
 
 # open port
