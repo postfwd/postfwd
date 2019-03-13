@@ -56,8 +56,8 @@ RUN apk update && apk add \
 	perl-io-multiplex
 	
 # create stuff
-RUN addgroup -S ${GROUP}
-RUN adduser -S -D -H -G ${GROUP} -h ${HOME} -s /bin/false ${USER}
+RUN addgroup -S -g 110 ${GROUP}
+RUN adduser -S -u 110 -D -H -G ${GROUP} -h ${HOME} -s /bin/false ${USER}
 RUN mkdir -p ${ETC} ${HOME}
 
 # copy stuff

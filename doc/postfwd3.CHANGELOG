@@ -1,56 +1,6 @@
-postfwd3 2.00-pre7
-==================
-- feature: added postfwd version information to --showsettings output
-- feature: added --savesettings=<s>, more information in manual
-- code:    default for --max_group_items argument changed to 999999
-- code:    saved rate limits can now be exchanged between Multiplex and PreFork
-
-postfwd3 2.00-pre6
-==================
-- feature: postfwd program settings can now be saved to and read from
-           a configuration file. See --showsettings and --loadsettings=<s>
-	   and the manual section "SETTINGS" for more information.
-	   Samples can be found in the "etc/"-subfolder of the tarball.
-
-postfwd3 2.00-pre5
-==================
-- docs:    updated dynamic groups description
-- bugfix:  --save_rates and --save_groups did not work in Multiplex mode
-
-postfwd3 2.00-pre4
-==================
-- code:    performance and memory tuning for rate-limit code
-- code:	   postfwd3 optionally uses Net::CIDR::Lite for cidr-compare
-           if available. It seems a bit faster than NetAddr::IP and
-	   allows better IPv6 matching than the old method. Please look
-	   into the manual for the following options and defaults:
-		--cidr_method=<s>, --no_netcidr and --no_netaddr
-
-postfwd3 2.00-pre3
-==================
-- bugfix:  rate limits did not work correctly in Multiplex mode
-- feature: argument --debugclasses shows list of available debug classes
-
-postfwd3 2.00-pre2
-==================
-- feature: A rule can have multiple postfwd actions now.
-	   Example:
-		# if client is found on list.dnswl.org,
-		#   1. send a note
-		#   2. add it's ip to group %%WHITELISTED
-		#   3. permit the request
-		id=ADDR01
-		        rbl=list.dnswl.org
-		        action=note(adding $$client_address to WHITELIST)
-		        action=groupadd(%%WHITELISTED/client_address)
-		        action=PERMIT_AUTH_DESTINATION
-- bugfix:  --showconfig did not show the aggregated list of networks
-           when --aggregate_addrs was set
-- bugfix:  fix for NetAddr::IP->within crashing on unsafe values
-
-postfwd3 2.00-pre1
-==================
-- code:    First public pre-release Version of postfwd3.
+postfwd3 2.00
+=============
+- code:    First public release Version of postfwd3.
 	   This release will obsolete postfwd1 and postfwd2 when
 	   it leaves pre-release stage.
 
@@ -71,11 +21,29 @@ postfwd3 2.00-pre1
 - feature: arguments --load_groups and --keep_groups allows to save
 	   the contents of the dynamic group cache
 
+- feature: Multiple actions per rule:
+	   A rule can have multiple postfwd actions now.
+	   Example:
+		# if client is found on list.dnswl.org,
+		#   1. send a note
+		#   2. add it's ip to group %%WHITELISTED
+		#   3. permit the request
+		id=ADDR01
+		        rbl=list.dnswl.org
+		        action=note(adding $$client_address to WHITELIST)
+		        action=groupadd(%%WHITELISTED/client_address)
+		        action=PERMIT_AUTH_DESTINATION
+
 - code:    IPv6 support:
 	   postfwd3 optionally uses NetAddr:IP for cidr-compare functions
 	   if available, which allows better IPv6 matching. Please note
 	   that former versions used regex-matching for v6 addresses and
 	   adapt your rulesets if required.
+- code:	   postfwd3 optionally uses Net::CIDR::Lite for cidr-compare
+           if available. It seems a bit faster than NetAddr::IP and
+	   allows better IPv6 matching than the old method. Please look
+	   into the manual for the following options and defaults:
+		--cidr_method=<s>, --no_netcidr and --no_netaddr
 - code:    IPv6 Support (requires NetAddr::IP module) for
 	   dnsbl lookups (fixed 'reverse_address' item)
 	   Use the --ipv6_dnsbl switch to enable this feature
@@ -85,6 +53,8 @@ postfwd3 2.00-pre1
 	   Script: postfwd-docker: shortcut to run postfwd commands in
 	   a container (found in docker/postfwd-docker.sh in the tarball)
 	   Please visit https://postfwd.org/docker for more information.
+- code:    standard docker image is now based on alpine linux
+           (a debian based Dockerfile can be found at the docker/ subfolder)
 
 - feature: Performance improvement:
 	   lists of ip and network objects will now be aggregated
@@ -92,14 +62,22 @@ postfwd3 2.00-pre1
 	   This can be disabled by the --noaggregate_addrs switch
 - feature: argument --cacheid_md5, --nocacheid_md5 for short
 	   automatic cacheids (optionally requires Digest::MD5)
-- code:    Performance and memory tuning (mainly hash -> hashref).
+- code:    performance and memory tuning for rate-limit code
+- code:    Performance and memory tuning for ruleset (mainly hash -> hashref).
 	   **********************************************************
 	   ** This breaks existing plugins! The <request> argument **
            ** is now called as hash reference instead of a hash!   **
            ** Please look at the manual for more info.             **
 	   **********************************************************
 
-- bugfix:  several small fixes (logging, argument-combinations, ...)
+- feature: Settings:
+	   postfwd program settings can now be saved to and read from
+           a configuration file. See --showsettings and --loadsettings=<s>
+	   and the manual section "SETTINGS" for more information.
+	   Samples can be found in the "etc/"-subfolder of the tarball.
 
-- ToDo:	   review man-page and examples
+- code:    default for --max_group_items argument changed to 999999
+- code:    saved rate limits can now be exchanged between Multiplex and PreFork
+- feature: argument --debugclasses shows list of available debug classes
+- bugfix:  several small fixes (logging, argument-combinations, ...)
 
