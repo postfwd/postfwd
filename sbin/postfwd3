@@ -43,7 +43,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.00";
+our $VERSION	= "2.01-devel1";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -5674,6 +5674,12 @@ Some of these proposals might not match your environment. Please check your requ
 
 See L<http://www.postfix.org/SMTPD_POLICY_README.html> for a description
 of how Postfix policy servers work.
+
+
+=head1 DONATIONS
+
+Development, testing and hosting of postfwd consumes time and ressources. It is and will stay free software
+(see "LICENSE" below). If you want to support this, consider a donation at https://www.paypal.me/postfwd.
 
 
 =head1 LICENSE

@@ -1770,6 +1770,12 @@ DESCRIPTION
     See <http://www.postfix.org/SMTPD_POLICY_README.html> for a description
     of how Postfix policy servers work.
 
+DONATIONS
+    Development, testing and hosting of postfwd consumes time and
+    ressources. It is and will stay free software (see "LICENSE" below). If
+    you want to support this, consider a donation at
+    https://www.paypal.me/postfwd.
+
 LICENSE
     postfwd3 is free software and released under BSD license, which
     basically means that you can do what you want as long as you keep the
