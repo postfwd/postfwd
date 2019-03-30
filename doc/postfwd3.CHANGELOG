@@ -1,3 +1,8 @@
+postfwd3 2.01
+=============
+- code:    Workaround for Net::Server::Multiplex failure on CentOS 6
+- code:    Documentation updates
+
 postfwd3 2.00
 =============
 - code:    First public release Version of postfwd3.
