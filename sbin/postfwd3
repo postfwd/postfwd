@@ -38,12 +38,15 @@ BEGIN {
 	$DIGESTMD5 = ($@) ? 0 : (Digest::MD5->VERSION || 'available');
 	# use Storable if available
 	Storable->import( qw(nstore retrieve) ) if $STORABLE;
+	# This check prevents an error on "CentOS release 6"
+	eval { require Net::Server::Multiplex };
+	die "\nERROR: Required perl module 'Net::Server::Multiplex' not found!\n\n" if ($@);
 };
 
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.01-devel1";
+our $VERSION	= "2.01";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
