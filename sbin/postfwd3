@@ -46,7 +46,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.01";
+our $VERSION	= "2.02";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -2250,7 +2250,7 @@ sub postfwd_items {
 		my($mcmd,$mfrom,$mto,$msubject,$mbody) = split '::', $myarg, 5;
 		my($msg) = "From: $mfrom\nTo: $mto\nSubject: $msubject\n\n$mbody\n";
 		my($sm) = undef;
-		if ( (-x $mcmd) and open ($sm, '| ', "$mcmd -i -f $mfrom $mto") ) {
+		if ( (-x $mcmd) and open ($sm, '|-', "$mcmd -i -f $mfrom $mto") ) {
 			if ( print $sm "$msg" ) {
 				log_info ("[SENDMAIL] ".$myline.", $mcmd from=<$mfrom>, to=<$mto>, subject=<$msubject>");
 			} else {
