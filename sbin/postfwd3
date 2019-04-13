@@ -1616,7 +1616,7 @@ sub rbl_prepare_lookups {
     my(@lookups) = ();
 
     # skip these
-    return @lookups if (($myval eq '') or ($myval eq "unknown")) or ($myval =~ /:/);
+    return @lookups if not(defined $myval) or ($myval eq '') or ($myval eq "unknown") or ($myval =~ /:/);
 
     # removes duplicate lookups, but keeps the specified order
     @myrbls = uniq(@myrbls);
@@ -1678,7 +1678,7 @@ sub rbl_check {
     my($now) = time();
 
     # skip these
-    return $myresult if (($myval eq '') or ($myval eq "unknown")) or ($myval =~ /:/);
+    return $myresult if not(defined $myval) or ($myval eq '') or ($myval eq "unknown") or ($myval =~ /:/);
 
     # separate rbl-name and answer
     ($myrbl, $myrblans, $myrbltime) = split '/', $myrbl; 
