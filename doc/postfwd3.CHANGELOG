@@ -1,3 +1,8 @@
+postfwd3 2.02
+=============
+- bugfix:  Corrected bug in sendmail() function
+- bugfix:  Fixed log warning in ipv6 rbl code (git issue #22)
+
 postfwd3 2.01
 =============
 - code:    Workaround for Net::Server::Multiplex failure on CentOS 6

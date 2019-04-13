@@ -46,7 +46,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.01";
+our $VERSION	= "2.02";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -1616,7 +1616,7 @@ sub rbl_prepare_lookups {
     my(@lookups) = ();
 
     # skip these
-    return @lookups if (($myval eq '') or ($myval eq "unknown")) or ($myval =~ /:/);
+    return @lookups if not(defined $myval) or ($myval eq '') or ($myval eq "unknown") or ($myval =~ /:/);
 
     # removes duplicate lookups, but keeps the specified order
     @myrbls = uniq(@myrbls);
@@ -1678,7 +1678,7 @@ sub rbl_check {
     my($now) = time();
 
     # skip these
-    return $myresult if (($myval eq '') or ($myval eq "unknown")) or ($myval =~ /:/);
+    return $myresult if not(defined $myval) or ($myval eq '') or ($myval eq "unknown") or ($myval =~ /:/);
 
     # separate rbl-name and answer
     ($myrbl, $myrblans, $myrbltime) = split '/', $myrbl; 
@@ -2250,7 +2250,7 @@ sub postfwd_items {
 		my($mcmd,$mfrom,$mto,$msubject,$mbody) = split '::', $myarg, 5;
 		my($msg) = "From: $mfrom\nTo: $mto\nSubject: $msubject\n\n$mbody\n";
 		my($sm) = undef;
-		if ( (-x $mcmd) and open ($sm, '| ', "$mcmd -i -f $mfrom $mto") ) {
+		if ( (-x $mcmd) and open ($sm, '|-', "$mcmd -i -f $mfrom $mto") ) {
 			if ( print $sm "$msg" ) {
 				log_info ("[SENDMAIL] ".$myline.", $mcmd from=<$mfrom>, to=<$mto>, subject=<$msubject>");
 			} else {
