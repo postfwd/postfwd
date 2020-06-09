@@ -12,7 +12,7 @@ PFWCMD=/usr/local/postfwd/sbin/postfwd
 # rulesetconfig file
 PFWCFG=/etc/postfix/postfwd.cf
 # pidfile
-PFWPID=/var/tmp/postfwd.pid
+PFWPID=/var/tmp/postfwd3-master.pid
 
 # daemon settings
 PFWUSER=nobody
@@ -40,7 +40,7 @@ case "$1" in
 	stop*)		${PFWCMD} --interface=${PFWINET} --port=${PFWPORT} --pidfile=${PFWPID} --kill;
 			;;
 
-	reload*)	${PFWCMD} --interface=${PFWINET} --port=${PFWPORT} --pidfile=${PFWPID} -- reload;
+	reload*)	${PFWCMD} --interface=${PFWINET} --port=${PFWPORT} --pidfile=${PFWPID} --reload;
 			;;
 
 	restart*)	$0 stop;
