@@ -46,7 +46,7 @@ BEGIN {
 
 # basics
 our $NAME	= "postfwd3";
-our $VERSION	= "2.02";
+our $VERSION	= "2.03";
 our $DEFAULT	= 'DUNNO';
 
 # change this, to match your POD requirements
@@ -3287,6 +3287,18 @@ sub mux_input() {
 			$client->print((join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, list_stats())."\n");
 		} elsif ($request =~ m/$postfwd_patterns{dumpcache}/) {
 			$client->print((join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, dump_cache())."\n");
+		} elsif ($request =~ m/$postfwd_patterns{delrate}/) {
+			my $del = $1; $del =~ s/^[%]?//;
+			my $action;
+			if (defined $Rate_Cache{$del}) {
+				delete $Rate_Cache{$del};
+				log_info ("[DELRATEITEM] rate cache item '$del' removed");
+				$action = "rate cache item '$del' removed";
+			} else {
+				log_info ("[DELRATEITEM] rate cache removal of '$del' failed: item not found");
+				$action = "rate cache removal of '$del' failed: item not found";
+			};
+			$client->print((join $postfwd_settings{sepreq}.$postfwd_settings{seplst}, $action)."\n");
 		# process input
 		} else {
                 	process_input (undef, $client, $request, \%attr);
@@ -3660,9 +3672,10 @@ if (defined $options{'dumpcache'}) {
 
 # remove cache item
 if (defined $options{'delcache'} or defined $options{'delrate'}) {
+	my $dctarget = (defined $postfwd_settings{daemons}{cache}) ? 'cache' : 'server';
 	print "\n".( join "\n",
 		split $postfwd_settings{sepreq}.$postfwd_settings{seplst},
-			(&{$postfwd_settings{cache}{check}} ('cache', (($options{'delcache'}) ? 'CMD=RC '.$options{'delcache'} : 'CMD=RR '.$options{'delrate'})) || '<undef>')
+			(&{$postfwd_settings{$dctarget}{check}} ($dctarget, (($options{'delcache'}) ? 'CMD=RC '.$options{'delcache'} : 'CMD=RR '.$options{'delrate'})) || '<undef>')
 	)."\n\n";
 	exit;
 };
