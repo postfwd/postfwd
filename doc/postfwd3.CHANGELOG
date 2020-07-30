@@ -1,3 +1,8 @@
+postfwd3 2.03
+=============
+- bugfix:  Corrected bug with --delrate command in v1 mode
+           (Patch by Andreas Jobs, thanks)
+
 postfwd3 2.02
 =============
 - bugfix:  Corrected bug in sendmail() function
