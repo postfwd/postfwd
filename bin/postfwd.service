@@ -1,0 +1,14 @@
+[Unit]
+Description=Postfwd - Postfix firewall
+After=network.target
+
+[Service]
+ExecStart=/usr/local/postfwd/bin/postfwd-script.sh start
+ExecReload=/usr/local/postfwd/bin/postfwd-script.sh reload
+ExecStop=/usr/local/postfwd/bin/postfwd-script.sh stop
+Type=forking
+PIDFile=/var/tmp/postfwd3-master.pid
+
+[Install]
+WantedBy=default.target
+
